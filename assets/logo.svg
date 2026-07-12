@@ -1,0 +1,28 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="brand" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4F46E5"/>
+      <stop offset="1" stop-color="#14B8A6"/>
+    </linearGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="18" flood-color="#0B1120" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- App tile -->
+  <rect x="32" y="32" width="448" height="448" rx="108" fill="url(#brand)" filter="url(#soft)"/>
+  <!-- Subtle inner highlight -->
+  <rect x="32" y="32" width="448" height="224" rx="108" fill="white" opacity="0.07"/>
+
+  <!-- Soundwave forming a subtle "S" rhythm: short-tall-taller-mid-tall -->
+  <g fill="white">
+    <rect x="128" y="216" width="34" height="120" rx="17"/>
+    <rect x="188" y="164" width="34" height="184" rx="17"/>
+    <rect x="248" y="128" width="34" height="256" rx="17" opacity="0.95"/>
+    <rect x="308" y="188" width="34" height="136" rx="17"/>
+    <rect x="368" y="152" width="34" height="152" rx="17"/>
+  </g>
+
+  <!-- Note dot: the "pen" of the note taker -->
+  <circle cx="265" cy="404" r="18" fill="white" opacity="0.9"/>
+</svg>
