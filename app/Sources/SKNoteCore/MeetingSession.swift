@@ -33,7 +33,6 @@ public final class MeetingSession {
     private var assembler = TranscriptAssembler()
     private var recorder: RecordingWriter?
     private var pumpTasks: [Task<Void, Never>] = []
-    private var tickTask: Task<Void, Never>?
     private let clock: SessionClock
 
     public init(title: String, store: MeetingStore, sources: [any AudioSource],
@@ -88,12 +87,6 @@ public final class MeetingSession {
                 })
             }
 
-            tickTask = Task { [weak self] in
-                while !Task.isCancelled {
-                    try? await Task.sleep(for: .seconds(1))
-                    await self?.tick()
-                }
-            }
             phase = .recording
             meeting.state = .recording
             try await store.save(meeting)
@@ -106,7 +99,6 @@ public final class MeetingSession {
     public func finish() async {
         guard phase == .recording || phase == .preparing else { return }
         phase = .finishing
-        tickTask?.cancel()
 
         await teardownSources()
         for service in services.values {
@@ -142,6 +134,8 @@ public final class MeetingSession {
     // MARK: - Pipeline plumbing
 
     private func pump(_ chunk: AudioChunk, into service: TranscriptionService) async {
+        // Elapsed time comes from the audio itself (works for live and file sources alike).
+        elapsed = max(elapsed, chunk.endTime)
         await service.feed(chunk)
         if chunk.channel == .system {
             await diarizer.feed(chunk)
@@ -181,10 +175,6 @@ public final class MeetingSession {
             try? await store.save(snapshot, for: id)
             try? await store.save(meeting)
         }
-    }
-
-    private func tick() {
-        elapsed = clock.elapsed
     }
 
     private func teardownSources() async {

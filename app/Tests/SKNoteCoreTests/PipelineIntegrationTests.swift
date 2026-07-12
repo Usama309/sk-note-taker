@@ -18,6 +18,12 @@ struct PipelineIntegrationTests {
     }
 
     private func tempDataDir() -> URL {
+        // SKNOTE_PIPELINE_OUT lets cross-component tests (MCP/web) consume real pipeline output.
+        if let out = ProcessInfo.processInfo.environment["SKNOTE_PIPELINE_OUT"] {
+            let url = URL(fileURLWithPath: out, isDirectory: true)
+            try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+            return url
+        }
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("sknote-integration-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
@@ -95,6 +101,9 @@ struct PipelineIntegrationTests {
         let rendered = try #require(try await store.transcript(for: meeting.id))
             .rendered(with: updated)
         #expect(rendered.contains("Kainat:"), "rename should reflect in rendered transcript")
+
+        // --- Duration derived from the audio itself (~22 s fixture) ---
+        #expect(meeting.durationSec > 15, "durationSec should reflect audio length, got \(meeting.durationSec)")
 
         // --- Recording exists and is playable length ---
         #expect(meeting.hasRecording)

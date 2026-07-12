@@ -1,0 +1,41 @@
+# Changelog
+
+## [1.0.0] — 2026-07-12
+
+First release — built autonomously end-to-end (research → planning → implementation → tests).
+
+### Mac app (`app/`)
+- Botless dual-stream capture: microphone (AVAudioEngine + echo cancellation) and
+  system audio (Core Audio process tap, no screen-recording permission needed).
+- Real-time on-device transcription (Apple SpeechAnalyzer/SpeechTranscriber, macOS 26).
+- **Speaker diarization** (FluidAudio CoreML, on-device): live transcript labeled
+  Speaker 1..N — the headline upgrade over Granola's Me/Them.
+- Per-meeting speaker naming (Speaker 2 → "Kainat") — instant, metadata-only; names flow
+  into transcripts, summaries, chat, MCP, and web.
+- Full-meeting audio recording (m4a) with in-app playback (Granola discards audio).
+- Granola-style notepad: rough notes during the meeting become anchors for the AI summary.
+- AI via **Claude Code CLI** (subscription, no API key): intelligent summary (TL;DR,
+  action items with owners, decisions, things to remember), chat-with-meeting Q&A,
+  auto-categorization into client/project folders.
+- Folder organization (clients → projects) with badge counts and manual override.
+- SwiftUI three-pane UI, brand gradient (indigo→teal), custom logo + app icon,
+  signed .app bundle build script.
+
+### MCP server (`mcp/`)
+- TypeScript stdio server: `list_meetings`, `get_meeting`, `get_transcript`,
+  `get_summary`, `search_meetings`, `list_folders`.
+
+### Web view (`web/`)
+- Node/Express app on port 4517 (LAN-accessible): browse folders/meetings, read
+  summaries/transcripts/notes, play recordings, rename speakers, move meetings.
+
+### Tests
+- 12 unit tests (stores, assembler merge, front-matter codec).
+- Pipeline integration test over synthesized multi-voice audio (TTS): ASR + diarization
+  (2 speakers) + attribution + rename + recording.
+- Live Claude CLI tests: summary, speaker Q&A, categorization.
+- MCP + web endpoint test suites.
+
+### Fixed during development
+- Chunk-boundary audio corruption from per-chunk AVAudioConverter creation (mangled ASR);
+  switched to persistent converters.
