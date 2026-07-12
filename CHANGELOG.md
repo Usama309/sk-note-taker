@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.0.1] — 2026-07-12
+
+### Fixed — microphone capture (critical)
+- **Mic produced pure silence.** `setVoiceProcessingEnabled(true)` requires an active output
+  render chain to deliver input buffers; a capture-only app has none, so the mic delivered
+  zero audio (Speaker 1 never appeared). Now captures the raw input node. Verified live: a
+  real meeting produced 20 mic segments + 20 system segments.
+- Mic **preflight permission request** with a clear error on denial (no more silent recording).
+
+### Added
+- First-run **permission onboarding** walkthrough (mic + system audio, live status).
+- **Settings → Permissions** panel: status + Request / Open Settings, plus the `tccutil reset`
+  hint for the exact bundle id.
+- **Live per-channel input level meters** and a **"no microphone audio detected" banner** in
+  the recording view.
+- `sknote-audiocheck` diagnostic CLI (`mic` / `system` / `both`) and a `Makefile`.
+- New tests: audio RMS on signal vs silence, resampler energy/downsampling, permission model,
+  level-meter math (68 automated tests total, up from 58).
+
 ## [1.0.0] — 2026-07-12
 
 First release — built autonomously end-to-end (research → planning → implementation → tests).

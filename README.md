@@ -59,10 +59,41 @@ open "dist/SK Note Taker.app"
 
 ### First run — permissions
 
-1. Click **Start Meeting** once: macOS asks for **Microphone** → allow.
-2. The first system-audio capture asks for **System Audio Recording** → allow
-   (System Settings → Privacy & Security → Screen & System Audio Recording → System Audio).
-3. On-device models download automatically on first meeting (speech + diarization, one time).
+On first launch a short **onboarding walkthrough** asks for the two grants and shows live
+status for each:
+
+1. **Microphone** — transcribes your voice (Speaker 1). Click **Allow** on the macOS prompt.
+2. **System Audio Recording** — transcribes everyone else. Grant under System Settings →
+   Privacy & Security → Screen & System Audio Recording → System Audio.
+3. On-device models download automatically on the first meeting (speech + diarization, once).
+
+You can re-check or re-request either permission any time in **Settings → Permissions**. While
+recording, the header shows a **live level meter for each channel** (mic and system) so you can
+confirm audio is actually arriving, and a banner warns you if the mic stays silent.
+
+### Troubleshooting: microphone not working / no prompt appeared
+
+If you never saw the mic prompt or your voice isn't transcribed:
+
+1. **Settings → Permissions → Microphone** shows the current state; use **Request** or **Open
+   Settings** there.
+2. Reset the grant so the prompt fires fresh:
+   ```bash
+   tccutil reset Microphone com.saqibkamran.sknotetaker
+   ```
+   then start a meeting again.
+3. Confirm the mic hardware works with the bundled diagnostic (run from Terminal, which has its
+   own mic permission), speaking or playing audio during the window:
+   ```bash
+   cd app && swift run sknote-audiocheck mic 6
+   # ✅ SIGNAL PRESENT on mic.   → mic hardware + capture path OK
+   # ❌ SILENT                   → mic is muted or not permitted
+   ```
+   `sknote-audiocheck both 8` checks mic **and** system audio at once.
+
+> Note: SK Note Taker intentionally does **not** use Apple voice processing on the mic — that
+> mode only delivers audio when an output render chain is active, which a capture-only app has
+> none of, and it silently produced zero audio. We capture the raw mic instead.
 
 ### Using it
 

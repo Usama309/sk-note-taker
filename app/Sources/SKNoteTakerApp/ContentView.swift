@@ -29,6 +29,9 @@ struct ContentView: View {
         } message: {
             Text(app.errorMessage ?? "")
         }
+        .sheet(isPresented: $app.showOnboarding) {
+            OnboardingView()
+        }
     }
 }
 

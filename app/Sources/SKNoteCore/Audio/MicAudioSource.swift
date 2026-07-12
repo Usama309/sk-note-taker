@@ -2,19 +2,33 @@ import Foundation
 import AVFoundation
 import Synchronization
 
-/// Live microphone capture via AVAudioEngine with Apple voice processing (echo cancellation +
-/// noise suppression) so remote voices playing through the speakers don't bleed into this
-/// stream. Emits 16 kHz mono chunks stamped against the shared session clock.
+/// Live microphone capture via AVAudioEngine. Emits 16 kHz mono chunks stamped against the
+/// shared session clock.
+///
+/// NOTE on voice processing: `setVoiceProcessingEnabled(true)` turns the input node into a
+/// duplex VPIO unit that only delivers input buffers while the engine's OUTPUT render chain
+/// is also active. We capture input only (no output graph), so enabling it yields pure
+/// silence — the original v1 bug. We therefore default to the raw input tap. Echo isn't a
+/// problem in practice: the system-audio tap is a clean digital signal captured separately,
+/// and headphone users have no acoustic bleed. `voiceProcessing: true` is kept for
+/// experimentation but wires up a silent output tap so VPIO actually renders.
 public final class MicAudioSource: AudioSource, @unchecked Sendable {
     public let channel: AudioChannel = .mic
 
     private let engine = AVAudioEngine()
     private let clock: SessionClock
+    private let voiceProcessing: Bool
     private let state = Mutex<AsyncStream<AudioChunk>.Continuation?>(nil)
+    /// Last chunk RMS, for a live input-level meter in the UI.
+    private let lastLevel = Mutex<Float>(0)
 
-    public init(clock: SessionClock) {
+    public init(clock: SessionClock, voiceProcessing: Bool = false) {
         self.clock = clock
+        self.voiceProcessing = voiceProcessing
     }
+
+    /// 0…1 RMS level of the most recent mic chunk (for a UI meter).
+    public var inputLevel: Float { lastLevel.withLock { $0 } }
 
     public static func permissionGranted() async -> Bool {
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
@@ -33,15 +47,23 @@ public final class MicAudioSource: AudioSource, @unchecked Sendable {
         state.withLock { $0 = continuation }
 
         let input = engine.inputNode
-        // AEC/noise suppression/AGC; must be set while the engine is stopped. Non-fatal if
-        // unsupported on the current device — the raw signal still works.
-        do { try input.setVoiceProcessingEnabled(true) } catch {
-            FileHandle.standardError.write(Data("SKNoteTaker: voice processing unavailable: \(error)\n".utf8))
+        if voiceProcessing {
+            // Only safe with an active output render chain (see type doc). Wire the input
+            // through the main mixer to a silent output so VPIO actually renders.
+            do {
+                try input.setVoiceProcessingEnabled(true)
+                let mixer = engine.mainMixerNode
+                engine.connect(input, to: mixer, format: input.outputFormat(forBus: 0))
+                engine.mainMixerNode.outputVolume = 0   // don't echo the mic to speakers
+            } catch {
+                FileHandle.standardError.write(
+                    Data("SKNoteTaker: voice processing unavailable: \(error)\n".utf8))
+            }
         }
 
         let format = input.outputFormat(forBus: 0)
-        guard format.sampleRate > 0 else {
-            throw AudioSourceError.deviceUnavailable("no microphone input")
+        guard format.sampleRate > 0, format.channelCount > 0 else {
+            throw AudioSourceError.deviceUnavailable("no microphone input (format \(format))")
         }
 
         let resampler = AudioResampler()
@@ -49,6 +71,8 @@ public final class MicAudioSource: AudioSource, @unchecked Sendable {
         input.installTap(onBus: 0, bufferSize: 4096, format: format) { [self] buffer, _ in
             let samples = resampler.resample(buffer)
             guard !samples.isEmpty else { return }
+            let rms = (samples.reduce(Float(0)) { $0 + $1 * $1 } / Float(samples.count)).squareRoot()
+            lastLevel.withLock { $0 = rms }
             let duration = Double(samples.count) / AudioResampler.targetRate
             let start = clock.advance(channel: .mic, by: duration)
             state.withLock { $0 }?.yield(

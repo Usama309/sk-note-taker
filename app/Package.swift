@@ -24,6 +24,10 @@ let package = Package(
             name: "SKNoteTakerApp",
             dependencies: ["SKNoteCore"]
         ),
+        .executableTarget(
+            name: "sknote-audiocheck",
+            dependencies: ["SKNoteCore"]
+        ),
         .testTarget(
             name: "SKNoteCoreTests",
             dependencies: ["SKNoteCore"],

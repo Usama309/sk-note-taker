@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import SKNoteCore
 
 @main
@@ -39,6 +40,11 @@ final class AppState {
     var settings = AppSettings()
     var claudeAvailable = true
 
+    // Permission state (refreshed on launch, after grants, and when the window activates).
+    var micStatus: Permission.Status = .notDetermined
+    var systemAudioStatus: Permission.Status = .notDetermined
+    var showOnboarding = false
+
     // Transient UI state
     var errorMessage: String?
     var busy: Set<String> = []       // feature keys currently running (e.g. "summary")
@@ -47,8 +53,35 @@ final class AppState {
         settings = await store.loadSettings()
         ai = ClaudeCLIService(model: settings.claudeModel)
         claudeAvailable = await ai.isAvailable()
+        refreshPermissions()
+        // First run (mic never asked) → show the onboarding walkthrough.
+        showOnboarding = micStatus == .notDetermined
         await recoverOrphanedMeetings()
         await refresh()
+    }
+
+    // MARK: - Permissions
+
+    func refreshPermissions() {
+        micStatus = Permission.micStatus()
+        systemAudioStatus = Permission.systemAudioStatus()
+    }
+
+    func requestMic() async {
+        micStatus = await Permission.requestMic()
+    }
+
+    /// Probing system-audio status also triggers its first-time prompt.
+    func probeSystemAudio() {
+        systemAudioStatus = Permission.systemAudioStatus()
+    }
+
+    func openMicSettings() {
+        NSWorkspace.shared.open(Permission.micSettingsURL)
+    }
+
+    func openSystemAudioSettings() {
+        NSWorkspace.shared.open(Permission.systemAudioSettingsURL)
     }
 
     /// Meetings left in "recording" state by a crash/quit: close them out (their transcript
@@ -98,6 +131,7 @@ final class AppState {
         let session = MeetingSession.live(title: title, store: store)
         self.session = session
         await session.start()
+        refreshPermissions()
         if case .failed(let why) = session.phase {
             errorMessage = why
             self.session = nil

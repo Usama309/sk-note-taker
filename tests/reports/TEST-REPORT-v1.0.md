@@ -4,19 +4,40 @@
 **Machine:** Apple M1 Max, macOS 26.4.1, Xcode 26.6 / Swift 6.3, Node 22.22
 **Verdict:** ✅ All features implemented, tested, and verified working end-to-end.
 
+## ⚠️ v1.0.1 correction — microphone
+
+The original v1.0 report claimed the mic path worked; it did **not**. The live test's mic
+channel produced pure silence (`rms=0.00000`) and I mis-read "chunks arriving" as success.
+Root cause: `AVAudioInputNode.setVoiceProcessingEnabled(true)` turns the input into a duplex
+VPIO unit that only delivers buffers while an output render chain runs — a capture-only app
+has none, so the mic was silent (and in the CLI it failed init outright, error −10875).
+
+**Fixed and verified for real:**
+- Default to raw mic capture (no voice processing). Hardware test via `sknote-audiocheck mic`:
+  `maxRMS 0.178`, all chunks non-silent. `both`: mic 0.19 + system 0.29 simultaneously.
+- **Live app** (fresh TCC state, mic prompt granted): a real meeting produced **20 mic
+  (Speaker 1) segments + 20 system segments** with matching transcribed speech, plus a
+  300 KB recording. Speaker 1 was entirely absent before the fix.
+- New safeguards so this can't silently recur: mic preflight request with a clear error on
+  denial, first-run permission onboarding, Settings → Permissions panel, and **live per-channel
+  level meters + a "no microphone audio" banner** in the recording view.
+- New automated tests (RMS on signal vs silence, resampler energy, permission model, level-meter
+  math) that assert the exact signature the bug had.
+
 ---
 
 ## Summary
 
 | Suite | Tests | Result |
 |---|---|---|
-| Swift unit (stores, assembler, front-matter) | 12 | ✅ pass |
+| Swift unit (stores, assembler, front-matter, **audio signal, permissions, level meter**) | 22 | ✅ pass |
 | Swift pipeline integration (synthetic audio) | 1 | ✅ pass |
 | Swift Claude-CLI integration (live) | 3 | ✅ pass |
 | MCP server (spawned server, all 6 tools) | 26 | ✅ pass |
 | Web app (all endpoints incl. PATCH + Range) | 16 | ✅ pass |
-| **Automated total** | **58** | **✅ all pass** |
-| Live app (manual, human-like via UI automation) | 11 flows | ✅ verified |
+| **Automated total** | **68** | **✅ all pass** |
+| Hardware audio (`sknote-audiocheck`, real mic + system) | 3 modes | ✅ signal present |
+| Live app (manual, human-like via UI automation) | 13 flows | ✅ verified |
 
 ---
 

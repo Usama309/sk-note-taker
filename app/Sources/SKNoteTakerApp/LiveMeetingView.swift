@@ -9,10 +9,35 @@ struct LiveMeetingView: View {
     @State private var notes = ""
     @State private var showSpeakers = false
 
+    /// After ~4s of recording with the mic still silent, warn the user — this is exactly the
+    /// failure mode where the mic looks "on" but no audio arrives.
+    private var showMicWarning: Bool {
+        session.phase == .recording
+            && session.elapsed > 4
+            && !(session.channelHasAudio[.mic] ?? false)
+    }
+
+    private var micWarningBanner: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "mic.slash.fill").foregroundStyle(.orange)
+            Text("No microphone audio detected — your voice won't be transcribed. Check your input device and that mic access is enabled.")
+                .font(.system(size: 12))
+            Spacer()
+            Button("Open Settings") { app.openMicSettings() }
+                .buttonStyle(.link)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(.orange.opacity(0.12))
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider()
+            if showMicWarning {
+                micWarningBanner
+            }
             HSplitView {
                 transcriptPane
                     .frame(minWidth: 340)
@@ -47,6 +72,16 @@ struct LiveMeetingView: View {
             }
 
             Spacer()
+
+            // Live input meters so the user can SEE audio arriving on each channel.
+            if session.phase == .recording {
+                ChannelMeter(label: "Mic", systemImage: "mic.fill",
+                             level: session.levels[.mic] ?? 0,
+                             hasAudio: session.channelHasAudio[.mic] ?? false)
+                ChannelMeter(label: "System", systemImage: "speaker.wave.2.fill",
+                             level: session.levels[.system] ?? 0,
+                             hasAudio: session.channelHasAudio[.system] ?? false)
+            }
 
             Button {
                 showSpeakers = true
@@ -137,6 +172,38 @@ struct LiveMeetingView: View {
                 .scrollContentBackground(.hidden)
                 .padding(10)
         }
+    }
+}
+
+/// Compact live input-level meter for one audio channel. Grey when silent, gradient when hot.
+struct ChannelMeter: View {
+    let label: String
+    let systemImage: String
+    let level: Float          // 0…1 RMS
+    let hasAudio: Bool
+
+    private var bars: Int {
+        let normalized = min(max(level, 0), 0.5) / 0.5     // 0…1
+        return min(5, Int((normalized * 5).rounded(.up)))
+    }
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: hasAudio ? systemImage : systemImage + ".slash")
+                .font(.system(size: 10))
+                .foregroundStyle(hasAudio ? AnyShapeStyle(Theme.accentGradient)
+                                 : AnyShapeStyle(.orange))
+            HStack(spacing: 2) {
+                ForEach(0..<5, id: \.self) { i in
+                    RoundedRectangle(cornerRadius: 1)
+                        .fill(i < bars ? AnyShapeStyle(Theme.accentGradient)
+                              : AnyShapeStyle(.quaternary))
+                        .frame(width: 3, height: 6 + CGFloat(i) * 2)
+                }
+            }
+        }
+        .help("\(label) input level")
+        .animation(.linear(duration: 0.1), value: bars)
     }
 }
 

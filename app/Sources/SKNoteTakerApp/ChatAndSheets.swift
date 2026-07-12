@@ -206,6 +206,34 @@ struct SettingsView: View {
     var body: some View {
         @Bindable var app = app
         Form {
+            Section("Permissions") {
+                LabeledContent("Microphone") {
+                    HStack(spacing: 8) {
+                        StatusBadge(status: app.micStatus)
+                        if app.micStatus == .notDetermined {
+                            Button("Request") { Task { await app.requestMic() } }
+                                .controlSize(.small)
+                        } else if app.micStatus == .denied {
+                            Button("Open Settings") { app.openMicSettings() }
+                                .controlSize(.small)
+                        }
+                    }
+                }
+                LabeledContent("System Audio") {
+                    HStack(spacing: 8) {
+                        StatusBadge(status: app.systemAudioStatus)
+                        Button(app.systemAudioStatus == .granted ? "Re-check" : "Open Settings") {
+                            app.probeSystemAudio()
+                            if app.systemAudioStatus != .granted { app.openSystemAudioSettings() }
+                        }
+                        .controlSize(.small)
+                    }
+                }
+                Text("Both are required to record. If a prompt never appeared, use the buttons above or reset with: tccutil reset Microphone com.saqibkamran.sknotetaker")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+                    .textSelection(.enabled)
+            }
             Section("AI (Claude Code CLI)") {
                 Picker("Model", selection: $app.settings.claudeModel) {
                     Text("Sonnet (recommended)").tag("sonnet")
@@ -234,6 +262,7 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .frame(width: 480)
         .padding(.bottom, 10)
+        .onAppear { app.refreshPermissions() }
         .onChange(of: app.settings) {
             Task { await app.saveSettings() }
         }

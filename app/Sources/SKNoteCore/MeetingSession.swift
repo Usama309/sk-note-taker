@@ -23,6 +23,11 @@ public final class MeetingSession {
     /// In-flight volatile text per channel (lighter styling in UI).
     public private(set) var volatileText: [AudioChannel: String] = [:]
     public private(set) var elapsed: Double = 0
+    /// Smoothed 0…1 input level per channel, for live level meters.
+    public private(set) var levels: [AudioChannel: Float] = [.mic: 0, .system: 0]
+    /// True once each channel has produced at least one non-silent chunk — lets the UI warn
+    /// "no microphone audio detected" instead of silently recording nothing.
+    public private(set) var channelHasAudio: [AudioChannel: Bool] = [:]
 
     private let store: MeetingStore
     private let sources: [any AudioSource]
@@ -58,6 +63,16 @@ public final class MeetingSession {
     public func start() async {
         phase = .preparing
         do {
+            // Preflight: request mic up front so the TCC prompt fires before we invest in
+            // model loading, and so a denial is a clear error rather than silent recording.
+            let micStatus = await Permission.requestMic()
+            if micStatus == .denied {
+                phase = .failed(
+                    "Microphone access is off. Enable it in System Settings → Privacy & "
+                    + "Security → Microphone, then start again.")
+                return
+            }
+
             try await store.save(meeting)
 
             // On-device models (no-ops after first run).
@@ -145,6 +160,17 @@ public final class MeetingSession {
     private func pump(_ chunk: AudioChunk, into service: TranscriptionService) async {
         // Elapsed time comes from the audio itself (works for live and file sources alike).
         elapsed = max(elapsed, chunk.endTime)
+
+        // Live level + audio-presence tracking (drives the UI meter and the
+        // "no microphone audio" warning).
+        if !chunk.samples.isEmpty {
+            let rms = (chunk.samples.reduce(Float(0)) { $0 + $1 * $1 }
+                       / Float(chunk.samples.count)).squareRoot()
+            let prior = levels[chunk.channel] ?? 0
+            levels[chunk.channel] = max(rms, prior * 0.8)   // fast attack, slow decay
+            if rms > 0.01 { channelHasAudio[chunk.channel] = true }
+        }
+
         if Self.debugEnabled {
             let count = (debugChunkCounts[chunk.channel] ?? 0) + 1
             debugChunkCounts[chunk.channel] = count
