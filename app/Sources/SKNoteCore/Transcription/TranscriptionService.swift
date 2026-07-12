@@ -94,6 +94,10 @@ public actor TranscriptionService {
         }
     }
 
+    /// Persistent converter (16 kHz mono → analyzer format). Sample-rate conversion is
+    /// stateful; recreating it per chunk corrupts audio at chunk boundaries.
+    private var feedConverter: AVAudioConverter?
+
     /// Feed a 16 kHz mono chunk (session-clock stamped).
     public func feed(_ chunk: AudioChunk) {
         if sessionOffset == nil { sessionOffset = chunk.startTime }
@@ -102,7 +106,12 @@ public actor TranscriptionService {
         let buffer: AVAudioPCMBuffer
         if format == mono.format {
             buffer = mono
-        } else if let converter = AVAudioConverter(from: mono.format, to: format) {
+        } else {
+            if feedConverter == nil {
+                feedConverter = AVAudioConverter(from: mono.format, to: format)
+                feedConverter?.primeMethod = .none
+            }
+            guard let converter = feedConverter else { return }
             let ratio = format.sampleRate / mono.format.sampleRate
             let cap = AVAudioFrameCount((Double(mono.frameLength) * ratio).rounded(.up) + 64)
             guard let out = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: cap) else { return }
@@ -112,10 +121,8 @@ public actor TranscriptionService {
                 if served { status.pointee = .noDataNow; return nil }
                 served = true; status.pointee = .haveData; return mono
             }
-            guard convError == nil else { return }
+            guard convError == nil, out.frameLength > 0 else { return }
             buffer = out
-        } else {
-            return
         }
         inputContinuation?.yield(AnalyzerInput(buffer: buffer))
     }
