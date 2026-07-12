@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.1.0] — 2026-07-12
+
+### Added — automatic meeting detection (Granola-style)
+- Detects when a **Zoom, Microsoft Teams, WhatsApp, Slack, Webex, Discord, FaceTime, or
+  browser (Google Meet / Zoom-web)** call starts — by watching the microphone's in-use state
+  (Core Audio, no permission needed) cross-checked against running meeting apps.
+- Pops up a **"You're in a &lt;app&gt; meeting — start taking notes?"** prompt: a macOS
+  notification with a **Start Notes** action, plus an in-app banner when the app is frontmost.
+  Clicking **Start Notes** begins recording immediately.
+- Debounced (two consecutive polls), fires once per call, suppressed while already recording,
+  and honours a cooldown after you dismiss. **On by default**; toggle in Settings → Meeting
+  Detection.
+- Verified live: a real Teams call fired the banner → Start Notes → a full 32 s recording.
+- 14 new tests (app registry, detection state machine, cooldown/debounce, settings default +
+  legacy decode). 82 automated tests total.
+
 ## [1.0.1] — 2026-07-12
 
 ### Fixed — microphone capture (critical)

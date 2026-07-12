@@ -203,12 +203,27 @@ public struct AppSettings: Codable, Sendable, Equatable {
     public var claudeModel: String
     public var defaultSpeakerName: String?   // name for S1 (the machine owner)
     public var locale: String
+    /// Auto-detect Zoom/Teams/WhatsApp/Meet calls and offer to take notes. On by default.
+    public var autoDetectMeetings: Bool
 
     public init(claudeModel: String = "sonnet", defaultSpeakerName: String? = nil,
-                locale: String = "en-US") {
+                locale: String = "en-US", autoDetectMeetings: Bool = true) {
         self.claudeModel = claudeModel
         self.defaultSpeakerName = defaultSpeakerName
         self.locale = locale
+        self.autoDetectMeetings = autoDetectMeetings
+    }
+
+    // Tolerant decode: older settings.json without autoDetectMeetings defaults to on.
+    private enum CodingKeys: String, CodingKey {
+        case claudeModel, defaultSpeakerName, locale, autoDetectMeetings
+    }
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        claudeModel = try c.decodeIfPresent(String.self, forKey: .claudeModel) ?? "sonnet"
+        defaultSpeakerName = try c.decodeIfPresent(String.self, forKey: .defaultSpeakerName)
+        locale = try c.decodeIfPresent(String.self, forKey: .locale) ?? "en-US"
+        autoDetectMeetings = try c.decodeIfPresent(Bool.self, forKey: .autoDetectMeetings) ?? true
     }
 }
 

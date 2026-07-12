@@ -32,6 +32,55 @@ struct ContentView: View {
         .sheet(isPresented: $app.showOnboarding) {
             OnboardingView()
         }
+        .overlay(alignment: .top) {
+            if let meetingApp = app.detectedMeetingApp, app.session == nil {
+                MeetingDetectedBanner(app: meetingApp)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .padding(.top, 10)
+            }
+        }
+        .animation(.spring(duration: 0.3), value: app.detectedMeetingApp)
+    }
+}
+
+/// In-app fallback banner (shows when SK Note Taker is frontmost, complementing the system
+/// notification which is best for when the app is in the background).
+struct MeetingDetectedBanner: View {
+    @Environment(AppState.self) private var app
+    let app_: String
+    init(app: String) { self.app_ = app }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "waveform.badge.mic")
+                .font(.system(size: 18))
+                .foregroundStyle(Theme.accentGradient)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("You're in a \(app_) meeting")
+                    .font(.system(size: 13, weight: .semibold))
+                Text("Start taking notes?")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("Not now") { app.dismissDetectedMeeting() }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+            Button {
+                Task { await app.startMeeting() }
+            } label: {
+                Text("Start Notes").fontWeight(.semibold)
+                    .padding(.horizontal, 14).padding(.vertical, 6)
+                    .background(Theme.accentGradient, in: Capsule())
+                    .foregroundStyle(.white)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .frame(maxWidth: 520)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Theme.indigo.opacity(0.25)))
+        .shadow(color: .black.opacity(0.25), radius: 16, y: 6)
     }
 }
 

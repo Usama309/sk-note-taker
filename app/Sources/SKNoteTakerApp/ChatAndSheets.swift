@@ -246,6 +246,14 @@ struct SettingsView: View {
                         .foregroundStyle(app.claudeAvailable ? .green : .red)
                 }
             }
+            Section("Meeting Detection") {
+                Toggle("Auto-detect meetings", isOn: Binding(
+                    get: { app.settings.autoDetectMeetings },
+                    set: { app.setAutoDetect($0) }))
+                Text("Pops up a reminder to take notes when a Zoom, Teams, WhatsApp, or browser (Google Meet) call starts.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            }
             Section("Speakers") {
                 TextField("Your name (used for Speaker 1)", text: Binding(
                     get: { app.settings.defaultSpeakerName ?? "" },

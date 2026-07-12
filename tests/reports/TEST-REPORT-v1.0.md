@@ -1,8 +1,22 @@
-# SK Note Taker — Test Report v1.0
+# SK Note Taker — Test Report
 
 **Date:** 2026-07-12
 **Machine:** Apple M1 Max, macOS 26.4.1, Xcode 26.6 / Swift 6.3, Node 22.22
 **Verdict:** ✅ All features implemented, tested, and verified working end-to-end.
+
+## v1.1.0 addition — automatic meeting detection
+
+- **14 unit tests** (40 Swift total): app registry (Zoom/Teams/WhatsApp/browser matching,
+  dedicated-app-beats-browser), detection state machine (debounce, fire-once-per-call,
+  re-arm after call ends, suppressed-while-recording, cooldown after dismiss, app-change
+  resets streak), and the auto-detect setting (default on, legacy-JSON decode).
+- **Hardware probe** (`sknote-audiocheck probe`): idle → `micInUse=false` → no notification;
+  mic held + Teams running → `micInUse=true meetingApp=Microsoft Teams` → **WOULD NOTIFY**.
+- **Live app, full flow**: with a Teams call active (mic in use), the app showed the
+  **"You're in a Microsoft Teams meeting — Start taking notes?"** banner; clicking **Start
+  Notes** created a meeting and recorded 17 segments / 32 s / 120 KB. ✅
+- Fixed during this work: notification-auth `await` was blocking the detector from starting;
+  detection now starts immediately and requests notification permission in the background.
 
 ## ⚠️ v1.0.1 correction — microphone
 

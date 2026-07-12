@@ -45,6 +45,22 @@ final class AppState {
     var systemAudioStatus: Permission.Status = .notDetermined
     var showOnboarding = false
 
+    // Meeting auto-detection (Zoom/Teams/WhatsApp/Meet → notification → start notes).
+    @ObservationIgnored private lazy var detector: MeetingDetector = {
+        let d = MeetingDetector()
+        d.isRecording = { [weak self] in self?.session != nil }
+        d.onDetected = { [weak self] app in self?.handleDetectedMeeting(app: app) }
+        return d
+    }()
+    @ObservationIgnored private lazy var notifier: MeetingNotifier = {
+        let n = MeetingNotifier()
+        n.onStart = { [weak self] in Task { await self?.startMeeting() } }
+        n.onDismiss = { [weak self] in self?.detector.snooze() }
+        return n
+    }()
+    /// Most recently detected meeting app (for an in-app banner fallback).
+    var detectedMeetingApp: String?
+
     // Transient UI state
     var errorMessage: String?
     var busy: Set<String> = []       // feature keys currently running (e.g. "summary")
@@ -58,6 +74,39 @@ final class AppState {
         showOnboarding = micStatus == .notDetermined
         await recoverOrphanedMeetings()
         await refresh()
+        await startAutoDetectIfEnabled()
+    }
+
+    // MARK: - Meeting auto-detection
+
+    func startAutoDetectIfEnabled() async {
+        guard settings.autoDetectMeetings else { detector.stop(); return }
+        // Start polling immediately — the in-app banner works without notification permission.
+        // Request notification auth in the background so it never blocks detection.
+        detector.start()
+        Task { await notifier.requestAuthorization() }
+    }
+
+    func setAutoDetect(_ enabled: Bool) {
+        settings.autoDetectMeetings = enabled
+        Task {
+            try? await store.save(settings: settings)
+            if enabled { await startAutoDetectIfEnabled() }
+            else { detector.stop(); detectedMeetingApp = nil }
+        }
+    }
+
+    private func handleDetectedMeeting(app: String) {
+        guard session == nil else { return }
+        detectedMeetingApp = app
+        detector.accepted()          // latch until this call ends / user acts
+        notifier.notifyMeetingDetected(app: app)
+    }
+
+    /// Dismiss the in-app banner and snooze detection.
+    func dismissDetectedMeeting() {
+        detectedMeetingApp = nil
+        detector.snooze()
     }
 
     // MARK: - Permissions
@@ -127,6 +176,7 @@ final class AppState {
 
     func startMeeting() async {
         guard session == nil else { return }
+        detectedMeetingApp = nil            // clear any pending detection banner
         let title = Date().formatted(date: .abbreviated, time: .shortened) + " Meeting"
         let session = MeetingSession.live(title: title, store: store)
         self.session = session

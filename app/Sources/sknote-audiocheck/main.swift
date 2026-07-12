@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import AppKit
 import SKNoteCore
 
 // Diagnostic: run a live AudioSource for N seconds and report signal levels.
@@ -99,6 +100,17 @@ case "both":
     ms.report("mic")
     ss.report("system")
     exit(ms.maxRMS >= 0.001 && ss.maxRMS >= 0.001 ? 0 : 1)
+
+case "probe":
+    // Meeting-detection probe: report mic-in-use state + any detected meeting app, once.
+    let running = NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier)
+    let app = MeetingAppRegistry.meetingApp(amongRunning: running)
+    let micUsed = MicActivity.micInUse()
+    print("micInUse=\(micUsed) meetingApp=\(app ?? "none")")
+    var engine = MeetingDetectionEngine(debounceHits: 1)
+    let fired = engine.evaluate(now: 0, micActive: micUsed, meetingApp: app, isRecording: false)
+    print(fired != nil ? "→ WOULD NOTIFY: \(fired!)" : "→ no notification")
+    exit(0)
 
 default:
     print("unknown mode \(mode)")

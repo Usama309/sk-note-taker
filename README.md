@@ -22,6 +22,7 @@ pay for instead of a metered API.
 | | Granola (desktop) | SK Note Taker |
 |---|---|---|
 | Botless mic + system-audio capture | ✅ | ✅ |
+| Auto-detect a call & pop up "take notes?" | ✅ | ✅ (Zoom/Teams/WhatsApp/Meet…) |
 | Real-time transcription | ✅ cloud (AssemblyAI/Deepgram) | ✅ **on-device** (Apple SpeechAnalyzer) |
 | **Speaker identification** | ❌ Me/Them only | ✅ **Speaker 1..N diarization (FluidAudio, on-device)** |
 | Name speakers ("S2 = Kainat") | ❌ | ✅ instant, metadata-only rename |
@@ -95,10 +96,25 @@ If you never saw the mic prompt or your voice isn't transcribed:
 > mode only delivers audio when an output render chain is active, which a capture-only app has
 > none of, and it silently produced zero audio. We capture the raw mic instead.
 
+### Automatic meeting detection
+
+SK Note Taker watches for calls and offers to take notes — you don't have to remember to hit
+record. When a **Zoom, Teams, WhatsApp, Slack, Webex, Discord, FaceTime, or browser (Google
+Meet) call** starts, it detects the mic going live in a known meeting app and shows a
+**"You're in a &lt;app&gt; meeting — start taking notes?"** prompt (a macOS notification with a
+**Start Notes** button, plus an in-app banner). One click starts recording.
+
+- On by default; toggle under **Settings → Meeting Detection**.
+- Detection uses the mic's *in-use state*, which needs no microphone permission — so it works
+  before you've granted anything.
+- It never triggers on itself while recording, waits for a sustained signal (no false pops from
+  a notification chime), and won't re-nag after you dismiss.
+
 ### Using it
 
-- **Start Meeting** (⌘N) — live transcript appears with per-speaker colors; jot rough notes
-  in the right pane (they become anchors for the AI summary).
+- **Start Meeting** (⌘N) — or just answer the auto-detect prompt when a call begins. Live
+  transcript appears with per-speaker colors; jot rough notes in the right pane (they become
+  anchors for the AI summary).
 - **End Meeting** — final diarization pass runs, audio is saved.
 - **Speakers** — assign names (Speaker 2 → "Kainat"); transcripts, summaries, chat, MCP and
   web all use the names immediately.
@@ -152,9 +168,11 @@ Full details in [`docs/planning/`](docs/planning/).
 
 ## v2 backlog
 
-Calendar integration & meeting auto-detection, note templates, share links,
+Calendar integration (auto-open the call link), note templates, share links,
 multi-meeting chat, Slack/Notion export, iOS companion, cloud sync, live
 speaker-name suggestions from voice enrollment.
+
+_(Meeting auto-detection — pop up "take notes?" when a call starts — shipped in v1.1.)_
 
 ## License
 
