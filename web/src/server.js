@@ -1,10 +1,11 @@
 // SK Note Taker — web review server.
-// Express + ESM, no build step. Serves a static vanilla-JS UI and a JSON API over the
-// shared on-disk store. Listens on 0.0.0.0 so a phone on the LAN can review meetings.
+// Express + ESM, no build step. Serves a static vanilla-JS UI and a JSON API backed by
+// Supabase (cloud Postgres + Storage), so meetings can be reviewed from anywhere — not just
+// a device on the same LAN as the Mac. Still listens on 0.0.0.0 for LAN/phone access.
 
 import express from 'express';
 import path from 'node:path';
-import { promises as fs, createReadStream } from 'node:fs';
+import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -12,13 +13,25 @@ import {
   getMeeting,
   getTranscript,
   getFolderTree,
-  recordingPath,
+  recordingInfo,
+  fetchRecording,
   updateSpeakers,
   updateFolder,
+  StoreError,
 } from './store.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+
+/** Send a 5xx with a clear JSON error. Supabase/network failures carry a message; others are generic. */
+function serverError(res, err, where) {
+  console.error(`[api] ${where} failed:`, err);
+  const isStore = err instanceof StoreError;
+  res.status(isStore ? 502 : 500).json({
+    error: isStore ? 'supabase_error' : 'internal_error',
+    detail: err?.message || String(err),
+  });
+}
 
 export function createApp() {
   const app = express();
@@ -32,8 +45,7 @@ export function createApp() {
       const meetings = await listMeetings({ folderId: req.query.folderId, q: req.query.q });
       res.json({ meetings });
     } catch (err) {
-      console.error('[api] /meetings failed:', err);
-      res.status(500).json({ error: 'internal_error' });
+      serverError(res, err, '/meetings');
     }
   });
 
@@ -44,8 +56,7 @@ export function createApp() {
       if (!meeting) return res.status(404).json({ error: 'not_found' });
       res.json(meeting);
     } catch (err) {
-      console.error('[api] /meetings/:id failed:', err);
-      res.status(500).json({ error: 'internal_error' });
+      serverError(res, err, '/meetings/:id');
     }
   });
 
@@ -56,43 +67,46 @@ export function createApp() {
       if (!transcript) return res.status(404).json({ error: 'not_found' });
       res.json(transcript);
     } catch (err) {
-      console.error('[api] /transcript failed:', err);
-      res.status(500).json({ error: 'internal_error' });
+      serverError(res, err, '/transcript');
     }
   });
 
-  // GET /api/meetings/:id/audio — stream recording.m4a with Range support.
+  // GET /api/meetings/:id/audio — proxy recording from Supabase Storage with Range support.
   api.get('/meetings/:id/audio', async (req, res) => {
     try {
-      const file = await recordingPath(req.params.id);
-      if (!file) return res.status(404).json({ error: 'no_recording' });
+      const { exists, objectPath } = await recordingInfo(req.params.id);
+      if (!exists) return res.status(404).json({ error: 'no_recording' });
 
-      const stat = await fs.stat(file);
-      const total = stat.size;
-      const range = req.headers.range;
+      const upstream = await fetchRecording(objectPath, req.headers.range);
+
+      // Storage 404 (row says has_recording but object is missing) → treat as no recording.
+      if (upstream.status === 404) return res.status(404).json({ error: 'no_recording' });
+      if (upstream.status === 416) {
+        const cr = upstream.headers.get('content-range');
+        if (cr) res.setHeader('Content-Range', cr);
+        return res.status(416).end();
+      }
+      if (upstream.status >= 400) {
+        return serverError(res, new StoreError(`storage ${upstream.status}`), '/audio');
+      }
 
       res.setHeader('Accept-Ranges', 'bytes');
-      res.setHeader('Content-Type', 'audio/mp4');
+      res.setHeader('Content-Type', upstream.headers.get('content-type') || 'audio/mp4');
+      const len = upstream.headers.get('content-length');
+      if (len) res.setHeader('Content-Length', len);
+      const cr = upstream.headers.get('content-range');
+      if (cr) res.setHeader('Content-Range', cr);
+      // 206 when the upstream honored the Range request, else 200.
+      res.status(upstream.status === 206 ? 206 : 200);
 
-      if (range) {
-        const m = /^bytes=(\d*)-(\d*)$/.exec(range);
-        if (!m) return res.status(416).setHeader('Content-Range', `bytes */${total}`).end();
-        let start = m[1] === '' ? 0 : parseInt(m[1], 10);
-        let end = m[2] === '' ? total - 1 : parseInt(m[2], 10);
-        if (Number.isNaN(start) || Number.isNaN(end) || start > end || end >= total) {
-          return res.status(416).setHeader('Content-Range', `bytes */${total}`).end();
-        }
-        res.status(206);
-        res.setHeader('Content-Range', `bytes ${start}-${end}/${total}`);
-        res.setHeader('Content-Length', end - start + 1);
-        createReadStream(file, { start, end }).pipe(res);
+      if (upstream.body) {
+        Readable.fromWeb(upstream.body).pipe(res);
       } else {
-        res.setHeader('Content-Length', total);
-        createReadStream(file).pipe(res);
+        const buf = Buffer.from(await upstream.arrayBuffer());
+        res.end(buf);
       }
     } catch (err) {
-      console.error('[api] /audio failed:', err);
-      res.status(500).json({ error: 'internal_error' });
+      serverError(res, err, '/audio');
     }
   });
 
@@ -107,8 +121,7 @@ export function createApp() {
       if (!result) return res.status(404).json({ error: 'not_found' });
       res.json(result);
     } catch (err) {
-      console.error('[api] PATCH /speakers failed:', err);
-      res.status(500).json({ error: 'internal_error' });
+      serverError(res, err, 'PATCH /speakers');
     }
   });
 
@@ -121,8 +134,7 @@ export function createApp() {
       if (!result) return res.status(404).json({ error: 'not_found' });
       res.json(result);
     } catch (err) {
-      console.error('[api] PATCH /folder failed:', err);
-      res.status(500).json({ error: 'internal_error' });
+      serverError(res, err, 'PATCH /folder');
     }
   });
 
@@ -131,8 +143,7 @@ export function createApp() {
     try {
       res.json(await getFolderTree());
     } catch (err) {
-      console.error('[api] /folders failed:', err);
-      res.status(500).json({ error: 'internal_error' });
+      serverError(res, err, '/folders');
     }
   });
 
@@ -159,5 +170,6 @@ if (isMain) {
     console.log(`SK Note Taker web review running on http://0.0.0.0:${port}`);
     console.log(`On this Mac:   http://localhost:${port}`);
     console.log(`On the LAN:    http://<mac-ip>:${port}`);
+    console.log('Data source:   Supabase (cloud) — reviewable from anywhere');
   });
 }

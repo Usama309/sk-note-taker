@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.3.0] — 2026-07-12
+
+### Added — Supabase backend + Mac↔web sync (local-first)
+- The Mac app now **mirrors every meeting to Supabase** (Postgres) in addition to the local
+  store: meetings, transcript segments, summaries, chat, folders, and the audio recording
+  (Supabase Storage). Local-first — recording never depends on connectivity; a catch-up sync
+  runs at launch and after each save.
+- **Web app and MCP server read from Supabase**, so you can review meetings from anywhere, not
+  just the same LAN.
+- Schema in `supabase/migrations/0001_init.sql` (RLS on; anon-key policies for single-user);
+  `supabase/README.md` documents setup and the security tradeoff.
+- New Swift `SupabaseSync` actor + live round-trip test (meeting/segments/summary/chat verified
+  against the real project, then cleaned up).
+- Fixed: audio Storage object name was uppercase while ids are lowercased everywhere else.
+
+### Fixed
+- Level meter (v1.2 dB scale) confirmed responsive on live audio.
+
 ## [1.2.0] — 2026-07-12
 
 ### Added — menu bar app + native notifications

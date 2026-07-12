@@ -1,81 +1,102 @@
 /**
- * Data-access layer for the SK Note Taker on-disk store.
+ * Data-access layer for the SK Note Taker Supabase store.
  *
- * All reads are defensive: a missing data directory yields empty results, and a
- * malformed JSON file is skipped with a stderr warning rather than crashing the
- * server. Nothing here writes to the store — the MCP server is read-only.
+ * The Mac app is local-first and mirrors all meeting data to a Supabase Postgres
+ * project (see ../supabase/migrations/0001_init.sql). This layer reads that cloud
+ * data via @supabase/supabase-js so the MCP server can serve meetings/transcripts/
+ * summaries from anywhere.
+ *
+ * All reads are defensive: Supabase/network errors are surfaced as an error string
+ * rather than crashing the server. Nothing here writes to the store — the MCP
+ * server is read-only. stdout is reserved for JSON-RPC; diagnostics go to stderr.
  */
 import { promises as fs } from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 /** Log a warning to stderr. stdout is reserved for JSON-RPC traffic. */
 export function warn(message: string): void {
   process.stderr.write(`[sknote-mcp] WARN ${message}\n`);
 }
 
+// ---------------------------------------------------------------------------
+// Config + client
+// ---------------------------------------------------------------------------
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+/** dist/ lives at mcp/dist, so the repo's supabase/config.json is ../../supabase. */
+const DEFAULT_CONFIG_PATH = path.resolve(here, "..", "..", "supabase", "config.json");
+
+interface SupabaseConfig {
+  url: string;
+  anonKey: string;
+}
+
 /**
- * Resolve the data directory. `SKNOTE_DATA_DIR` overrides the default of
- * ~/Library/Application Support/SKNoteTaker (important for tests).
+ * Resolve Supabase credentials. Environment variables SUPABASE_URL /
+ * SUPABASE_ANON_KEY take precedence; otherwise read supabase/config.json
+ * (path overridable via SKNOTE_SUPABASE_CONFIG).
  */
-export function resolveDataDir(): string {
-  const override = process.env.SKNOTE_DATA_DIR;
-  if (override && override.trim().length > 0) {
-    return path.resolve(override);
+async function resolveConfig(): Promise<SupabaseConfig> {
+  const envUrl = process.env.SUPABASE_URL?.trim();
+  const envKey = process.env.SUPABASE_ANON_KEY?.trim();
+  if (envUrl && envKey) {
+    return { url: envUrl, anonKey: envKey };
   }
-  return path.join(
-    os.homedir(),
-    "Library",
-    "Application Support",
-    "SKNoteTaker"
-  );
-}
 
-async function pathExists(p: string): Promise<boolean> {
-  try {
-    await fs.access(p);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Read + parse a JSON file. Returns undefined on missing/malformed input. */
-export async function readJson<T>(filePath: string): Promise<T | undefined> {
+  const configPath = process.env.SKNOTE_SUPABASE_CONFIG?.trim() || DEFAULT_CONFIG_PATH;
   let raw: string;
   try {
-    raw = await fs.readFile(filePath, "utf8");
+    raw = await fs.readFile(configPath, "utf8");
   } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code !== "ENOENT") {
-      warn(`could not read ${filePath}: ${(err as Error).message}`);
-    }
-    return undefined;
+    throw new Error(
+      `could not read Supabase config at ${configPath}: ${(err as Error).message}. ` +
+        `Set SUPABASE_URL and SUPABASE_ANON_KEY, or SKNOTE_SUPABASE_CONFIG.`
+    );
   }
+  let parsed: { url?: string; anonKey?: string };
   try {
-    return JSON.parse(raw) as T;
+    parsed = JSON.parse(raw);
   } catch (err) {
-    warn(`skipping malformed JSON ${filePath}: ${(err as Error).message}`);
-    return undefined;
+    throw new Error(`malformed Supabase config ${configPath}: ${(err as Error).message}`);
   }
+  const url = envUrl || parsed.url?.trim();
+  const anonKey = envKey || parsed.anonKey?.trim();
+  if (!url || !anonKey) {
+    throw new Error(
+      `Supabase config is missing url/anonKey (checked env + ${configPath}).`
+    );
+  }
+  return { url, anonKey };
 }
 
-/** Read a text file (notes.md, summary.md). Returns undefined when absent. */
-export async function readText(filePath: string): Promise<string | undefined> {
+let clientPromise: Promise<SupabaseClient> | undefined;
+
+/** Lazily create a single shared Supabase client. */
+export async function getClient(): Promise<SupabaseClient> {
+  if (!clientPromise) {
+    clientPromise = resolveConfig().then(({ url, anonKey }) =>
+      createClient(url, anonKey, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      })
+    );
+  }
+  return clientPromise;
+}
+
+/** For diagnostics: the resolved project URL (never the key). */
+export async function describeSource(): Promise<string> {
   try {
-    return await fs.readFile(filePath, "utf8");
+    const { url } = await resolveConfig();
+    return url;
   } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code !== "ENOENT") {
-      warn(`could not read ${filePath}: ${(err as Error).message}`);
-    }
-    return undefined;
+    return `<unresolved: ${(err as Error).message}>`;
   }
 }
 
 // ---------------------------------------------------------------------------
-// On-disk shapes (see docs/planning/DATA-MODEL.md). All fields optional at read
-// time — files may be partial or hand-edited, so we validate as we consume.
+// Row shapes (snake_case, matching the Postgres schema) + camelCase mappings.
 // ---------------------------------------------------------------------------
 
 export interface Speaker {
@@ -84,8 +105,24 @@ export interface Speaker {
   source?: string;
 }
 
+export interface MeetingRow {
+  id: string;
+  title: string | null;
+  created_at: string | null;
+  ended_at: string | null;
+  folder_id: string | null;
+  state: string | null;
+  speakers: Record<string, Speaker> | null;
+  has_recording: boolean | null;
+  duration_sec: number | null;
+  auto_category: unknown;
+  notes: string | null;
+  updated_at: string | null;
+}
+
+/** The camelCase meeting object returned to clients (mirrors the old meeting.json shape). */
 export interface MeetingJson {
-  id?: string;
+  id: string;
   title?: string;
   createdAt?: string;
   endedAt?: string;
@@ -94,22 +131,33 @@ export interface MeetingJson {
   speakers?: Record<string, Speaker>;
   hasRecording?: boolean;
   durationSec?: number;
-  autoCategory?: { project?: string; client?: string; confidence?: number };
+  autoCategory?: unknown;
+  notes?: string;
+  updatedAt?: string;
 }
 
-export interface TranscriptSegment {
-  id?: number;
-  speaker?: string;
-  source?: string;
-  start?: number;
-  end?: number;
-  text?: string;
-  final?: boolean;
+export function mapMeeting(row: MeetingRow): MeetingJson {
+  return {
+    id: row.id,
+    title: row.title ?? undefined,
+    createdAt: row.created_at ?? undefined,
+    endedAt: row.ended_at ?? undefined,
+    folderId: row.folder_id ?? null,
+    state: row.state ?? undefined,
+    speakers: row.speakers ?? {},
+    hasRecording: row.has_recording ?? false,
+    durationSec: typeof row.duration_sec === "number" ? row.duration_sec : undefined,
+    autoCategory: row.auto_category ?? undefined,
+    notes: row.notes ?? "",
+    updatedAt: row.updated_at ?? undefined,
+  };
 }
 
-export interface TranscriptJson {
-  version?: number;
-  segments?: TranscriptSegment[];
+export interface FolderRow {
+  id: string;
+  name: string | null;
+  kind: string | null;
+  parent_id: string | null;
 }
 
 export interface FolderJson {
@@ -119,93 +167,174 @@ export interface FolderJson {
   parentId?: string | null;
 }
 
-export interface FoldersFile {
-  folders?: FolderJson[];
-}
-
-/** Absolute paths to the well-known files for one meeting. */
-export interface MeetingPaths {
-  dir: string;
-  meetingJson: string;
-  transcriptJson: string;
-  notesMd: string;
-  summaryMd: string;
-  chatJson: string;
-  recording: string;
-}
-
-export function meetingsDir(dataDir: string): string {
-  return path.join(dataDir, "meetings");
-}
-
-export function meetingPaths(dataDir: string, id: string): MeetingPaths {
-  const dir = path.join(meetingsDir(dataDir), id);
+export function mapFolder(row: FolderRow): FolderJson {
   return {
-    dir,
-    meetingJson: path.join(dir, "meeting.json"),
-    transcriptJson: path.join(dir, "transcript.json"),
-    notesMd: path.join(dir, "notes.md"),
-    summaryMd: path.join(dir, "summary.md"),
-    chatJson: path.join(dir, "chat.json"),
-    recording: path.join(dir, "recording.m4a"),
+    id: row.id,
+    name: row.name ?? undefined,
+    kind: row.kind ?? undefined,
+    parentId: row.parent_id ?? null,
   };
 }
 
-/** List meeting directory ids. Empty array if the store or meetings dir is absent. */
-export async function listMeetingIds(dataDir: string): Promise<string[]> {
-  const dir = meetingsDir(dataDir);
-  if (!(await pathExists(dir))) {
-    return [];
-  }
-  let entries: import("node:fs").Dirent[];
-  try {
-    entries = await fs.readdir(dir, { withFileTypes: true });
-  } catch (err) {
-    warn(`could not list meetings dir ${dir}: ${(err as Error).message}`);
-    return [];
-  }
-  return entries
-    .filter((e) => e.isDirectory())
-    .map((e) => e.name)
-    .sort();
+export interface TranscriptSegmentRow {
+  meeting_id: string;
+  idx: number;
+  speaker: string | null;
+  source: string | null;
+  start_sec: number | null;
+  end_sec: number | null;
+  text: string | null;
 }
 
-/** A meeting's parsed metadata paired with the id derived from its directory. */
+/** The camelCase transcript segment (mirrors the old transcript.json segment shape). */
+export interface TranscriptSegment {
+  id?: number;
+  speaker?: string;
+  source?: string;
+  start?: number;
+  end?: number;
+  text?: string;
+}
+
+export function mapSegment(row: TranscriptSegmentRow): TranscriptSegment {
+  return {
+    id: row.idx,
+    speaker: row.speaker ?? undefined,
+    source: row.source ?? undefined,
+    start: typeof row.start_sec === "number" ? row.start_sec : undefined,
+    end: typeof row.end_sec === "number" ? row.end_sec : undefined,
+    text: row.text ?? "",
+  };
+}
+
+export interface SummaryRow {
+  meeting_id: string;
+  generated_at: string | null;
+  body: string | null;
+  action_items: unknown;
+  decisions: unknown;
+  remember: unknown;
+}
+
+/** A meeting row paired with its derived id and camelCase view. */
 export interface LoadedMeeting {
   id: string;
-  paths: MeetingPaths;
+  row: MeetingRow;
   meeting: MeetingJson;
 }
 
-/**
- * Load one meeting's meeting.json. Returns undefined when the file is
- * missing/malformed (already warned by readJson). The directory name is the
- * authoritative id; meeting.json.id is used only as a fallback.
- */
-export async function loadMeeting(
-  dataDir: string,
-  id: string
-): Promise<LoadedMeeting | undefined> {
-  const paths = meetingPaths(dataDir, id);
-  const meeting = await readJson<MeetingJson>(paths.meetingJson);
-  if (!meeting) {
-    return undefined;
+// ---------------------------------------------------------------------------
+// Query helpers. Each returns { data, error } so callers can surface the error
+// in a tool result instead of throwing.
+// ---------------------------------------------------------------------------
+
+export interface Result<T> {
+  data?: T;
+  error?: string;
+}
+
+const MEETING_COLUMNS =
+  "id,title,created_at,ended_at,folder_id,state,speakers,has_recording,duration_sec,auto_category,notes,updated_at";
+
+function toResult<T>(data: T | null, error: { message: string } | null): Result<T> {
+  if (error) {
+    warn(`supabase error: ${error.message}`);
+    return { error: error.message };
   }
-  return { id: meeting.id ?? id, paths, meeting };
+  return { data: (data ?? undefined) as T };
 }
 
-/** Load every meeting that has a readable meeting.json. */
-export async function loadAllMeetings(
-  dataDir: string
-): Promise<LoadedMeeting[]> {
-  const ids = await listMeetingIds(dataDir);
-  const loaded = await Promise.all(ids.map((id) => loadMeeting(dataDir, id)));
-  return loaded.filter((m): m is LoadedMeeting => m !== undefined);
+/** Load one meeting by id. `data` is undefined (no error) when not found. */
+export async function loadMeeting(id: string): Promise<Result<LoadedMeeting | undefined>> {
+  const client = await getClient();
+  const { data, error } = await client
+    .from("meetings")
+    .select(MEETING_COLUMNS)
+    .eq("id", id)
+    .maybeSingle();
+  if (error) {
+    warn(`supabase error (loadMeeting ${id}): ${error.message}`);
+    return { error: error.message };
+  }
+  if (!data) {
+    return { data: undefined };
+  }
+  const row = data as MeetingRow;
+  return { data: { id: row.id, row, meeting: mapMeeting(row) } };
 }
 
-export async function fileExists(filePath: string): Promise<boolean> {
-  return pathExists(filePath);
+/** Load all folders. */
+export async function loadFolders(): Promise<Result<FolderJson[]>> {
+  const client = await getClient();
+  const { data, error } = await client
+    .from("folders")
+    .select("id,name,kind,parent_id");
+  const res = toResult(data as FolderRow[] | null, error);
+  if (res.error) return { error: res.error };
+  return { data: (res.data ?? []).map(mapFolder) };
 }
+
+/** Load transcript segments for a meeting, ordered by idx. */
+export async function loadTranscript(
+  id: string
+): Promise<Result<TranscriptSegment[]>> {
+  const client = await getClient();
+  const { data, error } = await client
+    .from("transcript_segments")
+    .select("meeting_id,idx,speaker,source,start_sec,end_sec,text")
+    .eq("meeting_id", id)
+    .order("idx", { ascending: true });
+  const res = toResult(data as TranscriptSegmentRow[] | null, error);
+  if (res.error) return { error: res.error };
+  return { data: (res.data ?? []).map(mapSegment) };
+}
+
+/** Load a meeting's summary row. `data` undefined (no error) when absent. */
+export async function loadSummary(id: string): Promise<Result<SummaryRow | undefined>> {
+  const client = await getClient();
+  const { data, error } = await client
+    .from("summaries")
+    .select("meeting_id,generated_at,body,action_items,decisions,remember")
+    .eq("meeting_id", id)
+    .maybeSingle();
+  if (error) {
+    warn(`supabase error (loadSummary ${id}): ${error.message}`);
+    return { error: error.message };
+  }
+  return { data: (data as SummaryRow | null) ?? undefined };
+}
+
+/** True/false whether a meeting has any transcript segments. */
+export async function hasTranscript(id: string): Promise<Result<boolean>> {
+  const client = await getClient();
+  const { count, error } = await client
+    .from("transcript_segments")
+    .select("*", { count: "exact", head: true })
+    .eq("meeting_id", id);
+  if (error) {
+    warn(`supabase error (hasTranscript ${id}): ${error.message}`);
+    return { error: error.message };
+  }
+  return { data: (count ?? 0) > 0 };
+}
+
+/** True/false whether a meeting has any chat messages. */
+export async function hasChat(id: string): Promise<Result<boolean>> {
+  const client = await getClient();
+  const { count, error } = await client
+    .from("chat_messages")
+    .select("*", { count: "exact", head: true })
+    .eq("meeting_id", id);
+  if (error) {
+    warn(`supabase error (hasChat ${id}): ${error.message}`);
+    return { error: error.message };
+  }
+  return { data: (count ?? 0) > 0 };
+}
+
+// ---------------------------------------------------------------------------
+// Pure helpers reused across tools.
+// ---------------------------------------------------------------------------
 
 /** Resolve a speaker key (S1, S2…) to a display name using the speakers map. */
 export function resolveSpeakerName(

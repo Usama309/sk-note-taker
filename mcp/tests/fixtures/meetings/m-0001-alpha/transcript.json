@@ -1,9 +1,0 @@
-{
-  "version": 1,
-  "segments": [
-    { "id": 0, "speaker": "S2", "source": "system", "start": 12.48, "end": 15.91, "text": "Let's review the launch checklist for the redesign.", "final": true },
-    { "id": 1, "speaker": "S1", "source": "mic", "start": 16.20, "end": 20.05, "text": "Sounds good. The proposal deadline is Friday, right?", "final": true },
-    { "id": 2, "speaker": "S2", "source": "system", "start": 20.50, "end": 24.80, "text": "Yes, I'll send the revised proposal by Friday afternoon.", "final": true },
-    { "id": 3, "speaker": "S1", "source": "mic", "start": 25.00, "end": 28.30, "text": "Great. We also decided to ship v1 without SSO.", "final": true }
-  ]
-}

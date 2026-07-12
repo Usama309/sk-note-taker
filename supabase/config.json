@@ -1,0 +1,8 @@
+{
+  "url": "https://ntuamvphoorqbuikbhdb.supabase.co",
+  "anonKey": "sb_publishable_hQfcPxlg1Y13bdNFu72olA_yPArtdgF",
+  "projectRef": "ntuamvphoorqbuikbhdb",
+  "pooler": "aws-0-ap-northeast-1.pooler.supabase.com",
+  "recordingsBucket": "recordings",
+  "_note": "anonKey is a publishable key — safe to embed in clients (RLS-gated). The DB password is NOT stored here and must never be committed."
+}

@@ -1,79 +1,81 @@
-// Data access layer for the SK Note Taker on-disk store.
-// All three runtimes (Mac app, MCP server, web) share the same JSON files under the
-// data directory. This module reads them defensively: a missing directory yields empty
-// results, and a malformed file is skipped (logged to console.error) rather than crashing.
+// Data access layer for the SK Note Taker web app — backed by Supabase (cloud Postgres).
+//
+// The Mac app is local-first and mirrors all meeting data to a Supabase project; this
+// module reads/writes that same cloud data so meetings can be reviewed from anywhere.
+//
+// Every function maps the snake_case Postgres columns to the camelCase shape the frontend
+// (public/js/app.js) already expects. Supabase/network errors are surfaced by throwing a
+// StoreError so the HTTP layer can return a clean 5xx instead of crashing.
 
-import { promises as fs } from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import crypto from 'node:crypto';
+import { supabase, RECORDINGS_BUCKET } from './supabase.js';
 
-/** Resolve the data directory. SKNOTE_DATA_DIR overrides the default (important for tests). */
-export function dataDir() {
-  if (process.env.SKNOTE_DATA_DIR) return process.env.SKNOTE_DATA_DIR;
-  return path.join(os.homedir(), 'Library', 'Application Support', 'SKNoteTaker');
-}
-
-const meetingsDir = () => path.join(dataDir(), 'meetings');
-
-async function readJson(file) {
-  try {
-    const raw = await fs.readFile(file, 'utf8');
-    return JSON.parse(raw);
-  } catch (err) {
-    if (err.code === 'ENOENT') return null;
-    console.error(`[store] skipping malformed/unreadable JSON ${file}: ${err.message}`);
-    return null;
+/** Thrown for any Supabase/network failure so the server can return a 5xx with detail. */
+export class StoreError extends Error {
+  constructor(message, cause) {
+    super(message);
+    this.name = 'StoreError';
+    this.cause = cause;
   }
 }
 
-async function readText(file) {
-  try {
-    return await fs.readFile(file, 'utf8');
-  } catch (err) {
-    if (err.code === 'ENOENT') return null;
-    console.error(`[store] cannot read ${file}: ${err.message}`);
-    return null;
-  }
+/** Turn a Supabase { error } into a thrown StoreError (with the PostgREST detail). */
+function fail(context, error) {
+  const detail = error?.message || String(error);
+  throw new StoreError(`${context}: ${detail}`, error);
 }
 
-/** Atomic write: write to a temp file in the same directory, then rename over the target. */
-async function writeJsonAtomic(file, obj) {
-  const dir = path.dirname(file);
-  const tmp = path.join(dir, `.${path.basename(file)}.${crypto.randomBytes(6).toString('hex')}.tmp`);
-  const json = JSON.stringify(obj, null, 2);
-  await fs.writeFile(tmp, json, 'utf8');
-  try {
-    await fs.rename(tmp, file);
-  } catch (err) {
-    await fs.rm(tmp, { force: true });
-    throw err;
+// ---- Speaker helpers ----
+
+/**
+ * Resolve the speakers jsonb ({ "S1": { label, name, source } }) into a { key: name } map,
+ * preferring name, then label, then the key itself.
+ */
+function resolveSpeakerNames(speakers) {
+  const names = {};
+  if (speakers && typeof speakers === 'object') {
+    for (const [key, val] of Object.entries(speakers)) {
+      if (val && typeof val === 'object') names[key] = val.name || val.label || key;
+      else names[key] = key;
+    }
   }
+  return names;
 }
 
 // ---- Folders ----
 
+/** Raw folder rows mapped to the camelCase shape used internally. */
 export async function getFoldersRaw() {
-  const data = await readJson(path.join(dataDir(), 'folders.json'));
-  if (!data || !Array.isArray(data.folders)) return [];
-  return data.folders;
+  const { data, error } = await supabase
+    .from('folders')
+    .select('id, name, kind, parent_id, created_at');
+  if (error) fail('list folders', error);
+  return (data || []).map((f) => ({
+    id: f.id,
+    name: f.name,
+    kind: f.kind || null,
+    parentId: f.parent_id || null,
+  }));
 }
 
-/** Build a folder tree with recursive meeting counts. Returns { tree, totalMeetings }. */
+/** Build a folder tree with recursive meeting counts. Returns { tree, totalMeetings, unfiled }. */
 export async function getFolderTree() {
   const folders = await getFoldersRaw();
-  const meetings = await listMeetings({});
+
+  // Pull just folder_id for every meeting to compute counts without fetching full rows.
+  const { data: rows, error } = await supabase.from('meetings').select('folder_id');
+  if (error) fail('count meetings', error);
 
   const directCount = new Map();
   let unfiled = 0;
-  for (const m of meetings) {
-    if (m.folderId) directCount.set(m.folderId, (directCount.get(m.folderId) || 0) + 1);
+  const totalMeetings = rows ? rows.length : 0;
+  for (const r of rows || []) {
+    if (r.folder_id) directCount.set(r.folder_id, (directCount.get(r.folder_id) || 0) + 1);
     else unfiled += 1;
   }
 
   const byId = new Map();
   for (const f of folders) {
-    byId.set(f.id, { id: f.id, name: f.name, kind: f.kind || null, parentId: f.parentId || null, children: [], count: 0 });
+    byId.set(f.id, { id: f.id, name: f.name, kind: f.kind, parentId: f.parentId, children: [], count: 0 });
   }
 
   const roots = [];
@@ -91,237 +93,227 @@ export async function getFolderTree() {
   }
   for (const r of roots) tally(r);
 
-  return { tree: roots, totalMeetings: meetings.length, unfiled };
+  return { tree: roots, totalMeetings, unfiled };
 }
 
 // ---- Meetings ----
 
-function resolveSpeakerNames(speakers) {
-  const names = {};
-  if (speakers && typeof speakers === 'object') {
-    for (const [key, val] of Object.entries(speakers)) {
-      if (val && typeof val === 'object') names[key] = val.name || val.label || key;
-      else names[key] = key;
-    }
-  }
-  return names;
+/** Map a meetings row to the list-card shape (speakerNames as an array). */
+function toListItem(row, hasSummary) {
+  const speakerNames = Object.values(resolveSpeakerNames(row.speakers));
+  return {
+    id: row.id,
+    title: row.title || 'Untitled meeting',
+    createdAt: row.created_at || null,
+    durationSec: typeof row.duration_sec === 'number' ? row.duration_sec : null,
+    folderId: row.folder_id || null,
+    state: row.state || 'complete',
+    speakerNames,
+    hasSummary,
+    hasRecording: row.has_recording === true,
+  };
 }
 
-async function readMeetingJson(id) {
-  const meeting = await readJson(path.join(meetingsDir(), id, 'meeting.json'));
-  if (!meeting || typeof meeting !== 'object') return null;
-  return meeting;
-}
-
-/** List meeting summaries. Optional filter: { folderId, q }. */
+/** List meeting summaries. Optional filter: { folderId, q } (q matches title or speaker names). */
 export async function listMeetings({ folderId, q } = {}) {
-  let entries;
-  try {
-    entries = await fs.readdir(meetingsDir(), { withFileTypes: true });
-  } catch (err) {
-    if (err.code === 'ENOENT') return [];
-    console.error(`[store] cannot read meetings dir: ${err.message}`);
-    return [];
+  let query = supabase
+    .from('meetings')
+    .select('id, title, created_at, duration_sec, folder_id, state, speakers, has_recording')
+    .order('created_at', { ascending: false });
+
+  if (folderId) query = query.eq('folder_id', folderId);
+
+  const { data: rows, error } = await query;
+  if (error) fail('list meetings', error);
+
+  // Which of these meetings have a summary? One batched query keyed by meeting_id.
+  const ids = (rows || []).map((r) => r.id);
+  const withSummary = new Set();
+  if (ids.length) {
+    const { data: sums, error: sErr } = await supabase
+      .from('summaries')
+      .select('meeting_id')
+      .in('meeting_id', ids);
+    if (sErr) fail('list summaries', sErr);
+    for (const s of sums || []) withSummary.add(s.meeting_id);
   }
 
-  const out = [];
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const id = entry.name;
-    const meeting = await readMeetingJson(id);
-    if (!meeting) continue;
+  let out = (rows || []).map((r) => toListItem(r, withSummary.has(r.id)));
 
-    const speakerNames = Object.values(resolveSpeakerNames(meeting.speakers));
-    const hasSummary = await fileExists(path.join(meetingsDir(), id, 'summary.md'));
-
-    out.push({
-      id: meeting.id || id,
-      title: meeting.title || 'Untitled meeting',
-      createdAt: meeting.createdAt || null,
-      durationSec: typeof meeting.durationSec === 'number' ? meeting.durationSec : null,
-      folderId: meeting.folderId || null,
-      state: meeting.state || 'complete',
-      speakerNames,
-      hasSummary,
-      hasRecording: meeting.hasRecording === true || (await fileExists(path.join(meetingsDir(), id, 'recording.m4a'))),
-    });
-  }
-
-  let filtered = out;
-  if (folderId) filtered = filtered.filter((m) => m.folderId === folderId);
+  // Text search: title or any resolved speaker name. Done in JS so it matches the display
+  // names (derived from the speakers jsonb) exactly, as the on-disk store did.
   if (q && q.trim()) {
     const needle = q.trim().toLowerCase();
-    filtered = filtered.filter(
-      (m) => m.title.toLowerCase().includes(needle) || m.speakerNames.some((n) => n.toLowerCase().includes(needle)),
+    out = out.filter(
+      (m) =>
+        m.title.toLowerCase().includes(needle) ||
+        m.speakerNames.some((n) => n.toLowerCase().includes(needle)),
     );
   }
 
-  // Newest first.
-  filtered.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
-  return filtered;
+  return out;
 }
 
-async function fileExists(file) {
-  try {
-    await fs.access(file);
-    return true;
-  } catch {
-    return false;
-  }
+/** Fetch a single meetings row, or null if it doesn't exist. */
+async function fetchMeetingRow(id) {
+  const { data, error } = await supabase
+    .from('meetings')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+  if (error) fail('get meeting', error);
+  return data || null;
 }
 
-/** Very small YAML front-matter parser (safe subset: scalars, and lists of scalars or one-level maps). */
-export function parseFrontMatter(md) {
-  if (typeof md !== 'string') return { data: {}, body: '' };
-  const match = md.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
-  if (!match) return { data: {}, body: md };
-
-  const [, yaml, body] = match;
-  const data = {};
-  const lines = yaml.split(/\r?\n/);
-  let currentKey = null;
-
-  const stripQuotes = (s) => {
-    s = s.trim();
-    if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) return s.slice(1, -1);
-    return s;
-  };
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (!line.trim()) continue;
-
-    const indent = line.match(/^\s*/)[0].length;
-
-    if (indent === 0) {
-      const kv = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
-      if (!kv) continue;
-      const [, key, rest] = kv;
-      if (rest.trim() === '') {
-        // Block key — could be a list or a nested map. Peek ahead.
-        data[key] = [];
-        currentKey = key;
-      } else {
-        data[key] = stripQuotes(rest);
-        currentKey = null;
-      }
-    } else if (currentKey) {
-      const listItem = line.match(/^\s*-\s*(.*)$/);
-      if (listItem) {
-        const rest = listItem[1];
-        const inlineKv = rest.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
-        if (inlineKv) {
-          // Start of a map list item, e.g. "- owner: Kainat".
-          const obj = { [inlineKv[1]]: stripQuotes(inlineKv[2]) };
-          data[currentKey].push(obj);
-        } else {
-          data[currentKey].push(stripQuotes(rest));
-        }
-      } else {
-        // Continuation of the previous map list item, e.g. "    text: ...".
-        const contKv = line.match(/^\s*([A-Za-z0-9_-]+):\s*(.*)$/);
-        const arr = data[currentKey];
-        if (contKv && arr.length && typeof arr[arr.length - 1] === 'object') {
-          arr[arr.length - 1][contKv[1]] = stripQuotes(contKv[2]);
-        }
-      }
-    }
-  }
-
-  return { data, body: body || '' };
-}
-
-/** Full meeting payload: meeting.json + notes.md + parsed summary + chat.json. */
+/** Full meeting payload: meeting row + notes + parsed summary + chat. */
 export async function getMeeting(id) {
-  const meeting = await readMeetingJson(id);
+  const meeting = await fetchMeetingRow(id);
   if (!meeting) return null;
 
-  const base = path.join(meetingsDir(), id);
-  const notes = await readText(path.join(base, 'notes.md'));
-  const summaryRaw = await readText(path.join(base, 'summary.md'));
-  const chat = await readJson(path.join(base, 'chat.json'));
-  const hasRecording = await fileExists(path.join(base, 'recording.m4a'));
+  const [summaryRow, chatRows] = await Promise.all([
+    (async () => {
+      const { data, error } = await supabase
+        .from('summaries')
+        .select('generated_at, body, action_items, decisions, remember')
+        .eq('meeting_id', id)
+        .maybeSingle();
+      if (error) fail('get summary', error);
+      return data || null;
+    })(),
+    (async () => {
+      const { data, error } = await supabase
+        .from('chat_messages')
+        .select('role, text, at')
+        .eq('meeting_id', id)
+        .order('at', { ascending: true });
+      if (error) fail('get chat', error);
+      return data || [];
+    })(),
+  ]);
 
   let summary = null;
-  if (summaryRaw != null) {
-    const { data, body } = parseFrontMatter(summaryRaw);
+  if (summaryRow) {
     summary = {
-      generatedAt: data.generatedAt || null,
-      actionItems: Array.isArray(data.actionItems) ? data.actionItems : [],
-      decisions: Array.isArray(data.decisions) ? data.decisions : [],
-      remember: Array.isArray(data.remember) ? data.remember : [],
-      body: body.trim(),
+      generatedAt: summaryRow.generated_at || null,
+      actionItems: Array.isArray(summaryRow.action_items) ? summaryRow.action_items : [],
+      decisions: Array.isArray(summaryRow.decisions) ? summaryRow.decisions : [],
+      remember: Array.isArray(summaryRow.remember) ? summaryRow.remember : [],
+      body: typeof summaryRow.body === 'string' ? summaryRow.body.trim() : '',
     };
   }
 
   return {
-    ...meeting,
-    id: meeting.id || id,
-    hasRecording,
+    id: meeting.id,
+    title: meeting.title || 'Untitled meeting',
+    createdAt: meeting.created_at || null,
+    endedAt: meeting.ended_at || null,
+    folderId: meeting.folder_id || null,
+    state: meeting.state || 'complete',
+    durationSec: typeof meeting.duration_sec === 'number' ? meeting.duration_sec : null,
+    autoCategory: meeting.auto_category ?? null,
+    speakers: meeting.speakers || {},
     speakerNames: resolveSpeakerNames(meeting.speakers),
-    notes: notes ?? null,
+    hasRecording: meeting.has_recording === true,
+    notes: meeting.notes != null && meeting.notes !== '' ? meeting.notes : null,
     summary,
-    chat: chat && Array.isArray(chat.messages) ? chat.messages : [],
+    chat: (chatRows || []).map((c) => ({ role: c.role, text: c.text, at: c.at })),
   };
 }
 
 /** Transcript segments with resolved speaker names attached. */
 export async function getTranscript(id) {
-  const meeting = await readMeetingJson(id);
+  const meeting = await fetchMeetingRow(id);
   if (!meeting) return null;
 
-  const transcript = await readJson(path.join(meetingsDir(), id, 'transcript.json'));
+  const { data: rows, error } = await supabase
+    .from('transcript_segments')
+    .select('idx, speaker, source, start_sec, end_sec, text')
+    .eq('meeting_id', id)
+    .order('idx', { ascending: true });
+  if (error) fail('get transcript', error);
+
   const names = resolveSpeakerNames(meeting.speakers);
-  const segments = transcript && Array.isArray(transcript.segments) ? transcript.segments : [];
 
   return {
     speakers: names,
-    segments: segments
-      .filter((s) => s && typeof s === 'object')
-      .map((s) => ({
-        id: s.id,
-        speaker: s.speaker || null,
-        speakerName: (s.speaker && names[s.speaker]) || s.speaker || 'Unknown',
-        source: s.source || null,
-        start: typeof s.start === 'number' ? s.start : null,
-        end: typeof s.end === 'number' ? s.end : null,
-        text: typeof s.text === 'string' ? s.text : '',
-      })),
+    segments: (rows || []).map((s) => ({
+      id: s.idx,
+      speaker: s.speaker || null,
+      speakerName: (s.speaker && names[s.speaker]) || s.speaker || 'Unknown',
+      source: s.source || null,
+      start: typeof s.start_sec === 'number' ? s.start_sec : null,
+      end: typeof s.end_sec === 'number' ? s.end_sec : null,
+      text: typeof s.text === 'string' ? s.text : '',
+    })),
   };
 }
 
-/** Path to recording.m4a if it exists, else null. */
-export async function recordingPath(id) {
-  const meeting = await readMeetingJson(id);
-  if (!meeting) return null;
-  const file = path.join(meetingsDir(), id, 'recording.m4a');
-  return (await fileExists(file)) ? file : null;
+// ---- Recording (Supabase Storage) ----
+
+/**
+ * Whether a recording exists for this meeting, and the storage object path.
+ * Returns { exists, objectPath } — objectPath is "<id>.m4a" in the recordings bucket.
+ */
+export async function recordingInfo(id) {
+  const meeting = await fetchMeetingRow(id);
+  if (!meeting) return { exists: false, objectPath: null };
+  return { exists: meeting.has_recording === true, objectPath: `${id}.m4a` };
 }
 
-/** Merge {key: name} assignments into meeting.json speakers map. Atomic write. */
+/**
+ * Fetch (a range of) the recording bytes from Supabase Storage.
+ * `range` is an optional { start, end } (inclusive) byte range.
+ * Returns a Response-like { status, headers, body } from the storage endpoint, so the
+ * server can proxy Range/Content-Range/Content-Length straight through to the browser.
+ */
+export async function fetchRecording(objectPath, rangeHeader) {
+  const base = supabase.storage.from(RECORDINGS_BUCKET);
+  // Prefer a short-lived signed URL (bucket is private) and proxy the bytes with Range.
+  const { data, error } = await base.createSignedUrl(objectPath, 60);
+  if (error || !data?.signedUrl) fail('sign recording url', error || new Error('no signed url'));
+
+  const headers = {};
+  if (rangeHeader) headers.Range = rangeHeader;
+  const res = await fetch(data.signedUrl, { headers });
+  return res;
+}
+
+// ---- Mutations ----
+
+/** Merge {key: name} assignments into the meeting's speakers jsonb (read-modify-write). */
 export async function updateSpeakers(id, assignments) {
-  const file = path.join(meetingsDir(), id, 'meeting.json');
-  const meeting = await readMeetingJson(id);
+  const meeting = await fetchMeetingRow(id);
   if (!meeting) return null;
 
-  if (!meeting.speakers || typeof meeting.speakers !== 'object') meeting.speakers = {};
+  const speakers = meeting.speakers && typeof meeting.speakers === 'object' ? { ...meeting.speakers } : {};
   for (const [key, name] of Object.entries(assignments)) {
     if (typeof name !== 'string') continue;
-    const existing = meeting.speakers[key] || { label: key };
-    meeting.speakers[key] = { ...existing, name: name.trim() };
+    const existing = speakers[key] && typeof speakers[key] === 'object' ? speakers[key] : { label: key };
+    speakers[key] = { ...existing, name: name.trim() };
   }
 
-  await writeJsonAtomic(file, meeting);
-  return { id: meeting.id || id, speakers: meeting.speakers, speakerNames: resolveSpeakerNames(meeting.speakers) };
+  const { data, error } = await supabase
+    .from('meetings')
+    .update({ speakers })
+    .eq('id', id)
+    .select('id, speakers')
+    .maybeSingle();
+  if (error) fail('update speakers', error);
+  if (!data) return null;
+
+  return { id: data.id, speakers: data.speakers, speakerNames: resolveSpeakerNames(data.speakers) };
 }
 
-/** Move a meeting to a folder (or null to unfile). Atomic write. */
+/** Move a meeting to a folder (or null to unfile). */
 export async function updateFolder(id, folderId) {
-  const file = path.join(meetingsDir(), id, 'meeting.json');
-  const meeting = await readMeetingJson(id);
-  if (!meeting) return null;
+  const { data, error } = await supabase
+    .from('meetings')
+    .update({ folder_id: folderId || null })
+    .eq('id', id)
+    .select('id, folder_id')
+    .maybeSingle();
+  if (error) fail('update folder', error);
+  if (!data) return null;
 
-  meeting.folderId = folderId || null;
-  await writeJsonAtomic(file, meeting);
-  return { id: meeting.id || id, folderId: meeting.folderId };
+  return { id: data.id, folderId: data.folder_id || null };
 }

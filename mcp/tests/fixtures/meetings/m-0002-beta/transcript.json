@@ -1,8 +1,0 @@
-{
-  "version": 1,
-  "segments": [
-    { "id": 0, "speaker": "S1", "source": "mic", "start": 3.10, "end": 6.40, "text": "Any blockers on the authentication work?", "final": true },
-    { "id": 1, "speaker": "S2", "source": "system", "start": 6.80, "end": 11.20, "text": "The pipeline is flaky, I'm investigating the flaky test.", "final": true },
-    { "id": 2, "speaker": "S3", "source": "system", "start": 11.50, "end": 14.00, "text": "I can help with that after lunch.", "final": true }
-  ]
-}

@@ -1,8 +1,0 @@
-{
-  "version": 1,
-  "segments": [
-    { "id": 0, "speaker": "S1", "source": "mic", "start": 1.0, "end": 5.2, "text": "Great to meet you, Alex. Tell me about your current workflow.", "final": true },
-    { "id": 1, "speaker": "S2", "source": "system", "start": 5.8, "end": 14.0, "text": "We track everything in spreadsheets today, which is getting painful as we grow.", "final": true },
-    { "id": 2, "speaker": "S1", "source": "mic", "start": 14.5, "end": 18.9, "text": "Understood. Let's map out what a migration would look like.", "final": true }
-  ]
-}

@@ -1,6 +1,0 @@
-{
-  "messages": [
-    { "role": "user", "text": "What did Kainat say about the deadline?", "at": "2026-07-10T19:00:00Z" },
-    { "role": "assistant", "text": "Kainat committed to sending the revised proposal by end of day Friday.", "at": "2026-07-10T19:00:03Z" }
-  ]
-}

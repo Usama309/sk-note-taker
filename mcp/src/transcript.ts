@@ -12,7 +12,6 @@ export interface RenderedSegment {
   start?: number;
   end?: number;
   text: string;
-  final?: boolean;
 }
 
 /** Format seconds as MM:SS (or HH:MM:SS when an hour or longer). */
@@ -44,7 +43,6 @@ export function renderSegments(
       start: seg.start,
       end: seg.end,
       text: seg.text ?? "",
-      final: seg.final,
     };
   });
 }

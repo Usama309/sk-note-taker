@@ -31,16 +31,25 @@ pay for instead of a metered API.
 | Chat with a meeting ("What did Kainat say?") | ✅ | ✅ |
 | Auto-organization into client/project folders | manual/rules | ✅ AI auto-categorization |
 | MCP server | ✅ hosted, paid plans | ✅ local, free |
-| Web review app | view-only cloud | ✅ local LAN (phone-friendly) |
-| Your data | their cloud | **your disk** (`~/Library/Application Support/SKNoteTaker`) |
+| Web review app | view-only cloud | ✅ your own Supabase (review from anywhere) |
+| Your data | their cloud | **your disk + your Supabase** (local-first, you own both) |
 
 ## Components
 
 ```
-app/   Swift 6 / SwiftUI macOS app (capture, live diarized transcript, notes, AI, playback)
-mcp/   TypeScript MCP stdio server (meetings/transcripts/summaries for any MCP client)
-web/   Node web app on http://<your-mac>:4517 — review meetings from any device
+app/        Swift 6 / SwiftUI macOS app (capture, live diarized transcript, notes, AI, playback)
+mcp/        TypeScript MCP stdio server (reads meetings/transcripts/summaries from Supabase)
+web/        Node web app (reads/writes Supabase) — review meetings from anywhere
+supabase/   Postgres schema + config for cloud sync
 ```
+
+## Data & sync (local-first + Supabase)
+
+The Mac app records to local disk **and** mirrors every meeting to a Supabase Postgres project
+(tables for meetings, transcript segments, summaries, chat, folders; audio in Supabase Storage).
+It's local-first: recording never depends on connectivity, and sync catches up when you're back
+online. The web app and MCP server read from Supabase, so you can review meetings from any
+device, anywhere — not just the same LAN. See [`supabase/README.md`](supabase/README.md).
 
 ## Requirements
 

@@ -78,6 +78,9 @@ final class AppState {
     let store = MeetingStore()
     let folderStore = FolderStore()
     var ai = ClaudeCLIService()
+    /// Cloud mirror (local-first): every local save is pushed to Supabase best-effort.
+    @ObservationIgnored lazy var sync = SupabaseSync(
+        config: .sknote, store: store, folderStore: folderStore)
 
     var meetings: [Meeting] = []
     var folders: [Folder] = []
@@ -135,6 +138,8 @@ final class AppState {
         await recoverOrphanedMeetings()
         await refresh()
         await startAutoDetectIfEnabled()
+        // Catch-up cloud sync in the background (local-first: never blocks the UI).
+        Task { await sync.syncAll() }
     }
 
     // MARK: - Meeting auto-detection
@@ -276,8 +281,12 @@ final class AppState {
         self.session = nil
         await refresh()
         selectedMeetingId = finishedId
-        // Fire-and-forget auto-categorization once the meeting is done.
-        Task { await autoCategorize(meetingId: finishedId) }
+        // Fire-and-forget auto-categorization + cloud sync once the meeting is done.
+        Task {
+            await autoCategorize(meetingId: finishedId)
+            await sync.syncMeeting(finishedId)
+            await sync.uploadRecording(finishedId)
+        }
     }
 
     // MARK: - AI features
@@ -290,6 +299,7 @@ final class AppState {
         do {
             let summary = try await ai.summarize(meeting: meeting, transcript: transcript, notes: notes)
             try await store.saveSummary(summary, for: meetingId)
+            await sync.syncMeeting(meetingId)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -308,6 +318,7 @@ final class AppState {
                 question: question, meeting: meeting, transcript: transcript, history: chat)
             chat.messages.append(ChatMessage(role: "assistant", text: answer))
             try await store.saveChat(chat, for: meetingId)
+            await sync.syncMeeting(meetingId)
         } catch {
             chat.messages.append(ChatMessage(
                 role: "assistant", text: "Something went wrong: \(error.localizedDescription)"))
@@ -339,6 +350,8 @@ final class AppState {
             }
             try await store.save(meeting)
             await refresh()
+            await sync.syncFolders()
+            await sync.syncMeeting(meetingId)
         } catch {
             // Categorization is best-effort; surface quietly.
             FileHandle.standardError.write(
@@ -354,6 +367,7 @@ final class AppState {
             try? await store.save(meeting)
         }
         await refresh()
+        await sync.syncMeeting(meetingId)
     }
 
     func move(meetingId: UUID, to folderId: UUID?) async {
@@ -361,12 +375,14 @@ final class AppState {
         meeting.folderId = folderId
         try? await store.save(meeting)
         await refresh()
+        await sync.syncMeeting(meetingId)
     }
 
     func delete(meetingId: UUID) async {
         try? await store.delete(id: meetingId)
         if selectedMeetingId == meetingId { selectedMeetingId = nil }
         await refresh()
+        await sync.deleteMeeting(meetingId)
     }
 
     func saveSettings() async {

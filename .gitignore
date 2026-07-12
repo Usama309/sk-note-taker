@@ -23,3 +23,7 @@ tests/tmp/
 # Secrets
 .env
 .env.*
+supabase/.env
+supabase/.temp/
+**/service-role-key*
+*.db-password
