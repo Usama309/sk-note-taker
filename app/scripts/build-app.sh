@@ -62,13 +62,25 @@ cat > "$BUNDLE/Contents/Info.plist" <<'PLIST'
 PLIST
 
 echo "==> Signing"
+# Hardened runtime blocks mic access unless the audio-input entitlement is present.
+ENTITLEMENTS="$DIST/entitlements.plist"
+cat > "$ENTITLEMENTS" <<'ENT'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.device.audio-input</key> <true/>
+</dict>
+</plist>
+ENT
+
 IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null | awk -F'"' '/Apple Development/{print $2; exit}')"
 if [[ -n "${IDENTITY:-}" ]]; then
     echo "    using identity: $IDENTITY"
-    codesign --force --deep --options runtime --sign "$IDENTITY" "$BUNDLE"
+    codesign --force --deep --options runtime --entitlements "$ENTITLEMENTS" --sign "$IDENTITY" "$BUNDLE"
 else
     echo "    no Apple Development identity found — ad-hoc signing"
-    codesign --force --deep --sign - "$BUNDLE"
+    codesign --force --deep --entitlements "$ENTITLEMENTS" --sign - "$BUNDLE"
 fi
 codesign --verify --deep "$BUNDLE" && echo "    signature OK"
 

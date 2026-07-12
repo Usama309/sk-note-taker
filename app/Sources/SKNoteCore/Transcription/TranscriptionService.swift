@@ -79,13 +79,22 @@ public actor TranscriptionService {
         try await analyzer.start(inputSequence: stream)
 
         let channel = self.channel
+        let debug = ProcessInfo.processInfo.environment["SKNOTE_DEBUG"] == "1"
         consumeTask = Task { [weak self] in
             do {
                 for try await result in transcriber.results {
                     guard let self else { break }
+                    if debug {
+                        FileHandle.standardError.write(Data(
+                            "SKNOTE_DEBUG asr[\(channel.rawValue)] final=\(result.isFinal) text=\(String(result.text.characters).prefix(60))\n".utf8))
+                    }
                     let offset = await self.sessionOffset ?? 0
                     let mapped = Self.map(result: result, channel: channel, offset: offset)
                     if let mapped { handler(mapped) }
+                }
+                if debug {
+                    FileHandle.standardError.write(Data(
+                        "SKNOTE_DEBUG asr[\(channel.rawValue)] results stream finished\n".utf8))
                 }
             } catch {
                 FileHandle.standardError.write(
@@ -131,7 +140,9 @@ public actor TranscriptionService {
         inputContinuation?.finish()
         inputContinuation = nil
         try? await analyzer?.finalizeAndFinishThroughEndOfInput()
-        consumeTask?.cancel()
+        // Finalization emits the trailing final results; DRAIN the consumer instead of
+        // cancelling it, or those results are silently dropped.
+        await consumeTask?.value
         consumeTask = nil
         analyzer = nil
         transcriber = nil

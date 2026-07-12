@@ -57,6 +57,7 @@ function relativeDate(iso) {
 
 function formatDuration(sec) {
   if (typeof sec !== 'number' || sec <= 0) return null;
+  if (sec < 60) return `${Math.round(sec)}s`;
   const m = Math.round(sec / 60);
   if (m < 60) return `${m} min`;
   const h = Math.floor(m / 60);
@@ -103,7 +104,7 @@ function brandLogoSvg(size = 38) {
 
 function mountBrand() {
   const brand = $('#brandLink');
-  brand.innerHTML = `${brandLogoSvg(38)}<span><span class="brand-title">SK Note Taker</span><span class="brand-sub">Meeting review</span></span>`;
+  brand.innerHTML = `${brandLogoSvg(38)}<span class="brand-text"><span class="brand-title">SK Note Taker</span><span class="brand-sub">Meeting review</span></span>`;
   $('#topbarBrand').innerHTML = `${brandLogoSvg(30)}<span class="brand-title" style="font-size:15px;margin-left:8px">SK Note Taker</span>`;
 }
 

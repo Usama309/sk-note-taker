@@ -29,9 +29,14 @@ public actor DiarizationService {
 
     /// Re-diarize after this much new audio has accumulated.
     private let incrementalInterval: Double
+    /// Speaker-embedding clustering threshold. FluidAudio's default (0.7) under-splits
+    /// system-audio captures — macOS output processing compresses voice-embedding
+    /// distances — so we default lower for the meeting use case.
+    private let clusteringThreshold: Float
 
-    public init(incrementalInterval: Double = 15.0) {
+    public init(incrementalInterval: Double = 15.0, clusteringThreshold: Float = 0.6) {
         self.incrementalInterval = incrementalInterval
+        self.clusteringThreshold = clusteringThreshold
     }
 
     /// Downloads (once) and loads the CoreML diarization models.
@@ -63,7 +68,9 @@ public actor DiarizationService {
         let offset = firstChunkOffset ?? 0
         let audio = samples
         do {
-            let diarizer = DiarizerManager()
+            var config = DiarizerConfig()
+            config.clusteringThreshold = clusteringThreshold
+            let diarizer = DiarizerManager(config: config)
             diarizer.initialize(models: models)
             let result = try diarizer.performCompleteDiarization(audio, sampleRate: 16_000)
             segments = result.segments.map {

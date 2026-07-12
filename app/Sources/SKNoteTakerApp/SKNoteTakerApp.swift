@@ -47,7 +47,23 @@ final class AppState {
         settings = await store.loadSettings()
         ai = ClaudeCLIService(model: settings.claudeModel)
         claudeAvailable = await ai.isAvailable()
+        await recoverOrphanedMeetings()
         await refresh()
+    }
+
+    /// Meetings left in "recording" state by a crash/quit: close them out (their transcript
+    /// was autosaved continuously, so nothing is lost).
+    private func recoverOrphanedMeetings() async {
+        for var meeting in await store.allMeetings() where meeting.state == .recording {
+            meeting.state = .complete
+            if meeting.endedAt == nil { meeting.endedAt = Date() }
+            if meeting.durationSec == 0,
+               let transcript = try? await store.transcript(for: meeting.id),
+               let last = transcript.segments.map(\.end).max() {
+                meeting.durationSec = last
+            }
+            try? await store.save(meeting)
+        }
     }
 
     func refresh() async {

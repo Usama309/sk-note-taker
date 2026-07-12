@@ -177,5 +177,6 @@ struct RecordButton: View {
         .buttonStyle(.plain)
         .disabled(app.session != nil)
         .keyboardShortcut("n", modifiers: [.command])
+        .accessibilityLabel("Start Meeting")
     }
 }

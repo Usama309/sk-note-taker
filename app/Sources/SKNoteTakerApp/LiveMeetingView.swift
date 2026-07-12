@@ -68,6 +68,8 @@ struct LiveMeetingView: View {
             }
             .buttonStyle(.plain)
             .disabled(session.phase == .finishing)
+            .keyboardShortcut("e", modifiers: [.command])
+            .accessibilityLabel("End Meeting")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)

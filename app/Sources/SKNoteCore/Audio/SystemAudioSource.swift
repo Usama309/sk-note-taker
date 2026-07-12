@@ -65,6 +65,14 @@ public final class SystemAudioSource: AudioSource, @unchecked Sendable {
             cleanupAll()
             throw AudioSourceError.deviceUnavailable("tap format unreadable")
         }
+        let debug = ProcessInfo.processInfo.environment["SKNOTE_DEBUG"] == "1"
+        if debug {
+            let asbd = tapFormat.streamDescription.pointee
+            let line = "SKNOTE_DEBUG tapFormat rate=\(asbd.mSampleRate) ch=\(asbd.mChannelsPerFrame) " +
+                "fmt=\(asbd.mFormatID) flags=\(String(asbd.mFormatFlags, radix: 16)) " +
+                "bytesPerFrame=\(asbd.mBytesPerFrame) interleaved=\(tapFormat.isInterleaved)\n"
+            FileHandle.standardError.write(Data(line.utf8))
+        }
 
         let (stream, continuation) = AsyncStream<AudioChunk>.makeStream()
         state.withLock { $0 = continuation }
@@ -72,28 +80,39 @@ public final class SystemAudioSource: AudioSource, @unchecked Sendable {
         // 4. IOProc on the aggregate — must pass a real queue (nil silently fails on macOS 26).
         let resampler = AudioResampler()
         let clock = self.clock
+        var loggedBuffers = false
         err = AudioDeviceCreateIOProcIDWithBlock(&procID, aggregateID, ioQueue) {
             [self] _, inInputData, _, _, _ in
             let abl = UnsafeMutableAudioBufferListPointer(
                 UnsafeMutablePointer(mutating: inInputData))
-            for buf in abl {
-                guard let data = buf.mData, buf.mDataByteSize > 0 else { continue }
-                let frameCount = AVAudioFrameCount(
-                    buf.mDataByteSize / (tapFormat.streamDescription.pointee.mBytesPerFrame))
-                guard frameCount > 0,
-                      let pcm = AVAudioPCMBuffer(pcmFormat: tapFormat, frameCapacity: frameCount)
-                else { continue }
-                pcm.frameLength = frameCount
-                memcpy(pcm.audioBufferList.pointee.mBuffers.mData, data,
-                       Int(buf.mDataByteSize))
-                let samples = resampler.resample(pcm)
-                guard !samples.isEmpty else { continue }
-                let duration = Double(samples.count) / AudioResampler.targetRate
-                let start = clock.advance(channel: .system, by: duration)
-                state.withLock { $0 }?.yield(
-                    AudioChunk(channel: .system, samples: samples, startTime: start))
-                break // first buffer only; tap delivers a single stream
+            if debug && !loggedBuffers {
+                loggedBuffers = true
+                var desc = "SKNOTE_DEBUG ioproc buffers=\(abl.count):"
+                for b in abl { desc += " [ch=\(b.mNumberChannels) bytes=\(b.mDataByteSize)]" }
+                FileHandle.standardError.write(Data((desc + "\n").utf8))
             }
+            // The aggregate exposes the physical output device's streams AND the tap's
+            // stream. Pick the buffer matching the tap format's channel count (the last
+            // such buffer — device streams come first).
+            let tapChannels = tapFormat.streamDescription.pointee.mChannelsPerFrame
+            var tapBuffer: AudioBuffer?
+            for buf in abl where buf.mNumberChannels == tapChannels && buf.mDataByteSize > 0 {
+                tapBuffer = buf
+            }
+            guard let buf = tapBuffer, let data = buf.mData else { return }
+            let frameCount = AVAudioFrameCount(
+                buf.mDataByteSize / (tapFormat.streamDescription.pointee.mBytesPerFrame))
+            guard frameCount > 0,
+                  let pcm = AVAudioPCMBuffer(pcmFormat: tapFormat, frameCapacity: frameCount)
+            else { return }
+            pcm.frameLength = frameCount
+            memcpy(pcm.audioBufferList.pointee.mBuffers.mData, data, Int(buf.mDataByteSize))
+            let samples = resampler.resample(pcm)
+            guard !samples.isEmpty else { return }
+            let duration = Double(samples.count) / AudioResampler.targetRate
+            let start = clock.advance(channel: .system, by: duration)
+            state.withLock { $0 }?.yield(
+                AudioChunk(channel: .system, samples: samples, startTime: start))
         }
         guard err == noErr, procID != nil else {
             cleanupAll()

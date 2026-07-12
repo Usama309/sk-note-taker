@@ -104,6 +104,10 @@ public final class MeetingSession {
         for service in services.values {
             await service.finish()
         }
+        // The last results hop to the MainActor via ingest(); let those queued tasks land
+        // before snapshotting `finals` for the definitive rebuild.
+        for _ in 0..<5 { await Task.yield() }
+        try? await Task.sleep(for: .milliseconds(400))
 
         // Final full-quality diarization pass, then rebuild the transcript.
         let segments = await diarizer.finalPass()
@@ -133,9 +137,25 @@ public final class MeetingSession {
 
     // MARK: - Pipeline plumbing
 
+    // Debug: per-channel chunk counters (SKNOTE_DEBUG=1 prints periodic RMS to stderr).
+    private var debugChunkCounts: [AudioChannel: Int] = [:]
+    private static let debugEnabled =
+        ProcessInfo.processInfo.environment["SKNOTE_DEBUG"] == "1"
+
     private func pump(_ chunk: AudioChunk, into service: TranscriptionService) async {
         // Elapsed time comes from the audio itself (works for live and file sources alike).
         elapsed = max(elapsed, chunk.endTime)
+        if Self.debugEnabled {
+            let count = (debugChunkCounts[chunk.channel] ?? 0) + 1
+            debugChunkCounts[chunk.channel] = count
+            if count % 20 == 1 {
+                let rms = chunk.samples.isEmpty ? 0
+                    : (chunk.samples.reduce(Float(0)) { $0 + $1 * $1 } / Float(chunk.samples.count))
+                        .squareRoot()
+                FileHandle.standardError.write(Data(
+                    "SKNOTE_DEBUG \(chunk.channel.rawValue) chunk#\(count) t=\(String(format: "%.1f", chunk.startTime)) samples=\(chunk.samples.count) rms=\(String(format: "%.5f", rms))\n".utf8))
+            }
+        }
         await service.feed(chunk)
         if chunk.channel == .system {
             await diarizer.feed(chunk)
