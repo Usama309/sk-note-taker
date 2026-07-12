@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.4.0] — 2026-07-12
+
+### Fixed
+- **False meeting detection.** Detection fired whenever the mic was in use and a meeting app
+  was merely *running* in the background (e.g. Teams idle) — so a dictation app like Willow
+  Voice triggered a bogus "Teams meeting" alert. Now uses Core Audio process objects to detect
+  which app is *actually capturing the mic*, and only fires when that app is a meeting app.
+- **Fragmented / duplicated transcript.** On laptop speakers the mic picks up the remote
+  participants coming out of the speakers, so the same audio was transcribed on both the mic
+  (S1) and system (S2) channels — producing duplicated, interleaved one-word fragments. Added
+  cross-channel echo suppression: mic tokens that overlap a system token in time are dropped,
+  and the remaining tokens coalesce into clean sentences. Local speech (mic active while system
+  is quiet) is preserved. Tip: headphones avoid the echo entirely.
+
+### Added
+- **Copy buttons** on the transcript, summary, and notes — in both the Mac app and the web app.
+
 ## [1.3.0] — 2026-07-12
 
 ### Added — Supabase backend + Mac↔web sync (local-first)

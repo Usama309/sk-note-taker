@@ -126,6 +126,54 @@ public enum MicActivity {
         err = AudioObjectGetPropertyData(device, &address, 0, nil, &size, &running)
         return err == noErr && running != 0
     }
+
+    /// Bundle identifiers of processes currently capturing the microphone (macOS 14.4+ Core
+    /// Audio process objects). This is what lets us tell a real Zoom/Teams *call* apart from a
+    /// dictation app (e.g. Willow Voice) that merely has the mic open while Teams sits idle in
+    /// the background — the earlier false-positive.
+    public static func bundleIdsUsingMic() -> [String] {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyProcessObjectList,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        let system = AudioObjectID(kAudioObjectSystemObject)
+        var dataSize: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(system, &address, 0, nil, &dataSize) == noErr,
+              dataSize > 0 else { return [] }
+        let count = Int(dataSize) / MemoryLayout<AudioObjectID>.size
+        var procs = [AudioObjectID](repeating: 0, count: count)
+        guard AudioObjectGetPropertyData(system, &address, 0, nil, &dataSize, &procs) == noErr
+        else { return [] }
+
+        var result: [String] = []
+        for proc in procs where proc != kAudioObjectUnknown {
+            // Is this process running INPUT (capturing the mic)?
+            var runAddr = AudioObjectPropertyAddress(
+                mSelector: kAudioProcessPropertyIsRunningInput,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain)
+            var running: UInt32 = 0
+            var s = UInt32(MemoryLayout<UInt32>.size)
+            guard AudioObjectGetPropertyData(proc, &runAddr, 0, nil, &s, &running) == noErr,
+                  running != 0 else { continue }
+
+            // Map the audio process → pid → bundle id.
+            var pidAddr = AudioObjectPropertyAddress(
+                mSelector: kAudioProcessPropertyPID,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain)
+            var pid: pid_t = 0
+            s = UInt32(MemoryLayout<pid_t>.size)
+            guard AudioObjectGetPropertyData(proc, &pidAddr, 0, nil, &s, &pid) == noErr,
+                  pid > 0 else { continue }
+            #if canImport(AppKit)
+            if let bid = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier {
+                result.append(bid)
+            }
+            #endif
+        }
+        return result
+    }
 }
 
 #if canImport(AppKit)
@@ -171,11 +219,24 @@ public final class MeetingDetector {
     }
 
     private func tick() {
-        let bundleIds = NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier)
-        let app = MeetingAppRegistry.meetingApp(amongRunning: bundleIds)
+        // Only the app ACTUALLY capturing the mic counts — this distinguishes a real Zoom/Teams
+        // call from a dictation app (Willow Voice) using the mic while Teams idles in the
+        // background. Fall back to "any meeting app running + mic in use" only if the process
+        // list is unavailable.
+        let micUsers = MicActivity.bundleIdsUsingMic()
+        let app: String?
+        let micActive: Bool
+        if !micUsers.isEmpty {
+            app = MeetingAppRegistry.meetingApp(amongRunning: micUsers)
+            micActive = true          // a process is capturing the mic
+        } else {
+            // No per-process data (or nothing capturing) → don't fire on background apps.
+            app = nil
+            micActive = MicActivity.micInUse()
+        }
         let detected = engine.evaluate(
             now: Date().timeIntervalSince1970,
-            micActive: MicActivity.micInUse(),
+            micActive: micActive,
             meetingApp: app,
             isRecording: isRecording())
         if let detected { onDetected?(detected) }

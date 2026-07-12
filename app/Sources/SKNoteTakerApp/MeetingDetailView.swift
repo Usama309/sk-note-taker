@@ -189,6 +189,23 @@ struct SummaryTab: View {
     let notes: String
     let onGenerate: () -> Void
 
+    static func summaryText(_ s: SummaryData) -> String {
+        var lines: [String] = []
+        if !s.actionItems.isEmpty {
+            lines.append("ACTION ITEMS:")
+            for i in s.actionItems { lines.append("- \(i.owner.map { "\($0): " } ?? "")\(i.text)") }
+            lines.append("")
+        }
+        if !s.decisions.isEmpty {
+            lines.append("DECISIONS:"); s.decisions.forEach { lines.append("- \($0)") }; lines.append("")
+        }
+        if !s.remember.isEmpty {
+            lines.append("THINGS TO REMEMBER:"); s.remember.forEach { lines.append("- \($0)") }; lines.append("")
+        }
+        if !s.body.isEmpty { lines.append(s.body) }
+        return lines.joined(separator: "\n")
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
@@ -241,6 +258,7 @@ struct SummaryTab: View {
                             .font(.system(size: 11))
                             .foregroundStyle(.tertiary)
                         Spacer()
+                        CopyButton(label: "Copy summary") { Self.summaryText(summary) }
                         regenerateButton(label: "Regenerate")
                     }
                 } else {
@@ -341,10 +359,34 @@ struct MarkdownBlock: View {
 
 // MARK: - Transcript tab
 
+/// Copies text to the macOS pasteboard and briefly confirms.
+struct CopyButton: View {
+    let label: String
+    let text: () -> String
+    @State private var copied = false
+
+    var body: some View {
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text(), forType: .string)
+            copied = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { copied = false }
+        } label: {
+            Label(copied ? "Copied" : label,
+                  systemImage: copied ? "checkmark" : "doc.on.doc")
+                .font(.system(size: 11, weight: .medium))
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+    }
+}
+
 struct TranscriptTab: View {
     let meeting: Meeting
     let transcript: Transcript?
     let onRenameSpeakers: () -> Void
+
+    private func transcriptText(_ t: Transcript) -> String { t.rendered(with: meeting) }
 
     var body: some View {
         if let transcript, !transcript.segments.isEmpty {
@@ -369,6 +411,7 @@ struct TranscriptTab: View {
                             .help("Rename speakers")
                         }
                         Spacer()
+                        CopyButton(label: "Copy") { transcriptText(transcript) }
                     }
                     .padding(.bottom, 4)
 
@@ -403,10 +446,18 @@ struct NotesTab: View {
     let onSave: () -> Void
 
     var body: some View {
-        TextEditor(text: $notes)
-            .font(.system(size: 13))
-            .scrollContentBackground(.hidden)
-            .padding(14)
-            .onChange(of: notes) { onSave() }
+        VStack(spacing: 0) {
+            HStack {
+                Spacer()
+                CopyButton(label: "Copy notes") { notes }
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 10)
+            TextEditor(text: $notes)
+                .font(.system(size: 13))
+                .scrollContentBackground(.hidden)
+                .padding(14)
+                .onChange(of: notes) { onSave() }
+        }
     }
 }

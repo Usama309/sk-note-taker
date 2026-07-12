@@ -22,6 +22,34 @@ const el = (tag, attrs = {}, children = []) => {
 const escapeHtml = (s) =>
   String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
+// A small "Copy" button that copies the given text (string or a function returning one).
+function copyButton(getText, label = 'Copy') {
+  return el('button', {
+    class: 'copy-btn',
+    title: 'Copy to clipboard',
+    onclick: async (e) => {
+      const btn = e.currentTarget;
+      const text = typeof getText === 'function' ? getText() : getText;
+      try {
+        await navigator.clipboard.writeText(text || '');
+        btn.textContent = 'Copied ✓';
+        setTimeout(() => { btn.textContent = label; }, 1400);
+      } catch {
+        toast('Copy failed');
+      }
+    },
+  }, label);
+}
+
+// Renders a transcript segment list to plain "[MM:SS] Name: text" lines.
+function transcriptToText(segments) {
+  return (segments || []).map((s) => {
+    const t = formatTime(s.start);
+    const who = s.speakerName || s.speaker || 'Speaker';
+    return `[${t}] ${who}: ${s.text || ''}`;
+  }).join('\n');
+}
+
 async function api(path, opts) {
   const res = await fetch(`/api${path}`, opts);
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
@@ -396,6 +424,26 @@ function audioBar(id) {
   ]);
 }
 
+function summaryText(s) {
+  const lines = [];
+  if (s.actionItems && s.actionItems.length) {
+    lines.push('ACTION ITEMS:');
+    for (const i of s.actionItems) {
+      const owner = i.owner ? `${i.owner}: ` : '';
+      lines.push(`- ${owner}${i.text || (typeof i === 'string' ? i : '')}`);
+    }
+    lines.push('');
+  }
+  if (s.decisions && s.decisions.length) {
+    lines.push('DECISIONS:'); s.decisions.forEach((d) => lines.push(`- ${d}`)); lines.push('');
+  }
+  if (s.remember && s.remember.length) {
+    lines.push('THINGS TO REMEMBER:'); s.remember.forEach((r) => lines.push(`- ${r}`)); lines.push('');
+  }
+  if (s.body) lines.push(s.body);
+  return lines.join('\n');
+}
+
 function summaryTab(ctx) {
   const s = ctx.meeting.summary;
   const wrap = el('div');
@@ -403,6 +451,7 @@ function summaryTab(ctx) {
     wrap.appendChild(el('div', { class: 'notes-empty' }, 'No summary generated yet.'));
     return wrap;
   }
+  wrap.appendChild(el('div', { class: 'tab-actions' }, [copyButton(() => summaryText(s), 'Copy summary')]));
 
   // Action items checklist.
   if (s.actionItems && s.actionItems.length) {
@@ -459,7 +508,10 @@ function notesTab(ctx) {
   if (!notes || !notes.trim()) {
     return el('div', { class: 'notes-empty' }, 'No notes for this meeting.');
   }
-  return el('div', { class: 'markdown', html: renderMarkdown(notes) });
+  const wrap = el('div');
+  wrap.appendChild(el('div', { class: 'tab-actions' }, [copyButton(() => notes, 'Copy notes')]));
+  wrap.appendChild(el('div', { class: 'markdown', html: renderMarkdown(notes) }));
+  return wrap;
 }
 
 function transcriptTab(ctx) {
@@ -469,16 +521,19 @@ function transcriptTab(ctx) {
   const segments = transcript.segments || [];
   const speakers = transcript.speakers || {};
 
-  // Sticky speaker-rename bar.
+  // Sticky speaker-rename bar + Copy transcript.
   const speakerKeys = Object.keys(speakers);
+  const bar = el('div', { class: 'speaker-bar' });
   if (speakerKeys.length) {
-    const bar = el('div', { class: 'speaker-bar' });
     bar.appendChild(el('span', { class: 'speaker-bar-label' }, 'Speakers'));
     for (const key of speakerKeys) {
       bar.appendChild(speakerChip(ctx, key, speakers[key]));
     }
-    wrap.appendChild(bar);
   }
+  if (segments.length) {
+    bar.appendChild(copyButton(() => transcriptToText(segments), 'Copy transcript'));
+  }
+  if (bar.children.length) wrap.appendChild(bar);
 
   if (!segments.length) {
     wrap.appendChild(el('div', { class: 'transcript-empty' }, 'No transcript available for this meeting.'));

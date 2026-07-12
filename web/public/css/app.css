@@ -394,3 +394,15 @@ button { font-family: inherit; }
   .detail-title { font-size: 21px; }
   .page-title { font-size: 22px; }
 }
+
+/* Copy buttons */
+.copy-btn {
+  margin-left: auto;
+  font-size: 11px; font-weight: 600;
+  padding: 4px 10px; border-radius: 8px;
+  color: var(--text); background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.12); cursor: pointer;
+}
+.copy-btn:hover { background: rgba(79,70,229,.25); border-color: rgba(79,70,229,.5); }
+.tab-actions { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+.speaker-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

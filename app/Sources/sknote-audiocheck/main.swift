@@ -108,6 +108,9 @@ case "status":
     let running = NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier)
     let app = MeetingAppRegistry.meetingApp(amongRunning: running)
     print("Detection:     mic-in-use=\(MicActivity.micInUse()), meeting app running=\(app ?? "none")")
+    let micUsers = MicActivity.bundleIdsUsingMic()
+    print("Mic users:     \(micUsers.isEmpty ? "none" : micUsers.joined(separator: ", "))")
+    print("Meeting-using-mic: \(MeetingAppRegistry.meetingApp(amongRunning: micUsers) ?? "none (no false positive)")")
     exit(0)
 
 case "probe":

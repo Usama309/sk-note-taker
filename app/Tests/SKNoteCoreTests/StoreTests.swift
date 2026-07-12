@@ -204,6 +204,40 @@ struct TranscriptAssemblerTests {
         #expect(segments[0].speaker == "S2")
     }
 
+    @Test func micEchoOfSystemAudioIsSuppressed() {
+        // Laptop-speaker echo: the remote voice (system) is also picked up by the mic at the
+        // same time. The mic copy must be dropped so it's not duplicated as S1.
+        let assembler = TranscriptAssembler()
+        let finals = [
+            TranscriptionResult(channel: .system, text: "", start: 0, end: 0, isFinal: true,
+                                tokens: [("Hello", 1.0, 1.5), ("everyone", 1.6, 2.2)]),
+            // Mic hears the same words (slightly offset) — this is echo.
+            TranscriptionResult(channel: .mic, text: "", start: 0, end: 0, isFinal: true,
+                                tokens: [("Hello", 1.1, 1.6), ("everyone", 1.7, 2.3)]),
+        ]
+        let diarized = [SpeakerSegment(speakerId: "A", start: 0.5, end: 3.0)]
+        let (segments, _) = assembler.assemble(finals: finals, speakerSegments: diarized)
+        #expect(segments.allSatisfy { $0.source == .system },
+                "mic echo of system audio should be dropped, got: \(segments.map { "\($0.speaker):\($0.text)" })")
+        #expect(segments.count == 1, "remaining system tokens should coalesce into one utterance")
+        #expect(segments.first?.text == "Hello everyone")
+    }
+
+    @Test func localMicSpeechIsKeptWhenSystemIsQuiet() {
+        // The user speaks (mic) while nobody remote is talking — must NOT be suppressed.
+        let assembler = TranscriptAssembler()
+        let finals = [
+            TranscriptionResult(channel: .mic, text: "", start: 0, end: 0, isFinal: true,
+                                tokens: [("My", 1.0, 1.2), ("turn", 1.3, 1.8)]),
+            TranscriptionResult(channel: .system, text: "", start: 0, end: 0, isFinal: true,
+                                tokens: [("Later reply", 5.0, 5.8)]),
+        ]
+        let diarized = [SpeakerSegment(speakerId: "A", start: 4.5, end: 6.0)]
+        let (segments, _) = assembler.assemble(finals: finals, speakerSegments: diarized)
+        #expect(segments.contains { $0.speaker == "S1" && $0.text == "My turn" })
+        #expect(segments.contains { $0.source == .system })
+    }
+
     @Test func volatileResultsAreIgnored() {
         let assembler = TranscriptAssembler()
         let finals = [

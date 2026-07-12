@@ -64,6 +64,25 @@ public struct TranscriptAssembler: Sendable {
         }
         tokens.sort { $0.start < $1.start }
 
+        // Cross-channel echo suppression: on laptop speakers (no headphones) the mic picks up
+        // the remote participants coming out of the speakers, so the SAME audio gets
+        // transcribed on both the mic (S1) and system (S2/S3) channels — producing duplicated,
+        // interleaved, one-word fragments. When a mic token's time heavily overlaps a system
+        // token, treat the mic copy as echo and drop it. Real local speech (mic active while
+        // the system channel is quiet) doesn't overlap, so it's preserved.
+        let systemTokens = tokens.filter { $0.source == .system }
+        if !systemTokens.isEmpty {
+            tokens = tokens.filter { tok in
+                guard tok.source == .mic else { return true }
+                let dur = max(tok.end - tok.start, 0.01)
+                for s in systemTokens {
+                    let overlap = min(tok.end, s.end) - max(tok.start, s.start)
+                    if overlap > 0, overlap / dur > 0.4 { return false }   // echoed → drop
+                }
+                return true
+            }
+        }
+
         // Coalesce into utterances.
         var segments: [TranscriptSegment] = []
         for token in tokens {
