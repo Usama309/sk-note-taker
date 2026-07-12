@@ -5,20 +5,69 @@ import SKNoteCore
 @main
 struct SKNoteTakerApp: App {
     @State private var appState = AppState()
+    @Environment(\.openWindow) private var openWindow
 
     var body: some Scene {
-        WindowGroup {
+        Window("SK Note Taker", id: "main") {
             ContentView()
                 .environment(appState)
                 .frame(minWidth: 1080, minHeight: 680)
                 .task { await appState.bootstrap() }
+                .onAppear {
+                    // Give AppState a way to surface the main window (from the menu bar
+                    // and from the notification's "Start Notes" action while backgrounded).
+                    appState.showMainWindow = {
+                        NSApp.setActivationPolicy(.regular)
+                        openWindow(id: "main")
+                        NSApp.activate(ignoringOtherApps: true)
+                    }
+                }
         }
         .windowStyle(.hiddenTitleBar)
+
+        // Menu bar item — open, start a meeting, or quit from anywhere (Zoom/Willow style).
+        MenuBarExtra("SK Note Taker", systemImage: "waveform") {
+            MenuBarContent()
+                .environment(appState)
+        }
 
         Settings {
             SettingsView()
                 .environment(appState)
         }
+    }
+}
+
+/// The menu shown from the top menu-bar icon.
+struct MenuBarContent: View {
+    @Environment(AppState.self) private var app
+
+    var body: some View {
+        if app.session != nil {
+            Button("End Meeting") { Task { await app.stopMeeting() } }
+            Divider()
+        } else {
+            Button("New Meeting") {
+                app.showMainWindow?()
+                Task { await app.startMeeting() }
+            }
+            .keyboardShortcut("n")
+        }
+        Button("Open SK Note Taker") { app.showMainWindow?() }
+        Divider()
+        if !app.meetings.isEmpty {
+            Text("Recent")
+            ForEach(app.meetings.prefix(5)) { meeting in
+                Button(meeting.title) {
+                    app.selectedMeetingId = meeting.id
+                    app.showMainWindow?()
+                }
+            }
+            Divider()
+        }
+        SettingsLink { Text("Settings…") }
+        Button("Quit SK Note Taker") { NSApp.terminate(nil) }
+            .keyboardShortcut("q")
     }
 }
 
@@ -43,6 +92,7 @@ final class AppState {
     // Permission state (refreshed on launch, after grants, and when the window activates).
     var micStatus: Permission.Status = .notDetermined
     var systemAudioStatus: Permission.Status = .notDetermined
+    var notificationStatus: String = "notDetermined"
     var showOnboarding = false
 
     // Meeting auto-detection (Zoom/Teams/WhatsApp/Meet → notification → start notes).
@@ -54,12 +104,18 @@ final class AppState {
     }()
     @ObservationIgnored private lazy var notifier: MeetingNotifier = {
         let n = MeetingNotifier()
-        n.onStart = { [weak self] in Task { await self?.startMeeting() } }
+        n.onStart = { [weak self] in
+            self?.showMainWindow?()          // surface the window (may be closed/backgrounded)
+            Task { await self?.startMeeting() }
+        }
         n.onDismiss = { [weak self] in self?.detector.snooze() }
         return n
     }()
-    /// Most recently detected meeting app (for an in-app banner fallback).
-    var detectedMeetingApp: String?
+    /// Set by the main window scene; surfaces/creates the main window (used by the menu bar
+    /// and the notification's Start Notes action when the app is backgrounded).
+    @ObservationIgnored var showMainWindow: (() -> Void)?
+    /// Keeps App Nap from throttling the background detection timer.
+    @ObservationIgnored private var backgroundActivity: NSObjectProtocol?
 
     // Transient UI state
     var errorMessage: String?
@@ -80,11 +136,30 @@ final class AppState {
     // MARK: - Meeting auto-detection
 
     func startAutoDetectIfEnabled() async {
-        guard settings.autoDetectMeetings else { detector.stop(); return }
-        // Start polling immediately — the in-app banner works without notification permission.
-        // Request notification auth in the background so it never blocks detection.
+        guard settings.autoDetectMeetings else {
+            detector.stop()
+            endBackgroundActivity()
+            return
+        }
+        // Keep the poll timer alive even when the app is backgrounded / window closed.
+        if backgroundActivity == nil {
+            backgroundActivity = ProcessInfo.processInfo.beginActivity(
+                options: [.userInitiated, .automaticTerminationDisabled],
+                reason: "SK Note Taker meeting detection")
+        }
         detector.start()
-        Task { await notifier.requestAuthorization() }
+        // Native macOS notification is the pop-up; request permission (non-blocking).
+        Task {
+            await notifier.requestAuthorization()
+            notificationStatus = await notifier.authorizationStatusString()
+        }
+    }
+
+    private func endBackgroundActivity() {
+        if let backgroundActivity {
+            ProcessInfo.processInfo.endActivity(backgroundActivity)
+            self.backgroundActivity = nil
+        }
     }
 
     func setAutoDetect(_ enabled: Bool) {
@@ -92,21 +167,15 @@ final class AppState {
         Task {
             try? await store.save(settings: settings)
             if enabled { await startAutoDetectIfEnabled() }
-            else { detector.stop(); detectedMeetingApp = nil }
+            else { detector.stop(); endBackgroundActivity() }
         }
     }
 
+    /// A meeting was detected → fire the native macOS notification (works while backgrounded).
     private func handleDetectedMeeting(app: String) {
         guard session == nil else { return }
-        detectedMeetingApp = app
         detector.accepted()          // latch until this call ends / user acts
         notifier.notifyMeetingDetected(app: app)
-    }
-
-    /// Dismiss the in-app banner and snooze detection.
-    func dismissDetectedMeeting() {
-        detectedMeetingApp = nil
-        detector.snooze()
     }
 
     // MARK: - Permissions
@@ -176,7 +245,6 @@ final class AppState {
 
     func startMeeting() async {
         guard session == nil else { return }
-        detectedMeetingApp = nil            // clear any pending detection banner
         let title = Date().formatted(date: .abbreviated, time: .shortened) + " Meeting"
         let session = MeetingSession.live(title: title, store: store)
         self.session = session

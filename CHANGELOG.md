@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.2.0] — 2026-07-12
+
+### Added — menu bar app + native notifications
+- **Menu bar icon** (waveform): New Meeting, Open SK Note Taker, recent meetings, Settings,
+  Quit — start or open from anywhere without the main window (Zoom/Willow style).
+- The app now **runs in the background** (menu bar keeps it alive; App Nap disabled) so it
+  keeps detecting meetings even when the window is closed.
+- Meeting detection now fires a **native macOS notification** ("You're in a &lt;app&gt;
+  meeting — start taking notes?" with the app icon and Start Notes / Options actions).
+  Clicking it brings the app forward and starts recording. The old in-app banner is removed.
+- Settings → Meeting Detection shows notification permission status with an Open Settings link.
+- Verified live: Teams call detected while the app was backgrounded → native notification →
+  click → app foregrounded + recording started.
+
+### Fixed
+- Notification-permission `await` was blocking the detector from starting; detection now
+  starts immediately and requests notification permission in the background.
+
 ## [1.1.0] — 2026-07-12
 
 ### Added — automatic meeting detection (Granola-style)

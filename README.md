@@ -105,10 +105,21 @@ Meet) call** starts, it detects the mic going live in a known meeting app and sh
 **Start Notes** button, plus an in-app banner). One click starts recording.
 
 - On by default; toggle under **Settings → Meeting Detection**.
+- The prompt is a **native macOS notification** with the app icon — click it (or its **Start
+  Notes** action) and SK Note Taker comes forward and starts recording, even if it was in the
+  background with no window open.
 - Detection uses the mic's *in-use state*, which needs no microphone permission — so it works
-  before you've granted anything.
+  before you've granted anything. (The notification itself needs the one-time Notifications
+  permission; status is shown in Settings → Meeting Detection.)
 - It never triggers on itself while recording, waits for a sustained signal (no false pops from
   a notification chime), and won't re-nag after you dismiss.
+
+### Menu bar
+
+SK Note Taker lives in the **menu bar** (waveform icon). From there you can **New Meeting**,
+**Open SK Note Taker**, jump to a recent meeting, open **Settings**, or **Quit** — without
+needing the main window. The app keeps running in the background so detection stays active even
+when the window is closed.
 
 ### Using it
 

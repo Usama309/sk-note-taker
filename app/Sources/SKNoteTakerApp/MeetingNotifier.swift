@@ -44,6 +44,17 @@ final class MeetingNotifier: NSObject, UNUserNotificationCenterDelegate {
         await center.notificationSettings().authorizationStatus
     }
 
+    func authorizationStatusString() async -> String {
+        switch await authorizationStatus() {
+        case .notDetermined: "notDetermined"
+        case .denied: "denied"
+        case .authorized: "authorized"
+        case .provisional: "provisional"
+        case .ephemeral: "ephemeral"
+        @unknown default: "unknown"
+        }
+    }
+
     /// Shows the "you're in a meeting" prompt.
     func notifyMeetingDetected(app: String) {
         let content = UNMutableNotificationContent()

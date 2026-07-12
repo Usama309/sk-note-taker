@@ -250,7 +250,23 @@ struct SettingsView: View {
                 Toggle("Auto-detect meetings", isOn: Binding(
                     get: { app.settings.autoDetectMeetings },
                     set: { app.setAutoDetect($0) }))
-                Text("Pops up a reminder to take notes when a Zoom, Teams, WhatsApp, or browser (Google Meet) call starts.")
+                LabeledContent("Notifications") {
+                    HStack(spacing: 8) {
+                        Label(app.notificationStatus == "authorized" ? "On" : app.notificationStatus,
+                              systemImage: app.notificationStatus == "authorized"
+                                ? "checkmark.circle.fill" : "bell.slash")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(app.notificationStatus == "authorized" ? .green : .orange)
+                        if app.notificationStatus != "authorized" {
+                            Button("Open Settings") {
+                                NSWorkspace.shared.open(URL(string:
+                                    "x-apple.systempreferences:com.apple.Notifications-Settings.extension")!)
+                            }
+                            .controlSize(.small)
+                        }
+                    }
+                }
+                Text("Pops up a native macOS notification when a Zoom, Teams, WhatsApp, or browser (Google Meet) call starts — click it to start taking notes.")
                     .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
             }
