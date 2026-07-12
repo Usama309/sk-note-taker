@@ -39,3 +39,14 @@ First release — built autonomously end-to-end (research → planning → imple
 ### Fixed during development
 - Chunk-boundary audio corruption from per-chunk AVAudioConverter creation (mangled ASR);
   switched to persistent converters.
+- Hardened-runtime signing silently denied the microphone until the
+  `com.apple.security.device.audio-input` entitlement was added.
+- System-audio tap IOProc read the physical output device's silent stream instead of the
+  tap's; now selects the ABL buffer matching the tap format.
+- Transcription finals emitted during finalization were dropped (consumer task was
+  cancelled instead of drained).
+- Diarization clustering threshold lowered 0.7 → 0.6: macOS speaker-output processing
+  compresses voice-embedding distances, which merged distinct speakers on live captures
+  (verified by threshold sweep on live-captured audio).
+- durationSec was 0 for file-sourced sessions (clock never advanced); now derived from
+  audio chunk timestamps.

@@ -213,6 +213,11 @@ public actor ClaudeCLIService {
                 let proc = Process()
                 proc.executableURL = URL(fileURLWithPath: launchPath)
                 proc.arguments = arguments
+                // Pin the CLI's cwd to our data dir — inheriting the app's cwd makes the
+                // CLI scan whatever folder that is (Desktop prompts, stray project files).
+                let cwd = MeetingStore.defaultDataDir()
+                try? FileManager.default.createDirectory(at: cwd, withIntermediateDirectories: true)
+                proc.currentDirectoryURL = cwd
                 let outPipe = Pipe(), errPipe = Pipe(), inPipe = Pipe()
                 proc.standardOutput = outPipe
                 proc.standardError = errPipe

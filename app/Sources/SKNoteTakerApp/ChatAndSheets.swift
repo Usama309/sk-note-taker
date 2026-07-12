@@ -170,6 +170,8 @@ struct SpeakersSheet: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(Theme.indigo)
+                .keyboardShortcut(.defaultAction)
+                .accessibilityLabel("Save Names")
             }
         }
         .padding(20)
