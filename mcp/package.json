@@ -1,0 +1,29 @@
+{
+  "name": "sknote-mcp",
+  "version": "0.1.0",
+  "description": "MCP stdio server exposing SK Note Taker meeting notes (meetings, transcripts, summaries, folders) to MCP clients.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "sknote-mcp": "dist/server.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "test": "npm run build && node tests/integration.test.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "@types/node": "^22.0.0"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "folders": [
+    { "id": "f-patriot", "name": "Patriot Holdings", "kind": "client", "parentId": null },
+    { "id": "f-redesign", "name": "Website Redesign", "kind": "project", "parentId": "f-patriot" },
+    { "id": "f-internal", "name": "Internal", "kind": "client", "parentId": null }
+  ]
+}

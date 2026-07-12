@@ -1,0 +1,12 @@
+{
+  "id": "m-ccc33333",
+  "title": "Quick idea capture",
+  "createdAt": "2026-07-12T09:15:00Z",
+  "folderId": null,
+  "state": "processing",
+  "speakers": {
+    "S1": { "label": "Speaker 1", "name": "Saqib", "source": "mic" }
+  },
+  "hasRecording": false,
+  "durationSec": 320
+}

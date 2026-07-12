@@ -1,0 +1,14 @@
+{
+  "id": "m-0002-beta",
+  "title": "Standup and blockers",
+  "createdAt": "2026-07-11T09:15:00Z",
+  "endedAt": "2026-07-11T09:27:00Z",
+  "folderId": "f-client-internal",
+  "state": "complete",
+  "speakers": {
+    "S1": { "label": "Speaker 1", "name": "Saqib", "source": "mic" },
+    "S2": { "label": "Speaker 2", "source": "system" }
+  },
+  "hasRecording": false,
+  "durationSec": 720
+}

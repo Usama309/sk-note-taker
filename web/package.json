@@ -1,0 +1,17 @@
+{
+  "name": "sknote-web",
+  "version": "0.1.0",
+  "description": "Web review app for SK Note Taker — browse and review meetings from any browser on the LAN.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test tests/api.test.mjs"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}

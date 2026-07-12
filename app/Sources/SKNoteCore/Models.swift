@@ -1,0 +1,249 @@
+import Foundation
+
+// MARK: - Meeting
+
+public enum MeetingState: String, Codable, Sendable {
+    case recording
+    case processing
+    case complete
+}
+
+public enum AudioChannel: String, Codable, Sendable {
+    case mic
+    case system
+}
+
+public struct SpeakerInfo: Codable, Sendable, Equatable {
+    public var label: String          // "Speaker 1"
+    public var name: String?          // "Kainat" — user-assigned
+    public var source: AudioChannel
+
+    public init(label: String, name: String? = nil, source: AudioChannel) {
+        self.label = label
+        self.name = name
+        self.source = source
+    }
+
+    /// Display name: user-assigned name if set, otherwise the generic label.
+    public var displayName: String { name?.isEmpty == false ? name! : label }
+}
+
+public struct AutoCategory: Codable, Sendable, Equatable {
+    public var project: String?
+    public var client: String?
+    public var confidence: Double
+
+    public init(project: String?, client: String?, confidence: Double) {
+        self.project = project
+        self.client = client
+        self.confidence = confidence
+    }
+}
+
+public struct Meeting: Codable, Sendable, Identifiable, Equatable {
+    public var id: UUID
+    public var title: String
+    public var createdAt: Date
+    public var endedAt: Date?
+    public var folderId: UUID?
+    public var state: MeetingState
+    /// Stable speaker key ("S1", "S2", …) → info. Renaming only touches this map;
+    /// transcript segments always reference the key.
+    public var speakers: [String: SpeakerInfo]
+    public var hasRecording: Bool
+    public var durationSec: Double
+    public var autoCategory: AutoCategory?
+
+    public init(
+        id: UUID = UUID(),
+        title: String,
+        createdAt: Date = Date(),
+        endedAt: Date? = nil,
+        folderId: UUID? = nil,
+        state: MeetingState = .recording,
+        speakers: [String: SpeakerInfo] = [:],
+        hasRecording: Bool = false,
+        durationSec: Double = 0,
+        autoCategory: AutoCategory? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.createdAt = createdAt
+        self.endedAt = endedAt
+        self.folderId = folderId
+        self.state = state
+        self.speakers = speakers
+        self.hasRecording = hasRecording
+        self.durationSec = durationSec
+        self.autoCategory = autoCategory
+    }
+
+    public func displayName(forSpeakerKey key: String) -> String {
+        speakers[key]?.displayName ?? key
+    }
+}
+
+// MARK: - Transcript
+
+public struct TranscriptSegment: Codable, Sendable, Identifiable, Equatable {
+    public var id: Int
+    public var speaker: String        // speaker key: "S1", "S2", …
+    public var source: AudioChannel
+    public var start: Double          // seconds from meeting start
+    public var end: Double
+    public var text: String
+    public var final: Bool
+
+    public init(id: Int, speaker: String, source: AudioChannel,
+                start: Double, end: Double, text: String, final: Bool = true) {
+        self.id = id
+        self.speaker = speaker
+        self.source = source
+        self.start = start
+        self.end = end
+        self.text = text
+        self.final = final
+    }
+}
+
+public struct Transcript: Codable, Sendable, Equatable {
+    public var version: Int
+    public var segments: [TranscriptSegment]
+
+    public init(version: Int = 1, segments: [TranscriptSegment] = []) {
+        self.version = version
+        self.segments = segments
+    }
+
+    /// Plain-text rendering with resolved speaker names, e.g. "[03:12] Kainat: …".
+    public func rendered(with meeting: Meeting) -> String {
+        segments.filter(\.final).map { seg in
+            let m = Int(seg.start) / 60, s = Int(seg.start) % 60
+            let name = meeting.displayName(forSpeakerKey: seg.speaker)
+            return String(format: "[%02d:%02d] %@: %@", m, s, name, seg.text)
+        }.joined(separator: "\n")
+    }
+}
+
+// MARK: - Folders
+
+public enum FolderKind: String, Codable, Sendable {
+    case client
+    case project
+    case generic
+}
+
+public struct Folder: Codable, Sendable, Identifiable, Equatable, Hashable {
+    public var id: UUID
+    public var name: String
+    public var kind: FolderKind
+    public var parentId: UUID?
+
+    public init(id: UUID = UUID(), name: String, kind: FolderKind = .generic, parentId: UUID? = nil) {
+        self.id = id
+        self.name = name
+        self.kind = kind
+        self.parentId = parentId
+    }
+}
+
+// MARK: - Chat
+
+public struct ChatMessage: Codable, Sendable, Identifiable, Equatable {
+    public var role: String   // "user" | "assistant"
+    public var text: String
+    public var at: Date
+
+    public var id: Date { at }
+
+    public init(role: String, text: String, at: Date = Date()) {
+        self.role = role
+        self.text = text
+        self.at = at
+    }
+}
+
+public struct ChatLog: Codable, Sendable, Equatable {
+    public var messages: [ChatMessage]
+    public init(messages: [ChatMessage] = []) { self.messages = messages }
+}
+
+// MARK: - Summary
+
+/// Structured fields extracted by the AI summary, stored as YAML front-matter in summary.md.
+public struct SummaryData: Codable, Sendable, Equatable {
+    public struct ActionItem: Codable, Sendable, Equatable {
+        public var owner: String?
+        public var text: String
+        public init(owner: String? = nil, text: String) {
+            self.owner = owner
+            self.text = text
+        }
+    }
+
+    public var generatedAt: Date
+    public var actionItems: [ActionItem]
+    public var decisions: [String]
+    public var remember: [String]
+    public var body: String            // markdown prose
+
+    public init(generatedAt: Date = Date(), actionItems: [ActionItem] = [],
+                decisions: [String] = [], remember: [String] = [], body: String = "") {
+        self.generatedAt = generatedAt
+        self.actionItems = actionItems
+        self.decisions = decisions
+        self.remember = remember
+        self.body = body
+    }
+}
+
+// MARK: - Settings
+
+public struct AppSettings: Codable, Sendable, Equatable {
+    public var claudeModel: String
+    public var defaultSpeakerName: String?   // name for S1 (the machine owner)
+    public var locale: String
+
+    public init(claudeModel: String = "sonnet", defaultSpeakerName: String? = nil,
+                locale: String = "en-US") {
+        self.claudeModel = claudeModel
+        self.defaultSpeakerName = defaultSpeakerName
+        self.locale = locale
+    }
+}
+
+// MARK: - JSON coding helpers
+
+public enum SKJSON {
+    // ISO8601 with fractional seconds so Dates round-trip losslessly (and stay readable
+    // to the Node-based MCP/web tooling).
+    private static func fractionalFormatter() -> ISO8601DateFormatter {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }
+
+    public static var encoder: JSONEncoder {
+        let e = JSONEncoder()
+        e.dateEncodingStrategy = .custom { date, encoder in
+            var container = encoder.singleValueContainer()
+            try container.encode(fractionalFormatter().string(from: date))
+        }
+        e.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return e
+    }
+
+    public static var decoder: JSONDecoder {
+        let d = JSONDecoder()
+        d.dateDecodingStrategy = .custom { decoder in
+            let raw = try decoder.singleValueContainer().decode(String.self)
+            if let date = fractionalFormatter().date(from: raw)
+                ?? ISO8601DateFormatter().date(from: raw) {
+                return date
+            }
+            throw DecodingError.dataCorrupted(.init(
+                codingPath: decoder.codingPath, debugDescription: "Unparseable date: \(raw)"))
+        }
+        return d
+    }
+}

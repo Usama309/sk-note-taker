@@ -1,0 +1,4 @@
+{
+  "theme": "system",
+  "transcriptionModel": "whisper-large-v3"
+}
