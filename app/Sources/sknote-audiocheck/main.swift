@@ -4,11 +4,13 @@ import AppKit
 import SKNoteCore
 
 // Diagnostic: run a live AudioSource for N seconds and report signal levels.
-// Usage: sknote-audiocheck [mic|system|both] [seconds] [--vp]
-//   mic     — microphone via MicAudioSource
-//   system  — system-audio tap via SystemAudioSource
-//   both    — both, on a shared clock
-//   --vp    — (mic only) enable Apple voice processing (the old behavior)
+// Usage: sknote-audiocheck [mic|system|both|pick] [seconds] [--vp|--voiceio]
+//   mic      — microphone via MicAudioSource
+//   system   — system-audio tap via SystemAudioSource
+//   both     — both, on a shared clock
+//   pick     — run MicSourcePicker (probe + decision), then capture via the chosen source
+//   --vp     — (mic only) AVAudioEngine voice processing (the old, broken behavior)
+//   --voiceio— (mic only) VoiceIOMicSource: AUVoiceIO capture (survives other apps' calls)
 //
 // Run from Terminal so the mic-permission prompt attributes to Terminal.
 
@@ -16,6 +18,7 @@ let args = CommandLine.arguments
 let mode = args.count > 1 ? args[1] : "mic"
 let seconds = args.count > 2 ? (Double(args[2]) ?? 5) : 5
 let useVP = args.contains("--vp")
+let useVoiceIO = args.contains("--voiceio")
 
 struct LevelStats {
     var count = 0
@@ -80,9 +83,28 @@ print("Make noise / play audio now…\n")
 
 switch mode {
 case "mic":
-    let mic = MicAudioSource(clock: clock, voiceProcessing: useVP)
-    let s = await runSource(mic, label: "mic")
-    s.report("mic")
+    let mic: any AudioSource = useVoiceIO
+        ? VoiceIOMicSource(clock: clock)
+        : MicAudioSource(clock: clock, voiceProcessing: useVP)
+    let label = useVoiceIO ? "mic(voiceio)" : "mic"
+    let s = await runSource(mic, label: label)
+    s.report(label)
+    exit(s.maxRMS >= 0.001 ? 0 : 1)
+
+case "pick":
+    let micBusy = MicActivity.micInUse()
+    let others = MicActivity.bundleIdsUsingMic()
+    print("Mic busy: \(micBusy)  identified users: \(others.isEmpty ? "none" : others.joined(separator: ", "))")
+    let probe = micBusy ? await MicSourcePicker.probeRawTap() : nil
+    if let probe {
+        print("Raw-tap probe: chunks=\(probe.chunks) allZero=\(probe.allZero)")
+    }
+    let choice = MicSourcePicker.decide(othersOnMic: micBusy, probe: probe)
+    print("Decision: \(choice.rawValue)")
+    let mic: any AudioSource = choice == .voiceProcessing
+        ? VoiceIOMicSource(clock: clock) : MicAudioSource(clock: clock)
+    let s = await runSource(mic, label: "mic(\(choice.rawValue))")
+    s.report("mic(\(choice.rawValue))")
     exit(s.maxRMS >= 0.001 ? 0 : 1)
 
 case "system":

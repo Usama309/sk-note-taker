@@ -261,7 +261,7 @@ final class AppState {
     func startMeeting() async {
         guard session == nil else { return }
         let title = Date().formatted(date: .abbreviated, time: .shortened) + " Meeting"
-        let session = MeetingSession.live(title: title, store: store)
+        let session = await MeetingSession.live(title: title, store: store)
         self.session = session
         await session.start()
         refreshPermissions()

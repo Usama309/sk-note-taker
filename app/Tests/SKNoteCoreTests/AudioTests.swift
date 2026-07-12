@@ -71,6 +71,42 @@ struct AudioSignalTests {
     }
 }
 
+/// While another app runs a voice-processing call (WhatsApp/Teams/FaceTime), macOS mutes raw
+/// mic taps to bit-exact zeros. These pin the picker's decision table: switch to AUVoiceIO
+/// capture only on the muted signature — never when the raw tap still carries signal (a raw
+/// capturer like Zoom would be muted BY our VPIO session), and never when nobody else is on
+/// the mic.
+@Suite("Mic source picker")
+struct MicSourcePickerTests {
+    @Test func aloneOnMicUsesRawTap() {
+        #expect(MicSourcePicker.decide(othersOnMic: false, probe: nil) == .raw)
+    }
+
+    @Test func mutedRawTapDuringCallSwitchesToVoiceIO() {
+        // The WhatsApp-call failure: another app on the mic, probe delivers exact zeros.
+        let probe = MicSourcePicker.ProbeResult(chunks: 5, allZero: true)
+        #expect(MicSourcePicker.decide(othersOnMic: true, probe: probe) == .voiceProcessing)
+    }
+
+    @Test func rawTapWithSignalStaysRawEvenDuringCall() {
+        // Zoom-style call app capturing raw: our raw tap still hears the noise floor —
+        // joining as a VPIO client would mute the CALL, so we must stay raw.
+        let probe = MicSourcePicker.ProbeResult(chunks: 5, allZero: false)
+        #expect(MicSourcePicker.decide(othersOnMic: true, probe: probe) == .raw)
+    }
+
+    @Test func deadRawTapDuringCallSwitchesToVoiceIO() {
+        // Engine produced no buffers at all alongside the call → treat as muted.
+        let probe = MicSourcePicker.ProbeResult(chunks: 0, allZero: true)
+        #expect(MicSourcePicker.decide(othersOnMic: true, probe: probe) == .voiceProcessing)
+    }
+
+    @Test func noProbeMeansRaw() {
+        // Defensive: without probe evidence we never switch (avoids muting a raw call app).
+        #expect(MicSourcePicker.decide(othersOnMic: true, probe: nil) == .raw)
+    }
+}
+
 @Suite("Permission model")
 struct PermissionTests {
     @Test func micStatusMapsAuthorizationStates() {

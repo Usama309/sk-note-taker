@@ -62,12 +62,15 @@ public final class MeetingSession {
         self.recordAudio = recordAudio
     }
 
-    /// Convenience: live meeting with mic + system tap on a fresh clock.
-    public static func live(title: String, store: MeetingStore) -> MeetingSession {
+    /// Convenience: live meeting with mic + system tap on a fresh clock. Async because the
+    /// mic path is chosen at start: during an active call (WhatsApp/Teams/FaceTime), macOS
+    /// mutes raw mic taps, so `MicSourcePicker` probes and falls back to AUVoiceIO capture.
+    public static func live(title: String, store: MeetingStore) async -> MeetingSession {
         let clock = SessionClock()
+        let mic = await MicSourcePicker.pick(clock: clock)
         return MeetingSession(
             title: title, store: store,
-            sources: [MicAudioSource(clock: clock), SystemAudioSource(clock: clock)],
+            sources: [mic, SystemAudioSource(clock: clock)],
             clock: clock)
     }
 

@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.4.1] — 2026-07-12
+
+### Fixed
+- **"No microphone audio detected" during WhatsApp/Teams/FaceTime calls.** When any app runs
+  an Apple voice-processing (echo-cancellation) session on the mic, macOS mutes every raw
+  input client — our mic tap received bit-exact silence for the whole call even though mic
+  permission was granted, so recordings captured only the remote side. Recording now probes
+  the raw tap at start when the mic is already busy: if it's muted, capture switches to a
+  direct AUVoiceIO (voice-processing) source, which keeps receiving real mic audio during the
+  call. When the raw tap still carries signal (e.g. a call app using its own echo canceller),
+  we stay on the raw path — joining as a voice-processing client there would mute the call
+  app instead.
+- Known limitation: if a voice-processing call starts *mid-recording*, the mic goes silent
+  until the recording is restarted; the in-app warning banner now says so.
+
 ## [1.4.0] — 2026-07-12
 
 ### Fixed

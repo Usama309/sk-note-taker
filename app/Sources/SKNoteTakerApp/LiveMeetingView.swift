@@ -20,7 +20,7 @@ struct LiveMeetingView: View {
     private var micWarningBanner: some View {
         HStack(spacing: 8) {
             Image(systemName: "mic.slash.fill").foregroundStyle(.orange)
-            Text("No microphone audio detected — your voice won't be transcribed. Check your input device and that mic access is enabled.")
+            Text("No microphone audio detected — your voice won't be transcribed. If a call started after recording began, stop and start the recording again; otherwise check your input device and mic access.")
                 .font(.system(size: 12))
             Spacer()
             Button("Open Settings") { app.openMicSettings() }
