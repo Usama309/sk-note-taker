@@ -1,0 +1,25 @@
+# Build artifacts
+.build/
+build/
+DerivedData/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+dist/
+
+# Node
+node_modules/
+*.tsbuildinfo
+
+# Local dev artifacts
+logs/
+tests/tmp/
+.DS_Store
+
+# Runtime data (never commit meeting data)
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# Secrets
+.env
+.env.*
