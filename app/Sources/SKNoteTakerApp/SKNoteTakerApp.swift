@@ -125,6 +125,10 @@ final class AppState {
         settings = await store.loadSettings()
         ai = ClaudeCLIService(model: settings.claudeModel)
         claudeAvailable = await ai.isAvailable()
+        // Sync the login item to the saved preference (registers on first run if defaulted on).
+        if settings.launchAtLogin != LoginItem.isEnabled {
+            LoginItem.setEnabled(settings.launchAtLogin)
+        }
         refreshPermissions()
         // First run (mic never asked) → show the onboarding walkthrough.
         showOnboarding = micStatus == .notDetermined
@@ -192,6 +196,12 @@ final class AppState {
     /// Probing system-audio status also triggers its first-time prompt.
     func probeSystemAudio() {
         systemAudioStatus = Permission.systemAudioStatus()
+    }
+
+    func setLaunchAtLogin(_ enabled: Bool) {
+        settings.launchAtLogin = enabled
+        LoginItem.setEnabled(enabled)
+        Task { try? await store.save(settings: settings) }
     }
 
     func openMicSettings() {

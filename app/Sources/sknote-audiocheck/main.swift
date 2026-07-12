@@ -101,6 +101,15 @@ case "both":
     ss.report("system")
     exit(ms.maxRMS >= 0.001 && ss.maxRMS >= 0.001 ? 0 : 1)
 
+case "status":
+    // One-shot permission/status report.
+    print("Microphone:    \(Permission.micStatus().rawValue)")
+    print("System audio:  \(Permission.systemAudioStatus().rawValue)  (grants access to the tap)")
+    let running = NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier)
+    let app = MeetingAppRegistry.meetingApp(amongRunning: running)
+    print("Detection:     mic-in-use=\(MicActivity.micInUse()), meeting app running=\(app ?? "none")")
+    exit(0)
+
 case "probe":
     // Meeting-detection probe: report mic-in-use state + any detected meeting app, once.
     let running = NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier)

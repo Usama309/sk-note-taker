@@ -205,18 +205,22 @@ public struct AppSettings: Codable, Sendable, Equatable {
     public var locale: String
     /// Auto-detect Zoom/Teams/WhatsApp/Meet calls and offer to take notes. On by default.
     public var autoDetectMeetings: Bool
+    /// Launch SK Note Taker automatically when the Mac starts. On by default.
+    public var launchAtLogin: Bool
 
     public init(claudeModel: String = "sonnet", defaultSpeakerName: String? = nil,
-                locale: String = "en-US", autoDetectMeetings: Bool = true) {
+                locale: String = "en-US", autoDetectMeetings: Bool = true,
+                launchAtLogin: Bool = true) {
         self.claudeModel = claudeModel
         self.defaultSpeakerName = defaultSpeakerName
         self.locale = locale
         self.autoDetectMeetings = autoDetectMeetings
+        self.launchAtLogin = launchAtLogin
     }
 
-    // Tolerant decode: older settings.json without autoDetectMeetings defaults to on.
+    // Tolerant decode: older settings.json without new fields default to on.
     private enum CodingKeys: String, CodingKey {
-        case claudeModel, defaultSpeakerName, locale, autoDetectMeetings
+        case claudeModel, defaultSpeakerName, locale, autoDetectMeetings, launchAtLogin
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -224,6 +228,7 @@ public struct AppSettings: Codable, Sendable, Equatable {
         defaultSpeakerName = try c.decodeIfPresent(String.self, forKey: .defaultSpeakerName)
         locale = try c.decodeIfPresent(String.self, forKey: .locale) ?? "en-US"
         autoDetectMeetings = try c.decodeIfPresent(Bool.self, forKey: .autoDetectMeetings) ?? true
+        launchAtLogin = try c.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? true
     }
 }
 

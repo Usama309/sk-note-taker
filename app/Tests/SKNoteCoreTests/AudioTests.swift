@@ -86,22 +86,36 @@ struct PermissionTests {
     }
 }
 
-/// Level-meter bar math mirrors the UI's ChannelMeter (kept in sync).
+/// Level-meter bar math (dB scale) — the shared LevelMeter used by the UI meter.
 @Suite("Level meter")
 struct LevelMeterTests {
-    func bars(for level: Float) -> Int {
-        let normalized = min(max(level, 0), 0.5) / 0.5
-        return min(5, Int((normalized * 5).rounded(.up)))
+    @Test func silenceShowsNoBars() {
+        #expect(LevelMeter.bars(forRMS: 0) == 0)
+        #expect(LevelMeter.bars(forRMS: 0.0001) == 0)   // below noise floor
     }
 
-    @Test func silenceShowsNoBars() { #expect(bars(for: 0) == 0) }
-    @Test func quietShowsSomeBars() { #expect(bars(for: 0.05) >= 1) }
-    @Test func loudSaturatesAtFive() {
-        #expect(bars(for: 0.5) == 5)
-        #expect(bars(for: 1.0) == 5)   // clamped
+    @Test func normalSpeechMovesTheMeter() {
+        // Typical speech RMS 0.02–0.15 must land in the mid-range, NOT stuck at 1 bar
+        // (the bug: a linear 0…0.5 scale pinned normal speech to a single bar).
+        let quiet = LevelMeter.bars(forRMS: 0.02)
+        let normal = LevelMeter.bars(forRMS: 0.06)
+        let loud = LevelMeter.bars(forRMS: 0.2)
+        #expect(quiet >= 1 && quiet <= 3)
+        #expect(normal >= 2 && normal <= 4)
+        #expect(loud >= 4)
+        #expect(loud > quiet, "louder input must show more bars than quiet")
     }
-    @Test func midLevelIsProportional() {
-        let b = bars(for: 0.25)
-        #expect(b >= 2 && b <= 3)
+
+    @Test func monotonicAcrossTypicalRange() {
+        let levels: [Float] = [0.005, 0.01, 0.03, 0.08, 0.2, 0.4]
+        let bars = levels.map { LevelMeter.bars(forRMS: $0) }
+        for i in 1..<bars.count {
+            #expect(bars[i] >= bars[i - 1], "meter must be non-decreasing with level: \(bars)")
+        }
+    }
+
+    @Test func loudSaturatesAtFive() {
+        #expect(LevelMeter.bars(forRMS: 0.5) == 5)
+        #expect(LevelMeter.bars(forRMS: 1.0) == 5)
     }
 }

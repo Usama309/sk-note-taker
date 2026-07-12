@@ -246,6 +246,19 @@ struct SettingsView: View {
                         .foregroundStyle(app.claudeAvailable ? .green : .red)
                 }
             }
+            Section("General") {
+                Toggle("Launch at login", isOn: Binding(
+                    get: { app.settings.launchAtLogin },
+                    set: { app.setLaunchAtLogin($0) }))
+                if LoginItem.needsApproval {
+                    HStack {
+                        Text("Approve in System Settings → Login Items")
+                            .font(.system(size: 10)).foregroundStyle(.orange)
+                        Button("Open") { LoginItem.openLoginItemsSettings() }
+                            .controlSize(.small)
+                    }
+                }
+            }
             Section("Meeting Detection") {
                 Toggle("Auto-detect meetings", isOn: Binding(
                     get: { app.settings.autoDetectMeetings },

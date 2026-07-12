@@ -182,28 +182,26 @@ struct ChannelMeter: View {
     let level: Float          // 0…1 RMS
     let hasAudio: Bool
 
-    private var bars: Int {
-        let normalized = min(max(level, 0), 0.5) / 0.5     // 0…1
-        return min(5, Int((normalized * 5).rounded(.up)))
-    }
+    private var bars: Int { LevelMeter.bars(forRMS: level) }
 
     var body: some View {
         HStack(spacing: 5) {
-            Image(systemName: hasAudio ? systemImage : systemImage + ".slash")
+            Image(systemName: bars > 0 ? systemImage : systemImage + ".slash")
                 .font(.system(size: 10))
-                .foregroundStyle(hasAudio ? AnyShapeStyle(Theme.accentGradient)
-                                 : AnyShapeStyle(.orange))
+                .foregroundStyle(bars > 0 ? AnyShapeStyle(Theme.accentGradient)
+                                 : AnyShapeStyle(hasAudio ? AnyShapeStyle(.secondary)
+                                                          : AnyShapeStyle(Color.orange)))
             HStack(spacing: 2) {
                 ForEach(0..<5, id: \.self) { i in
                     RoundedRectangle(cornerRadius: 1)
                         .fill(i < bars ? AnyShapeStyle(Theme.accentGradient)
                               : AnyShapeStyle(.quaternary))
-                        .frame(width: 3, height: 6 + CGFloat(i) * 2)
+                        .frame(width: 3, height: 5 + CGFloat(i) * 2.5)
                 }
             }
         }
-        .help("\(label) input level")
-        .animation(.linear(duration: 0.1), value: bars)
+        .help("\(label) input level — \(bars)/5")
+        .animation(.easeOut(duration: 0.12), value: bars)
     }
 }
 

@@ -1,6 +1,19 @@
 import Foundation
 import Observation
 
+/// Maps an RMS level (0…1) to a 0…`maxBars` meter-bar count on a perceptual dB scale. Normal
+/// speech is only RMS ~0.02–0.15; a linear scale barely moves, so we map roughly −50 dBFS
+/// (quiet) … −6 dBFS (loud) across the bars. Shared by the UI meter and its tests.
+public enum LevelMeter {
+    public static func bars(forRMS rms: Float, maxBars: Int = 5) -> Int {
+        guard rms > 0.0005 else { return 0 }
+        let db = 20 * log10(rms)                    // 0.01→−40, 0.1→−20, 0.3→−10
+        let normalized = (db + 50) / 44             // −50 dB…−6 dB → 0…1
+        let bars = Int((Float(maxBars) * normalized).rounded(.up))
+        return min(maxBars, max(0, bars))
+    }
+}
+
 /// Orchestrates one live meeting: audio sources → transcription (per channel) → diarization
 /// (system channel) → assembled transcript → store, plus the full-audio recording.
 ///
