@@ -67,17 +67,30 @@ public struct TranscriptAssembler: Sendable {
         // Cross-channel echo suppression: on laptop speakers (no headphones) the mic picks up
         // the remote participants coming out of the speakers, so the SAME audio gets
         // transcribed on both the mic (S1) and system (S2/S3) channels — producing duplicated,
-        // interleaved, one-word fragments. When a mic token's time heavily overlaps a system
-        // token, treat the mic copy as echo and drop it. Real local speech (mic active while
-        // the system channel is quiet) doesn't overlap, so it's preserved.
+        // interleaved, one-word fragments. Three signals, because the two channels' ASR
+        // timestamps skew by a few hundred ms and the overlap test alone misses leading
+        // fragments ("hold", "so") that the mic hears slightly before the system channel:
+        //   1. Time overlap — a mic token that heavily overlaps a system token is echo.
+        //   2. Text match — a short mic token whose words also appear in a system token
+        //      moments apart is the mic's copy of the same audio.
+        //   3. Blip — a sub-articulation mic token (<0.2s) while the remote channel is
+        //      active is a faint-echo artifact, not speech.
+        // Real local speech (mic active while the system channel is quiet) triggers none.
         let systemTokens = tokens.filter { $0.source == .system }
         if !systemTokens.isEmpty {
             tokens = tokens.filter { tok in
                 guard tok.source == .mic else { return true }
                 let dur = max(tok.end - tok.start, 0.01)
+                let words = Self.normalizedWords(tok.text)
                 for s in systemTokens {
                     let overlap = min(tok.end, s.end) - max(tok.start, s.start)
-                    if overlap > 0, overlap / dur > 0.4 { return false }   // echoed → drop
+                    if overlap > 0, overlap / dur > 0.4 { return false }
+                    let gap = max(s.start - tok.end, tok.start - s.end)
+                    if gap < 1.0, dur < 0.75, !words.isEmpty,
+                       Self.containsWordRun(Self.normalizedWords(s.text), run: words) {
+                        return false
+                    }
+                    if dur < 0.2, gap < 0.75 { return false }
                 }
                 return true
             }
@@ -124,6 +137,24 @@ public struct TranscriptAssembler: Sendable {
         return segments.min {
             min(abs(t - $0.start), abs(t - $0.end)) < min(abs(t - $1.start), abs(t - $1.end))
         }?.speakerId
+    }
+
+    /// Lowercased words with punctuation stripped — the unit for echo text-matching.
+    static func normalizedWords(_ text: String) -> [String] {
+        text.lowercased()
+            .components(separatedBy: .whitespacesAndNewlines)
+            .map { $0.trimmingCharacters(in: .alphanumerics.inverted) }
+            .filter { !$0.isEmpty }
+    }
+
+    /// Whether `words` contains `run` as a consecutive sub-sequence.
+    static func containsWordRun(_ words: [String], run: [String]) -> Bool {
+        guard !run.isEmpty, run.count <= words.count else { return false }
+        for start in 0...(words.count - run.count)
+        where Array(words[start..<(start + run.count)]) == run {
+            return true
+        }
+        return false
     }
 
     private static func join(_ a: String, _ b: String) -> String {

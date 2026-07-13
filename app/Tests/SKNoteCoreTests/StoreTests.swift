@@ -248,4 +248,55 @@ struct TranscriptAssemblerTests {
         #expect(segments.isEmpty)
         #expect(speakers.isEmpty)
     }
+
+    @Test func leadingEchoFragmentWithTimestampSkewIsSuppressed() {
+        // The Patriot-meeting bug at 24:43: the mic hears the first word of the remote
+        // speaker's sentence slightly BEFORE the system channel's ASR timestamps it, so
+        // there's no time overlap — but the same word on both channels moments apart is
+        // still echo and must not become a phantom S1 line.
+        let assembler = TranscriptAssembler()
+        let finals = [
+            TranscriptionResult(channel: .mic, text: "", start: 0, end: 0, isFinal: true,
+                                tokens: [("hold", 10.00, 10.30)]),
+            TranscriptionResult(channel: .system, text: "", start: 0, end: 0, isFinal: true,
+                                tokens: [("hold on a second", 10.35, 11.6)]),
+        ]
+        let diarized = [SpeakerSegment(speakerId: "A", start: 10.0, end: 12.0)]
+        let (segments, _) = assembler.assemble(finals: finals, speakerSegments: diarized)
+        #expect(segments.allSatisfy { $0.source == .system },
+                "skewed leading echo must be dropped, got: \(segments.map { "\($0.speaker):\($0.text)" })")
+    }
+
+    @Test func subArticulationBlipDuringRemoteSpeechIsSuppressed() {
+        // Faint echo the system ASR never transcribed ("go?" at 24:32): a <0.2s mic token
+        // is not an articulable word — drop it whenever the remote channel is active nearby.
+        let assembler = TranscriptAssembler()
+        let finals = [
+            TranscriptionResult(channel: .mic, text: "", start: 0, end: 0, isFinal: true,
+                                tokens: [("go", 9.95, 10.05)]),
+            TranscriptionResult(channel: .system, text: "", start: 0, end: 0, isFinal: true,
+                                tokens: [("But there you are", 10.6, 12.0)]),
+        ]
+        let diarized = [SpeakerSegment(speakerId: "A", start: 10.0, end: 12.5)]
+        let (segments, _) = assembler.assemble(finals: finals, speakerSegments: diarized)
+        #expect(segments.allSatisfy { $0.source == .system },
+                "sub-articulation blip must be dropped, got: \(segments.map { "\($0.speaker):\($0.text)" })")
+    }
+
+    @Test func realInterjectionDuringRemoteSpeechIsKept() {
+        // A genuine "Got it." from the user mid-remote-speech: proper word duration and
+        // different words than the remote channel — must survive all three echo rules.
+        let assembler = TranscriptAssembler()
+        let finals = [
+            TranscriptionResult(channel: .mic, text: "", start: 0, end: 0, isFinal: true,
+                                tokens: [("Got it", 10.0, 11.2)]),
+            TranscriptionResult(channel: .system, text: "", start: 0, end: 0, isFinal: true,
+                                tokens: [("and the numbers keep improving", 8.0, 9.9),
+                                         ("so the plan stays", 11.5, 13.0)]),
+        ]
+        let diarized = [SpeakerSegment(speakerId: "A", start: 8.0, end: 13.0)]
+        let (segments, _) = assembler.assemble(finals: finals, speakerSegments: diarized)
+        #expect(segments.contains { $0.speaker == "S1" && $0.text == "Got it" },
+                "real interjections must be preserved, got: \(segments.map { "\($0.speaker):\($0.text)" })")
+    }
 }

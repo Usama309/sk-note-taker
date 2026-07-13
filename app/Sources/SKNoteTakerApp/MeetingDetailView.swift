@@ -385,8 +385,18 @@ struct TranscriptTab: View {
     let meeting: Meeting
     let transcript: Transcript?
     let onRenameSpeakers: () -> Void
+    @State private var selected: Set<Int> = []
 
     private func transcriptText(_ t: Transcript) -> String { t.rendered(with: meeting) }
+
+    /// Just the selected messages, in transcript order, in the same rendered format.
+    private func selectedText(_ t: Transcript) -> String {
+        t.segments.filter { selected.contains($0.id) }.map { seg in
+            let m = Int(seg.start) / 60, s = Int(seg.start) % 60
+            let name = meeting.displayName(forSpeakerKey: seg.speaker)
+            return String(format: "[%02d:%02d] %@: %@", m, s, name, seg.text)
+        }.joined(separator: "\n")
+    }
 
     var body: some View {
         if let transcript, !transcript.segments.isEmpty {
@@ -411,7 +421,24 @@ struct TranscriptTab: View {
                             .help("Rename speakers")
                         }
                         Spacer()
-                        CopyButton(label: "Copy") { transcriptText(transcript) }
+                        if selected.isEmpty {
+                            Text("Click messages to select")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.tertiary)
+                        } else {
+                            CopyButton(label: "Copy \(selected.count) selected") {
+                                selectedText(transcript)
+                            }
+                            Button {
+                                selected.removeAll()
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Clear selection")
+                        }
+                        CopyButton(label: "Copy all") { transcriptText(transcript) }
                     }
                     .padding(.bottom, 4)
 
@@ -421,7 +448,16 @@ struct TranscriptTab: View {
                             color: Theme.speakerColor(segment.speaker),
                             time: segment.start,
                             text: segment.text,
-                            volatile: false)
+                            volatile: false,
+                            selected: selected.contains(segment.id))
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                if selected.contains(segment.id) {
+                                    selected.remove(segment.id)
+                                } else {
+                                    selected.insert(segment.id)
+                                }
+                            }
                     }
                 }
                 .padding(16)

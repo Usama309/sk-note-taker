@@ -211,6 +211,7 @@ struct UtteranceBubble: View {
     let time: Double?
     let text: String
     let volatile: Bool
+    var selected: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -223,6 +224,12 @@ struct UtteranceBubble: View {
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(.tertiary)
                 }
+                if selected {
+                    Spacer()
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.indigo)
+                }
             }
             Text(text)
                 .font(.system(size: 13))
@@ -233,7 +240,10 @@ struct UtteranceBubble: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(color.opacity(volatile ? 0.05 : 0.09),
+        .background(color.opacity(volatile ? 0.05 : selected ? 0.16 : 0.09),
                     in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Theme.indigo.opacity(selected ? 0.55 : 0), lineWidth: 1.5))
     }
 }

@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.5.1] — 2026-07-13
+
+### Fixed
+- **Jeff's words landing on Saqib's side of the transcript** (e.g. "hold" at 24:43, "so" at
+  24:52, "go?" at 24:32 in the Patriot call). On laptop speakers the mic hears the remote
+  voice, and the two channels' ASR timestamps skew by a few hundred ms — so the first word
+  of a remote sentence appeared on the mic channel *before* the system channel and slipped
+  past the time-overlap echo test, becoming a phantom S1 line. Echo suppression now has two
+  more signals: a short mic token whose words also appear on the system channel moments
+  apart is dropped (skew-proof text match), and a sub-articulation blip (<0.2s — not a
+  humanly articulable word) while the remote channel is active is dropped. Real
+  interjections ("Got it.", proper word durations, different words) are preserved — covered
+  by unit tests. The Patriot transcript was repaired in place: 25 echo fragments removed.
+
+### Added
+- **Copy multiple messages** from a meeting transcript: click messages to select them
+  (checkmark + highlight), then "Copy N selected" copies just those lines with timestamps
+  and speaker names. "Copy all" still copies the full transcript.
+
 ## [1.5.0] — 2026-07-13
 
 ### Fixed
