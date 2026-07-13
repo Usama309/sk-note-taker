@@ -400,67 +400,83 @@ struct TranscriptTab: View {
 
     var body: some View {
         if let transcript, !transcript.segments.isEmpty {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 6) {
-                        ForEach(meeting.speakers.keys.sorted(), id: \.self) { key in
-                            Button {
-                                onRenameSpeakers()
-                            } label: {
-                                HStack(spacing: 4) {
-                                    Circle().fill(Theme.speakerColor(key))
-                                        .frame(width: 7, height: 7)
-                                    Text(meeting.displayName(forSpeakerKey: key))
-                                        .font(.system(size: 11, weight: .semibold))
+            ZStack(alignment: .bottom) {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 6) {
+                            ForEach(meeting.speakers.keys.sorted(), id: \.self) { key in
+                                Button {
+                                    onRenameSpeakers()
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Circle().fill(Theme.speakerColor(key))
+                                            .frame(width: 7, height: 7)
+                                        Text(meeting.displayName(forSpeakerKey: key))
+                                            .font(.system(size: 11, weight: .semibold))
+                                    }
+                                    .padding(.horizontal, 9)
+                                    .padding(.vertical, 4)
+                                    .background(Theme.speakerColor(key).opacity(0.12), in: Capsule())
                                 }
-                                .padding(.horizontal, 9)
-                                .padding(.vertical, 4)
-                                .background(Theme.speakerColor(key).opacity(0.12), in: Capsule())
+                                .buttonStyle(.plain)
+                                .help("Rename speakers")
                             }
-                            .buttonStyle(.plain)
-                            .help("Rename speakers")
-                        }
-                        Spacer()
-                        if selected.isEmpty {
+                            Spacer()
                             Text("Click messages to select")
                                 .font(.system(size: 10))
                                 .foregroundStyle(.tertiary)
-                        } else {
-                            CopyButton(label: "Copy \(selected.count) selected") {
-                                selectedText(transcript)
-                            }
-                            Button {
-                                selected.removeAll()
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundStyle(.tertiary)
-                            }
-                            .buttonStyle(.plain)
-                            .help("Clear selection")
+                            CopyButton(label: "Copy all") { transcriptText(transcript) }
                         }
-                        CopyButton(label: "Copy all") { transcriptText(transcript) }
-                    }
-                    .padding(.bottom, 4)
+                        .padding(.bottom, 4)
 
-                    ForEach(transcript.segments) { segment in
-                        UtteranceBubble(
-                            name: meeting.displayName(forSpeakerKey: segment.speaker),
-                            color: Theme.speakerColor(segment.speaker),
-                            time: segment.start,
-                            text: segment.text,
-                            volatile: false,
-                            selected: selected.contains(segment.id))
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                if selected.contains(segment.id) {
-                                    selected.remove(segment.id)
-                                } else {
-                                    selected.insert(segment.id)
+                        ForEach(transcript.segments) { segment in
+                            UtteranceBubble(
+                                name: meeting.displayName(forSpeakerKey: segment.speaker),
+                                color: Theme.speakerColor(segment.speaker),
+                                time: segment.start,
+                                text: segment.text,
+                                volatile: false,
+                                selected: selected.contains(segment.id))
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    if selected.contains(segment.id) {
+                                        selected.remove(segment.id)
+                                    } else {
+                                        selected.insert(segment.id)
+                                    }
                                 }
-                            }
+                        }
+                        // Keep the last messages reachable above the floating selection bar.
+                        if !selected.isEmpty {
+                            Color.clear.frame(height: 46)
+                        }
                     }
+                    .padding(16)
                 }
-                .padding(16)
+
+                // Floating selection bar — always visible while messages are selected, no
+                // matter how far the transcript is scrolled.
+                if !selected.isEmpty {
+                    HStack(spacing: 10) {
+                        Text("\(selected.count) selected")
+                            .font(.system(size: 12, weight: .semibold))
+                        CopyButton(label: "Copy selected") { selectedText(transcript) }
+                        Button {
+                            selected.removeAll()
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Clear selection")
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(.regularMaterial, in: Capsule())
+                    .overlay(Capsule().strokeBorder(.quaternary))
+                    .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
+                    .padding(.bottom, 12)
+                }
             }
         } else {
             VStack(spacing: 10) {

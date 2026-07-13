@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.5.2] — 2026-07-13
+
+### Fixed
+- **"Copy selected" was invisible after scrolling.** The button lived in the transcript's
+  header row, which scrolls away with the content — selecting messages deep in a long
+  transcript left no visible copy control. Selection actions now live in a floating bar
+  pinned to the bottom of the transcript ("N selected · Copy selected · clear"), visible at
+  any scroll position. Copied lines include the timestamp and speaker name
+  (`[24:43] Jeff: …`), same format as "Copy all".
+
 ## [1.5.1] — 2026-07-13
 
 ### Fixed
