@@ -73,8 +73,17 @@ public actor DiarizationService {
             let diarizer = DiarizerManager(config: config)
             diarizer.initialize(models: models)
             let result = try diarizer.performCompleteDiarization(audio, sampleRate: 16_000)
+            // Fold same-voice clusters back together: the tight live threshold lets short
+            // backchannels ("yep", "mm-hmm") spawn a phantom extra speaker.
+            let merged = SpeakerClusterMerger.mergeMap(for: result.segments.map {
+                SpeakerClusterMerger.Segment(
+                    speakerId: $0.speakerId,
+                    start: Double($0.startTimeSeconds),
+                    end: Double($0.endTimeSeconds),
+                    embedding: $0.embedding)
+            })
             segments = result.segments.map {
-                SpeakerSegment(speakerId: $0.speakerId,
+                SpeakerSegment(speakerId: merged[$0.speakerId] ?? $0.speakerId,
                                start: Double($0.startTimeSeconds) + offset,
                                end: Double($0.endTimeSeconds) + offset)
             }.sorted { $0.start < $1.start }

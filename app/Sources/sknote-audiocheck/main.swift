@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import AppKit
+import FluidAudio
 import SKNoteCore
 
 // Diagnostic: run a live AudioSource for N seconds and report signal levels.
@@ -9,6 +10,8 @@ import SKNoteCore
 //   system   — system-audio tap via SystemAudioSource
 //   both     — both, on a shared clock
 //   pick     — run MicSourcePicker (probe + decision), then capture via the chosen source
+//   diarize <audio-file> — run speaker diarization over a recording and report the speaker
+//              count raw (no merge) vs through DiarizationService (same-voice clusters merged)
 //   --vp     — (mic only) AVAudioEngine voice processing (the old, broken behavior)
 //   --voiceio— (mic only) VoiceIOMicSource: AUVoiceIO capture (survives other apps' calls)
 //
@@ -61,7 +64,7 @@ final class StatsBox: @unchecked Sendable {
     var value: LevelStats { lock.lock(); defer { lock.unlock() }; return stats }
 }
 
-func runSource(_ source: any AudioSource, label: String) async -> LevelStats {
+func runSource(_ source: any SKNoteCore.AudioSource, label: String) async -> LevelStats {
     let box = StatsBox()
     do {
         let stream = try await source.start()
@@ -83,7 +86,7 @@ print("Make noise / play audio now…\n")
 
 switch mode {
 case "mic":
-    let mic: any AudioSource = useVoiceIO
+    let mic: any SKNoteCore.AudioSource = useVoiceIO
         ? VoiceIOMicSource(clock: clock)
         : MicAudioSource(clock: clock, voiceProcessing: useVP)
     let label = useVoiceIO ? "mic(voiceio)" : "mic"
@@ -101,7 +104,7 @@ case "pick":
     }
     let choice = MicSourcePicker.decide(othersOnMic: micBusy, probe: probe)
     print("Decision: \(choice.rawValue)")
-    let mic: any AudioSource = choice == .voiceProcessing
+    let mic: any SKNoteCore.AudioSource = choice == .voiceProcessing
         ? VoiceIOMicSource(clock: clock) : MicAudioSource(clock: clock)
     let s = await runSource(mic, label: "mic(\(choice.rawValue))")
     s.report("mic(\(choice.rawValue))")
@@ -144,6 +147,121 @@ case "probe":
     var engine = MeetingDetectionEngine(debounceHits: 1)
     let fired = engine.evaluate(now: 0, micActive: micUsed, meetingApp: app, isRecording: false)
     print(fired != nil ? "→ WOULD NOTIFY: \(fired!)" : "→ no notification")
+    exit(0)
+
+case "diarize":
+    // Offline speaker-count check over a recording: raw diarizer output vs
+    // DiarizationService (which folds same-voice clusters). Validates the phantom-speaker
+    // fix against real meeting audio.
+    guard args.count > 2 else {
+        print("usage: sknote-audiocheck diarize <audio-file>")
+        exit(2)
+    }
+    let url = URL(fileURLWithPath: args[2])
+
+    func loadAudio16kMono(_ url: URL) throws -> [Float] {
+        let file = try AVAudioFile(forReading: url)
+        let outFormat = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1,
+            interleaved: false)!
+        guard let converter = AVAudioConverter(from: file.processingFormat, to: outFormat) else {
+            throw NSError(domain: "audiocheck", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "cannot convert \(file.processingFormat) to 16k mono"])
+        }
+        let inBuf = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 32_768)!
+        var out: [Float] = []
+        var done = false
+        while !done {
+            let outBuf = AVAudioPCMBuffer(pcmFormat: outFormat, frameCapacity: 32_768)!
+            var convError: NSError?
+            let status = converter.convert(to: outBuf, error: &convError) { _, outStatus in
+                inBuf.frameLength = 0
+                try? file.read(into: inBuf, frameCount: 32_768)
+                if inBuf.frameLength == 0 {
+                    outStatus.pointee = .endOfStream
+                    return nil
+                }
+                outStatus.pointee = .haveData
+                return inBuf
+            }
+            if let convError { throw convError }
+            if outBuf.frameLength > 0 {
+                out.append(contentsOf: UnsafeBufferPointer(
+                    start: outBuf.floatChannelData![0], count: Int(outBuf.frameLength)))
+            }
+            done = status == .endOfStream || (status == .haveData && outBuf.frameLength == 0)
+        }
+        return out
+    }
+
+    func report(_ label: String, _ segs: [(id: String, start: Double, end: Double)]) {
+        print("\n[\(label)] \(Set(segs.map(\.id)).count) speaker(s)")
+        let bySpeaker = Dictionary(grouping: segs, by: \.id)
+        for (id, group) in bySpeaker.sorted(by: { $0.key < $1.key }) {
+            let total = group.reduce(0.0) { $0 + ($1.end - $1.start) }
+            let mean = total / Double(group.count)
+            print(String(format: "  speaker %@: %3d segments, %6.1fs speech, mean seg %.1fs",
+                         id, group.count, total, mean))
+        }
+    }
+
+    do {
+        let samples = try loadAudio16kMono(url)
+        print(String(format: "Loaded %.1fs of audio from %@",
+                     Double(samples.count) / 16_000, url.lastPathComponent))
+
+        // Raw pass — same config the live service uses, no merging.
+        let models = try await DiarizerModels.downloadIfNeeded()
+        var config = DiarizerConfig()
+        config.clusteringThreshold = 0.6
+        let raw = DiarizerManager(config: config)
+        raw.initialize(models: models)
+        let rawResult = try raw.performCompleteDiarization(samples, sampleRate: 16_000)
+        report("RAW (no merge)", rawResult.segments.map {
+            (id: $0.speakerId, start: Double($0.startTimeSeconds), end: Double($0.endTimeSeconds))
+        })
+
+        // Duration-weighted centroid per cluster + pairwise cosine distances — shows how
+        // separable real voices are from phantom fragments.
+        var centroids: [String: (sum: [Float], dur: Double)] = [:]
+        for seg in rawResult.segments {
+            let mag = sqrt(seg.embedding.reduce(Float(0)) { $0 + $1 * $1 })
+            guard mag > 1e-6 else { continue }
+            let dur = Double(seg.endTimeSeconds - seg.startTimeSeconds)
+            let weighted = seg.embedding.map { $0 / mag * Float(dur) }
+            if var c = centroids[seg.speakerId] {
+                c.sum = zip(c.sum, weighted).map(+)
+                c.dur += dur
+                centroids[seg.speakerId] = c
+            } else {
+                centroids[seg.speakerId] = (sum: weighted, dur: dur)
+            }
+        }
+        let unit: [String: [Float]] = centroids.mapValues { c in
+            let mag = sqrt(c.sum.reduce(Float(0)) { $0 + $1 * $1 })
+            return c.sum.map { $0 / mag }
+        }
+        print("\nPairwise centroid cosine distances:")
+        let ids = unit.keys.sorted { (Int($0) ?? 0) < (Int($1) ?? 0) }
+        for (i, a) in ids.enumerated() {
+            for b in ids[(i + 1)...] {
+                let d = 1 - zip(unit[a]!, unit[b]!).reduce(Float(0)) { $0 + $1.0 * $1.1 }
+                print(String(format: "  %3@ ↔ %-3@ d=%.3f", a, b, d))
+            }
+        }
+
+        // Through DiarizationService — includes the same-voice cluster merge.
+        let service = DiarizationService()
+        try await service.prepare()
+        await service.feed(AudioChunk(channel: .system, samples: samples, startTime: 0))
+        let merged = await service.finalPass()
+        report("MERGED (DiarizationService)", merged.map {
+            (id: $0.speakerId, start: $0.start, end: $0.end)
+        })
+    } catch {
+        print("diarize failed: \(error)")
+        exit(1)
+    }
     exit(0)
 
 default:

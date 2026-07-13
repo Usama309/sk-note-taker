@@ -26,7 +26,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "sknote-audiocheck",
-            dependencies: ["SKNoteCore"]
+            dependencies: [
+                "SKNoteCore",
+                .product(name: "FluidAudio", package: "FluidAudio"),
+            ]
         ),
         .testTarget(
             name: "SKNoteCoreTests",

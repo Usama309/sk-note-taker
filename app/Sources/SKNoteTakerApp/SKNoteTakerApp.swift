@@ -11,6 +11,7 @@ struct SKNoteTakerApp: App {
         Window("SK Note Taker", id: "main") {
             ContentView()
                 .environment(appState)
+                .preferredColorScheme(.light)   // brand look: light surfaces, readable speaker colors
                 .frame(minWidth: 1080, minHeight: 680)
                 .task { await appState.bootstrap() }
                 .onAppear {
@@ -34,6 +35,7 @@ struct SKNoteTakerApp: App {
         Settings {
             SettingsView()
                 .environment(appState)
+                .preferredColorScheme(.light)
         }
     }
 }

@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.5.0] — 2026-07-13
+
+### Fixed
+- **Phantom extra speaker in 1:1 calls.** A two-person meeting (Patriot / Facebook-ads call)
+  was diarized as three speakers: the remote participant's short backchannels ("yep",
+  "mm-hmm", "wow") have noisy voice embeddings that fell outside the diarizer's tight
+  assignment radius and spawned a "Speaker 3". Diarization now runs a post-pass that merges
+  same-voice clusters using duration-weighted centroid embeddings — three tiers: clusters
+  that are clearly the same voice always merge; small short-utterance clusters are absorbed
+  into their nearest voice; sub-12-second "dust" clusters fold into the nearest substantial
+  speaker. Verified on the actual meeting recording: raw diarizer produced 13 clusters,
+  merged output is exactly the 2 real speakers (kept distinct from each other). Genuinely
+  distinct quiet speakers (≥12s of real sentences) are preserved — covered by unit tests.
+  The affected meeting's stored transcript was repaired in place (Speaker 3 → Jeff).
+- **Unreadable speaker names in dark mode.** Speaker colors (e.g. Jeff's indigo `#4F46E5`)
+  had ~2.8:1 contrast on the dark background. The app now uses a light appearance
+  (per preference — it no longer follows system dark mode), and the speaker palette was
+  reshaded so every speaker color measures ≥4.5:1 (WCAG AA) on light surfaces.
+
+### Added
+- `sknote-audiocheck diarize <audio-file>` — offline diagnostic that diarizes a recording
+  and reports speaker counts raw vs merged, plus the pairwise centroid distance matrix
+  (used to tune the merge thresholds against real meeting audio).
+
 ## [1.4.1] — 2026-07-12
 
 ### Fixed
