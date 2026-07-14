@@ -104,10 +104,51 @@ public actor ClaudeCLIService {
         return output.result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Categorize a meeting into client/project folders (existing folders preferred).
+    /// In-meeting assistant: fast, actionable help while the call is still running.
+    /// The transcript is the LIVE one (may end mid-sentence); answers must be quick to scan.
+    public func liveAssist(question: String, meeting: Meeting, transcript: Transcript,
+                           history: ChatLog, userName: String?) async throws -> String {
+        let rendered = transcript.rendered(with: meeting)
+        guard !rendered.isEmpty else { throw ClaudeCLIError.emptyTranscript }
+        // Latency matters mid-call: keep only the most recent context.
+        let tail = String(rendered.suffix(12_000))
+
+        let historyText = history.messages.suffix(6).map {
+            "\($0.role == "user" ? "Q" : "A"): \($0.text)"
+        }.joined(separator: "\n")
+
+        let prompt = """
+        You are the LIVE meeting assistant inside SK Note Taker. The meeting is happening \
+        RIGHT NOW; the transcript below is live and may cut off mid-sentence. The user \
+        (\(userName ?? "the meeting owner"), the "mic" speaker) needs help immediately, \
+        while people are talking.
+
+        Rules:
+        - Answer first, context after. 2–6 short sentences or a tight bullet list. No preamble.
+        - When asked to catch up: recap only what matters — topics, asks, open questions.
+        - When asked what someone means: explain their point in plain language.
+        - When asked what to respond: give 1–3 concrete things the user could say, in a \
+        natural first-person voice they can read out loud.
+        - Use speaker names. If the transcript doesn't contain the answer, say so in one line.
+
+        Meeting: \(meeting.title)
+
+        LIVE TRANSCRIPT (most recent part):
+        \(tail)
+
+        \(historyText.isEmpty ? "" : "PREVIOUS Q&A:\n\(historyText)\n")
+        QUESTION: \(question)
+        """
+        let output = try await run(prompt: prompt, jsonSchema: nil)
+        return output.result.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Categorize a meeting into client/project folders (existing folders preferred), and
+    /// propose a concise human title to replace the default timestamp one.
     public func categorize(meeting: Meeting, transcript: Transcript,
                            existingFolders: [Folder],
-                           folderPath: @Sendable (UUID?) -> String) async throws -> AutoCategory {
+                           folderPath: @Sendable (UUID?) -> String) async throws
+        -> (category: AutoCategory, title: String?) {
         let rendered = transcript.rendered(with: meeting)
         guard !rendered.isEmpty else { throw ClaudeCLIError.emptyTranscript }
 
@@ -119,13 +160,16 @@ public actor ClaudeCLIService {
         {"type":"object","properties":{
           "client":{"type":["string","null"],"description":"Client/company name, or null"},
           "project":{"type":["string","null"],"description":"Project name, or null"},
-          "confidence":{"type":"number","minimum":0,"maximum":1}
-        },"required":["client","project","confidence"]}
+          "confidence":{"type":"number","minimum":0,"maximum":1},
+          "title":{"type":["string","null"],"description":"Concise meeting title, max 6 words, no dates, or null if the transcript gives no signal"}
+        },"required":["client","project","confidence","title"]}
         """
 
         let head = String(rendered.prefix(6000))
         let prompt = """
-        Categorize this meeting into a client and project for folder organization.
+        Categorize this meeting into a client and project for folder organization, and \
+        propose a concise descriptive title (what the meeting was ABOUT, max 6 words, \
+        no dates — the app shows the date separately).
         STRONGLY prefer reusing an existing client/project (exact names below) when the \
         meeting clearly belongs there; only propose a new name when nothing fits. Use \
         null when the transcript gives no signal. Client = company/person being served; \
@@ -146,10 +190,13 @@ public actor ClaudeCLIService {
             let client: String?
             let project: String?
             let confidence: Double
+            let title: String?
         }
         let payload = try JSONDecoder().decode(Payload.self, from: structured)
-        return AutoCategory(project: payload.project, client: payload.client,
-                            confidence: payload.confidence)
+        let title = payload.title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (AutoCategory(project: payload.project, client: payload.client,
+                             confidence: payload.confidence),
+                title?.isEmpty == true ? nil : title)
     }
 
     // MARK: - Subprocess plumbing

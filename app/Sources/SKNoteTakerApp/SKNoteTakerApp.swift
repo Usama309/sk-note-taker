@@ -114,6 +114,8 @@ final class AppState {
             Task { await self?.startMeeting() }
         }
         n.onDismiss = { [weak self] in self?.detector.snooze() }
+        n.onEndMeeting = { [weak self] in Task { await self?.stopMeeting() } }
+        n.onKeepRecording = { [weak self] in self?.session?.keepRecording() }
         return n
     }()
     /// Set by the main window scene; surfaces/creates the main window (used by the menu bar
@@ -263,7 +265,14 @@ final class AppState {
     func startMeeting() async {
         guard session == nil else { return }
         let title = Date().formatted(date: .abbreviated, time: .shortened) + " Meeting"
-        let session = await MeetingSession.live(title: title, store: store)
+        let session = await MeetingSession.live(
+            title: title, store: store,
+            autoEndSilenceSeconds: settings.autoEndDetection
+                ? max(60, settings.autoEndSilenceMinutes * 60) : nil)
+        session.onEndPromptShown = { [weak self] reason in
+            self?.notifier.notifyMeetingMayHaveEnded(reason: reason)
+        }
+        session.onAutoEnd = { [weak self] in Task { await self?.stopMeeting() } }
         self.session = session
         await session.start()
         refreshPermissions()
@@ -278,14 +287,20 @@ final class AppState {
 
     func stopMeeting() async {
         guard let session else { return }
+        notifier.clearEndPrompts()
         await session.finish()
         let finishedId = session.meeting.id
         self.session = nil
         await refresh()
         selectedMeetingId = finishedId
-        // Fire-and-forget auto-categorization + cloud sync once the meeting is done.
+        // Fire-and-forget post-meeting intelligence + cloud sync once the meeting is done.
         Task {
             await autoCategorize(meetingId: finishedId)
+            if settings.autoSummarize, claudeAvailable,
+               await store.summary(for: finishedId) == nil {
+                let notes = await store.notes(for: finishedId)
+                await generateSummary(for: finishedId, notes: notes)
+            }
             await sync.syncMeeting(finishedId)
             await sync.uploadRecording(finishedId)
         }
@@ -328,6 +343,30 @@ final class AppState {
         }
     }
 
+    /// In-meeting question — answered from the LIVE transcript, no store round-trip.
+    /// Persists into the meeting's chat.json so the thread continues after the meeting.
+    func askLive(question: String) async {
+        guard let session, !session.liveSegments.isEmpty else { return }
+        let meeting = session.meeting
+        let transcript = Transcript(segments: session.liveSegments)
+        busy.insert("liveChat")
+        defer { busy.remove("liveChat") }
+        var chat = await store.chat(for: meeting.id)
+        chat.messages.append(ChatMessage(role: "user", text: question))
+        try? await store.saveChat(chat, for: meeting.id)
+        do {
+            let answer = try await ai.liveAssist(
+                question: question, meeting: meeting, transcript: transcript,
+                history: chat, userName: settings.defaultSpeakerName)
+            chat.messages.append(ChatMessage(role: "assistant", text: answer))
+            try await store.saveChat(chat, for: meeting.id)
+        } catch {
+            chat.messages.append(ChatMessage(
+                role: "assistant", text: "Something went wrong: \(error.localizedDescription)"))
+            try? await store.saveChat(chat, for: meeting.id)
+        }
+    }
+
     func autoCategorize(meetingId: UUID) async {
         guard var meeting = meetings.first(where: { $0.id == meetingId }),
               meeting.folderId == nil,
@@ -342,10 +381,15 @@ final class AppState {
                 mutablePaths[folder.id] = await folderStore.path(for: folder.id)
             }
             let paths = mutablePaths
-            let category = try await ai.categorize(
+            let (category, suggestedTitle) = try await ai.categorize(
                 meeting: meeting, transcript: transcript, existingFolders: existing,
                 folderPath: { paths[$0] ?? "" })
             meeting.autoCategory = category
+            // Smart title — only while the meeting still has its default timestamp title
+            // (a manual rename always wins).
+            if let suggestedTitle, meeting.title.hasSuffix(" Meeting") {
+                meeting.title = suggestedTitle
+            }
             if category.confidence >= 0.5 {
                 meeting.folderId = try await folderStore.resolveOrCreate(
                     client: category.client, project: category.project)

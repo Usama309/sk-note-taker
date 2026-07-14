@@ -78,11 +78,12 @@ struct ClaudeIntegrationTests {
         let ai = ClaudeCLIService(model: "sonnet")
         let (meeting, transcript) = fixtureMeeting()
         let existing = [Folder(name: "Acme Corp", kind: .client)]
-        let category = try await ai.categorize(
+        let (category, title) = try await ai.categorize(
             meeting: meeting, transcript: transcript, existingFolders: existing,
             folderPath: { _ in "Acme Corp" })
 
         #expect(category.confidence > 0.3)
+        #expect(title == nil || !title!.isEmpty)
         #expect(category.client?.lowercased().contains("acme") == true,
                 "should match the existing Acme client folder: \(String(describing: category.client))")
     }

@@ -1,5 +1,37 @@
 # Changelog
 
+## [1.6.0] — 2026-07-14
+
+Meeting intelligence release. Design doc:
+`docs/planning/2026-07-14-meeting-intelligence-implementation.md`.
+
+### Added
+- **Automatic meeting-end detection.** SK Note Taker now notices when a call is over
+  instead of recording forever. Two signals: ~2 minutes of audio silence (judged from
+  audio *energy*, not transcription — so speaking Urdu or any untranscribed language still
+  counts as an active meeting), or farewell talk in the transcript ("okay thanks, bye, take
+  care", plus Urdu "Khuda Hafiz / Allah Hafiz"). When triggered it shows a banner (and a
+  native notification while backgrounded) asking "Has the meeting ended?" with **Keep
+  Recording** / **End Now**, and auto-ends after a 60-second countdown if nobody responds.
+  If audio resumes during the countdown, the prompt cancels itself. Configurable in
+  Settings → Meeting Detection (on by default, 1–5 min silence threshold). New pure
+  `MeetingEndEngine` with 11 unit tests.
+- **Live in-meeting AI assistant.** The meeting's right pane now has **Notes** and
+  **Assistant** tabs. During a call you can ask questions about what's being said, with one
+  tap quick actions: **Catch me up**, **What do they mean?**, and **Suggest a response**.
+  Answers come from the live transcript and persist into the same chat thread you see after
+  the meeting. Tuned for speed and answer-first brevity mid-call.
+- **Full recording playback.** Every meeting already recorded its audio; now there's a
+  proper player bar — play/pause, a scrubber, elapsed/total time, 1×–2× speed, and Show in
+  Finder. Clicking any transcript timestamp jumps playback to that moment. A "Saving audio"
+  badge during live meetings makes it clear the audio is being kept.
+- **Smart auto-title.** When a meeting ends, its default timestamp name ("14 Jul 9:01 AM
+  Meeting") is replaced with a concise AI-generated title describing what it was about
+  (e.g. "Homepage and Checkout Flow Redesign"). A manual rename always wins.
+- **Automatic summary on meeting end.** The AI summary (action items, decisions, things to
+  remember) is now generated automatically when a meeting ends — no need to click Generate.
+  Toggle in Settings → After the meeting.
+
 ## [1.5.3] — 2026-07-13
 
 ### Fixed

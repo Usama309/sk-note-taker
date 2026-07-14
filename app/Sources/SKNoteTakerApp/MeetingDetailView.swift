@@ -21,12 +21,14 @@ struct MeetingDetailView: View {
     @State private var notes = ""
     @State private var title = ""
     @State private var showSpeakers = false
-    @State private var player: AVAudioPlayer?
-    @State private var playing = false
+    @State private var playback = PlaybackController()
 
     var body: some View {
         VStack(spacing: 0) {
             header
+            if meeting.hasRecording {
+                PlayerBar(playback: playback)
+            }
             Divider()
             Picker("", selection: $tab) {
                 ForEach(Tab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
@@ -40,12 +42,16 @@ struct MeetingDetailView: View {
             case .summary: SummaryTab(meeting: meeting, summary: summary, notes: notes,
                                       onGenerate: generateSummary)
             case .transcript: TranscriptTab(meeting: meeting, transcript: transcript,
-                                            onRenameSpeakers: { showSpeakers = true })
+                                            onRenameSpeakers: { showSpeakers = true },
+                                            onSeek: meeting.hasRecording
+                                                ? { playback.seek(to: $0, andPlay: true) }
+                                                : nil)
             case .notes: NotesTab(notes: $notes, onSave: saveNotes)
             case .chat: ChatTab(meeting: meeting)
             }
         }
         .task { await load() }
+        .onDisappear { playback.stop() }
         .sheet(isPresented: $showSpeakers) {
             SpeakersSheet(meetingId: meeting.id, speakers: meeting.speakers)
         }
@@ -69,18 +75,6 @@ struct MeetingDetailView: View {
 
             Spacer()
 
-            if meeting.hasRecording {
-                Button {
-                    togglePlayback()
-                } label: {
-                    Image(systemName: playing ? "pause.circle.fill" : "play.circle.fill")
-                        .font(.system(size: 26))
-                        .foregroundStyle(Theme.accentGradient)
-                }
-                .buttonStyle(.plain)
-                .help("Play meeting audio")
-            }
-
             Button { showSpeakers = true } label: {
                 Label("Speakers", systemImage: "person.2")
             }
@@ -96,6 +90,9 @@ struct MeetingDetailView: View {
         transcript = try? await app.store.transcript(for: meeting.id)
         summary = await app.store.summary(for: meeting.id)
         notes = await app.store.notes(for: meeting.id)
+        if meeting.hasRecording {
+            playback.load(url: await app.store.recordingURL(for: meeting.id))
+        }
     }
 
     private func generateSummary() {
@@ -120,20 +117,80 @@ struct MeetingDetailView: View {
         }
     }
 
-    private func togglePlayback() {
-        if playing {
-            player?.pause()
-            playing = false
-        } else {
-            Task {
-                let url = await app.store.recordingURL(for: meeting.id)
-                if player == nil {
-                    player = try? AVAudioPlayer(contentsOf: url)
-                }
-                player?.play()
-                playing = true
+}
+
+// MARK: - Player bar
+
+/// Full playback controls for the meeting recording: play/pause, scrubber, speed, Finder.
+struct PlayerBar: View {
+    @Bindable var playback: PlaybackController
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button {
+                playback.toggle()
+            } label: {
+                Image(systemName: playback.playing ? "pause.circle.fill" : "play.circle.fill")
+                    .font(.system(size: 24))
+                    .foregroundStyle(playback.ready
+                                     ? AnyShapeStyle(Theme.accentGradient)
+                                     : AnyShapeStyle(.tertiary))
             }
+            .buttonStyle(.plain)
+            .disabled(!playback.ready)
+            .help(playback.playing ? "Pause" : "Play meeting audio")
+
+            Text(Theme.timestamp(playback.currentTime))
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .frame(width: 40, alignment: .trailing)
+
+            Slider(
+                value: Binding(
+                    get: { playback.currentTime },
+                    set: { playback.seek(to: $0) }),
+                in: 0...max(1, playback.duration))
+                .controlSize(.small)
+                .disabled(!playback.ready)
+
+            Text(Theme.timestamp(playback.duration))
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .frame(width: 40, alignment: .leading)
+
+            Menu {
+                ForEach([Float(1.0), 1.25, 1.5, 2.0], id: \.self) { speed in
+                    Button {
+                        playback.rate = speed
+                    } label: {
+                        HStack {
+                            Text(speed == 1.0 ? "1×" : String(format: "%g×", speed))
+                            if playback.rate == speed { Image(systemName: "checkmark") }
+                        }
+                    }
+                }
+            } label: {
+                Text(playback.rate == 1.0 ? "1×" : String(format: "%g×", playback.rate))
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Playback speed")
+
+            Button {
+                playback.revealInFinder()
+            } label: {
+                Image(systemName: "folder")
+                    .font(.system(size: 12))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .disabled(!playback.ready)
+            .help("Show recording in Finder")
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
+        .background(.background.secondary.opacity(0.5))
     }
 }
 
@@ -385,6 +442,8 @@ struct TranscriptTab: View {
     let meeting: Meeting
     let transcript: Transcript?
     let onRenameSpeakers: () -> Void
+    /// Present when the meeting has a recording — clicking a timestamp jumps playback there.
+    var onSeek: ((Double) -> Void)?
     @State private var selected: Set<Int> = []
 
     private func transcriptText(_ t: Transcript) -> String { t.rendered(with: meeting) }
@@ -436,7 +495,8 @@ struct TranscriptTab: View {
                                 time: segment.start,
                                 text: segment.text,
                                 volatile: false,
-                                selected: selected.contains(segment.id))
+                                selected: selected.contains(segment.id),
+                                onTimeTap: onSeek.map { seek in { seek(segment.start) } })
                                 .contentShape(Rectangle())
                                 .onTapGesture {
                                     if selected.contains(segment.id) {

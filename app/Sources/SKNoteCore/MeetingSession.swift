@@ -42,6 +42,25 @@ public final class MeetingSession {
     /// "no microphone audio detected" instead of silently recording nothing.
     public private(set) var channelHasAudio: [AudioChannel: Bool] = [:]
 
+    // MARK: - Meeting-end detection
+
+    /// Non-nil while the "has the meeting ended?" prompt is showing. UI renders a banner
+    /// with a countdown to `deadline`; no response by then auto-ends the meeting.
+    public struct EndPrompt: Equatable, Sendable {
+        public let reason: String
+        public let deadline: Date
+    }
+    public private(set) var endPrompt: EndPrompt?
+    /// Fired when the end prompt appears (app layer posts the native notification).
+    public var onEndPromptShown: ((String) -> Void)?
+    /// Fired when the grace period lapses with no response — the owner should end the
+    /// meeting (falls back to `finish()` directly when unset).
+    public var onAutoEnd: (() -> Void)?
+
+    private var endEngine: MeetingEndEngine?
+    private var autoEndTask: Task<Void, Never>?
+    private let autoEndGraceSeconds: Double = 60
+
     private let store: MeetingStore
     private let sources: [any AudioSource]
     private let recordAudio: Bool
@@ -54,24 +73,30 @@ public final class MeetingSession {
     private let clock: SessionClock
 
     public init(title: String, store: MeetingStore, sources: [any AudioSource],
-                clock: SessionClock, recordAudio: Bool = true) {
+                clock: SessionClock, recordAudio: Bool = true,
+                autoEndSilenceSeconds: Double? = nil) {
         self.meeting = Meeting(title: title)
         self.store = store
         self.sources = sources
         self.clock = clock
         self.recordAudio = recordAudio
+        if let autoEndSilenceSeconds {
+            self.endEngine = MeetingEndEngine(silenceTimeout: autoEndSilenceSeconds)
+        }
     }
 
     /// Convenience: live meeting with mic + system tap on a fresh clock. Async because the
     /// mic path is chosen at start: during an active call (WhatsApp/Teams/FaceTime), macOS
     /// mutes raw mic taps, so `MicSourcePicker` probes and falls back to AUVoiceIO capture.
-    public static func live(title: String, store: MeetingStore) async -> MeetingSession {
+    public static func live(title: String, store: MeetingStore,
+                            autoEndSilenceSeconds: Double? = nil) async -> MeetingSession {
         let clock = SessionClock()
         let mic = await MicSourcePicker.pick(clock: clock)
         return MeetingSession(
             title: title, store: store,
             sources: [mic, SystemAudioSource(clock: clock)],
-            clock: clock)
+            clock: clock,
+            autoEndSilenceSeconds: autoEndSilenceSeconds)
     }
 
     // MARK: - Lifecycle
@@ -130,6 +155,7 @@ public final class MeetingSession {
     public func finish() async {
         guard phase == .recording || phase == .preparing else { return }
         phase = .finishing
+        dismissEndPrompt()
 
         await teardownSources()
         for service in services.values {
@@ -185,6 +211,7 @@ public final class MeetingSession {
             let prior = levels[chunk.channel] ?? 0
             levels[chunk.channel] = max(rms, prior * 0.8)   // fast attack, slow decay
             if rms > 0.01 { channelHasAudio[chunk.channel] = true }
+            feedEndDetection(now: chunk.endTime, rms: rms)
         }
 
         if Self.debugEnabled {
@@ -208,8 +235,60 @@ public final class MeetingSession {
         await recorder?.append(chunk)
     }
 
+    // MARK: - Meeting-end detection plumbing
+
+    private func feedEndDetection(now: Double, rms: Float) {
+        guard endEngine != nil, phase == .recording else { return }
+        endEngine?.noteAudio(now: now, rms: rms)
+        // Audio came back while the prompt/countdown was up → the meeting continues.
+        if endPrompt != nil, rms >= MeetingEndEngine.activityRMS {
+            endEngine?.cancelPrompt(now: now)
+            dismissEndPrompt()
+            return
+        }
+        if let trigger = endEngine?.evaluate(now: now) {
+            showEndPrompt(for: trigger)
+        }
+    }
+
+    private func showEndPrompt(for trigger: MeetingEndEngine.Trigger) {
+        let reason: String
+        switch trigger {
+        case .silence(let seconds):
+            reason = "No audio for \(Int(seconds / 60)) min — has the meeting ended?"
+        case .farewell:
+            reason = "Sounded like everyone said goodbye — has the meeting ended?"
+        }
+        let deadline = Date().addingTimeInterval(autoEndGraceSeconds)
+        endPrompt = EndPrompt(reason: reason, deadline: deadline)
+        onEndPromptShown?(reason)
+        autoEndTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(self?.autoEndGraceSeconds ?? 60))
+            guard let self, !Task.isCancelled, self.endPrompt != nil else { return }
+            self.endPrompt = nil
+            if let onAutoEnd = self.onAutoEnd {
+                onAutoEnd()
+            } else {
+                await self.finish()
+            }
+        }
+    }
+
+    private func dismissEndPrompt() {
+        autoEndTask?.cancel()
+        autoEndTask = nil
+        endPrompt = nil
+    }
+
+    /// User chose "Keep Recording" on the end prompt — suppress end detection for a while.
+    public func keepRecording() {
+        endEngine?.snooze(now: elapsed)
+        dismissEndPrompt()
+    }
+
     private func ingest(_ result: TranscriptionResult) {
         if result.isFinal {
+            endEngine?.noteUtterance(now: result.end, text: result.text)
             finals.append(result)
             volatileText[result.channel] = nil
             Task { [diarizer] in

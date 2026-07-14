@@ -207,20 +207,31 @@ public struct AppSettings: Codable, Sendable, Equatable {
     public var autoDetectMeetings: Bool
     /// Launch SK Note Taker automatically when the Mac starts. On by default.
     public var launchAtLogin: Bool
+    /// Notice when the meeting seems over (silence / goodbyes), ask, and auto-end. On by default.
+    public var autoEndDetection: Bool
+    /// Minutes of continuous audio silence before the end prompt fires.
+    public var autoEndSilenceMinutes: Double
+    /// Generate the AI summary automatically when a meeting ends. On by default.
+    public var autoSummarize: Bool
 
     public init(claudeModel: String = "sonnet", defaultSpeakerName: String? = nil,
                 locale: String = "en-US", autoDetectMeetings: Bool = true,
-                launchAtLogin: Bool = true) {
+                launchAtLogin: Bool = true, autoEndDetection: Bool = true,
+                autoEndSilenceMinutes: Double = 2, autoSummarize: Bool = true) {
         self.claudeModel = claudeModel
         self.defaultSpeakerName = defaultSpeakerName
         self.locale = locale
         self.autoDetectMeetings = autoDetectMeetings
         self.launchAtLogin = launchAtLogin
+        self.autoEndDetection = autoEndDetection
+        self.autoEndSilenceMinutes = autoEndSilenceMinutes
+        self.autoSummarize = autoSummarize
     }
 
     // Tolerant decode: older settings.json without new fields default to on.
     private enum CodingKeys: String, CodingKey {
         case claudeModel, defaultSpeakerName, locale, autoDetectMeetings, launchAtLogin
+        case autoEndDetection, autoEndSilenceMinutes, autoSummarize
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -229,6 +240,10 @@ public struct AppSettings: Codable, Sendable, Equatable {
         locale = try c.decodeIfPresent(String.self, forKey: .locale) ?? "en-US"
         autoDetectMeetings = try c.decodeIfPresent(Bool.self, forKey: .autoDetectMeetings) ?? true
         launchAtLogin = try c.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? true
+        autoEndDetection = try c.decodeIfPresent(Bool.self, forKey: .autoEndDetection) ?? true
+        autoEndSilenceMinutes =
+            try c.decodeIfPresent(Double.self, forKey: .autoEndSilenceMinutes) ?? 2
+        autoSummarize = try c.decodeIfPresent(Bool.self, forKey: .autoSummarize) ?? true
     }
 }
 

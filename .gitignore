@@ -27,3 +27,7 @@ supabase/.env
 supabase/.temp/
 **/service-role-key*
 *.db-password
+
+# Ralph context management
+.ralph/
+.ralphrc

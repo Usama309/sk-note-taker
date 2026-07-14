@@ -282,6 +282,25 @@ struct SettingsView: View {
                 Text("Pops up a native macOS notification when a Zoom, Teams, WhatsApp, or browser (Google Meet) call starts — click it to start taking notes.")
                     .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
+                Toggle("Detect when the meeting ends", isOn: $app.settings.autoEndDetection)
+                if app.settings.autoEndDetection {
+                    Picker("End prompt after silence of",
+                           selection: $app.settings.autoEndSilenceMinutes) {
+                        Text("1 minute").tag(1.0)
+                        Text("2 minutes").tag(2.0)
+                        Text("3 minutes").tag(3.0)
+                        Text("5 minutes").tag(5.0)
+                    }
+                }
+                Text("When the call goes quiet (or everyone says goodbye), SK Note Taker asks if the meeting has ended and stops recording a minute later unless you keep it going.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            }
+            Section("After the meeting") {
+                Toggle("Generate summary automatically", isOn: $app.settings.autoSummarize)
+                Text("The AI summary (action items, decisions, things to remember) is created right after each meeting ends.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
             }
             Section("Speakers") {
                 TextField("Your name (used for Speaker 1)", text: Binding(

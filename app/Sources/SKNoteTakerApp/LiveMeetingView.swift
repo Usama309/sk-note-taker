@@ -8,6 +8,12 @@ struct LiveMeetingView: View {
     let session: MeetingSession
     @State private var notes = ""
     @State private var showSpeakers = false
+    @State private var sidePane: SidePane = .notes
+
+    enum SidePane: String, CaseIterable {
+        case notes = "Notes"
+        case assistant = "Assistant"
+    }
 
     /// After ~4s of recording with the mic still silent, warn the user — this is exactly the
     /// failure mode where the mic looks "on" but no audio arrives.
@@ -35,13 +41,16 @@ struct LiveMeetingView: View {
         VStack(spacing: 0) {
             header
             Divider()
+            if let prompt = session.endPrompt {
+                EndPromptBanner(prompt: prompt, session: session)
+            }
             if showMicWarning {
                 micWarningBanner
             }
             HSplitView {
                 transcriptPane
                     .frame(minWidth: 340)
-                notesPane
+                sidePaneView
                     .frame(minWidth: 300)
             }
         }
@@ -69,6 +78,16 @@ struct LiveMeetingView: View {
                 Text(Theme.timestamp(session.elapsed))
                     .font(.system(size: 13, weight: .medium, design: .monospaced))
                     .foregroundStyle(.secondary)
+                if session.phase == .recording {
+                    // Audio is being saved to recording.m4a alongside the transcript.
+                    Label("Saving audio", systemImage: "waveform.circle.fill")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(.quaternary.opacity(0.5), in: Capsule())
+                        .help("The full meeting audio is recorded and playable afterwards")
+                }
             }
 
             Spacer()
@@ -155,23 +174,195 @@ struct LiveMeetingView: View {
         .background(.background.secondary.opacity(0.4))
     }
 
+    private var sidePaneView: some View {
+        VStack(spacing: 0) {
+            Picker("", selection: $sidePane) {
+                ForEach(SidePane.allCases, id: \.self) { pane in
+                    Label(pane.rawValue,
+                          systemImage: pane == .notes ? "square.and.pencil" : "sparkles")
+                        .tag(pane)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
+
+            switch sidePane {
+            case .notes: notesPane
+            case .assistant: LiveAssistantPane(session: session)
+            }
+        }
+    }
+
     private var notesPane: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("MY NOTES")
-                .font(.system(size: 10, weight: .heavy))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 16)
-                .padding(.top, 14)
             Text("Jot rough bullets — they become anchors for the AI summary.")
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
                 .padding(.horizontal, 16)
-                .padding(.top, 2)
+                .padding(.top, 8)
             TextEditor(text: $notes)
                 .font(.system(size: 13))
                 .scrollContentBackground(.hidden)
                 .padding(10)
         }
+    }
+}
+
+/// The in-meeting AI assistant: ask questions about the LIVE transcript — catch up, decode
+/// what someone means, or get suggested responses — without leaving the call.
+struct LiveAssistantPane: View {
+    @Environment(AppState.self) private var app
+    let session: MeetingSession
+    @State private var chat = ChatLog()
+    @State private var question = ""
+
+    /// One-tap prompts for the moments that matter mid-call.
+    private static let quickActions: [(label: String, icon: String, prompt: String)] = [
+        ("Catch me up", "clock.arrow.circlepath",
+         "Catch me up: briefly recap what has happened in this meeting so far — key topics, asks, and open questions."),
+        ("What do they mean?", "questionmark.bubble",
+         "Explain in plain language what the other participants are saying right now and what their last point means."),
+        ("Suggest a response", "text.bubble",
+         "Suggest 1–3 concise things I could say next in this conversation, written in my voice so I can say them directly."),
+    ]
+
+    private var thinking: Bool { app.busy.contains("liveChat") }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 12) {
+                        if chat.messages.isEmpty && !thinking {
+                            VStack(spacing: 8) {
+                                Image(systemName: "sparkles")
+                                    .font(.system(size: 24))
+                                    .foregroundStyle(Theme.accentGradient)
+                                Text("Ask AI while the meeting runs")
+                                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                                Text("Catch up, decode what they mean, or get a suggested reply — from the live transcript.")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.center)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 30)
+                        }
+                        ForEach(Array(chat.messages.enumerated()), id: \.offset) { index, message in
+                            ChatBubble(message: message)
+                                .id(index)
+                        }
+                        if thinking {
+                            HStack(spacing: 8) {
+                                ProgressView().controlSize(.small)
+                                Text("Thinking…").font(.system(size: 12)).foregroundStyle(.secondary)
+                            }
+                            .padding(.leading, 8)
+                        }
+                        Color.clear.frame(height: 1).id("live-chat-bottom")
+                    }
+                    .padding(12)
+                }
+                .onChange(of: chat.messages.count) {
+                    withAnimation { proxy.scrollTo("live-chat-bottom") }
+                }
+            }
+
+            // Quick actions — the three questions that matter mid-call.
+            HStack(spacing: 6) {
+                ForEach(Self.quickActions, id: \.label) { action in
+                    Button {
+                        ask(action.prompt)
+                    } label: {
+                        Label(action.label, systemImage: action.icon)
+                            .font(.system(size: 10, weight: .semibold))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .background(Theme.indigo.opacity(0.10), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(thinking || session.liveSegments.isEmpty)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.bottom, 6)
+
+            Divider()
+            HStack(spacing: 8) {
+                TextField("Ask about what's being said…", text: $question)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 13))
+                    .onSubmit { ask(question) }
+                Button {
+                    ask(question)
+                } label: {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 22))
+                        .foregroundStyle(question.isEmpty ? AnyShapeStyle(.tertiary)
+                                         : AnyShapeStyle(Theme.accentGradient))
+                }
+                .buttonStyle(.plain)
+                .disabled(question.isEmpty || thinking)
+            }
+            .padding(10)
+        }
+        .task { chat = await app.store.chat(for: session.meeting.id) }
+    }
+
+    private func ask(_ text: String) {
+        let q = text.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty, !thinking, !session.liveSegments.isEmpty else { return }
+        question = ""
+        let id = session.meeting.id
+        Task {
+            // Optimistically show the question while Claude thinks.
+            chat.messages.append(ChatMessage(role: "user", text: q))
+            await app.askLive(question: q)
+            chat = await app.store.chat(for: id)
+        }
+    }
+}
+
+/// "Has the meeting ended?" banner with a live countdown — no response auto-ends the meeting.
+struct EndPromptBanner: View {
+    @Environment(AppState.self) private var app
+    let prompt: MeetingSession.EndPrompt
+    let session: MeetingSession
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            HStack(spacing: 10) {
+                Image(systemName: "moon.zzz.fill")
+                    .foregroundStyle(Theme.indigo)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(prompt.reason)
+                        .font(.system(size: 12, weight: .semibold))
+                    Text("Ending automatically in \(remaining(at: context.date))s…")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Keep Recording") { session.keepRecording() }
+                    .controlSize(.small)
+                Button {
+                    Task { await app.stopMeeting() }
+                } label: {
+                    Text("End Now").fontWeight(.semibold)
+                }
+                .controlSize(.small)
+                .buttonStyle(.borderedProminent)
+                .tint(.red)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(Theme.indigo.opacity(0.10))
+        }
+    }
+
+    private func remaining(at date: Date) -> Int {
+        max(0, Int(prompt.deadline.timeIntervalSince(date).rounded()))
     }
 }
 
@@ -212,6 +403,8 @@ struct UtteranceBubble: View {
     let text: String
     let volatile: Bool
     var selected: Bool = false
+    /// When set, the timestamp becomes a "jump playback here" button.
+    var onTimeTap: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -220,9 +413,22 @@ struct UtteranceBubble: View {
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(color)
                 if let time {
-                    Text(Theme.timestamp(time))
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(.tertiary)
+                    if let onTimeTap {
+                        Button(action: onTimeTap) {
+                            HStack(spacing: 2) {
+                                Image(systemName: "play.fill").font(.system(size: 7))
+                                Text(Theme.timestamp(time))
+                                    .font(.system(size: 10, design: .monospaced))
+                            }
+                            .foregroundStyle(.tertiary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Play recording from here")
+                    } else {
+                        Text(Theme.timestamp(time))
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.tertiary)
+                    }
                 }
                 if selected {
                     Spacer()
