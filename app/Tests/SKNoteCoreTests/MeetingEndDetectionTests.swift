@@ -106,25 +106,38 @@ struct MeetingEndEngineTests {
         #expect(engine.evaluate(now: 190) == nil)
     }
 
-    @Test func snoozeSuppressesThenRearms() {
-        var engine = MeetingEndEngine(silenceTimeout: 120, snoozeSeconds: 300)
-        speak(&engine, from: 0, to: 10)
-        #expect(silence(&engine, from: 11, to: 200) != nil)
-        engine.snooze(now: 200)
-        #expect(!engine.isPrompting)
-        // Inside the snooze window: even long silence stays quiet.
-        #expect(silence(&engine, from: 201, to: 480) == nil)
-        // After the snooze expires, fresh silence accumulates and fires again.
-        #expect(silence(&engine, from: 501, to: 700) != nil)
-    }
-
-    @Test func cancelPromptRearmsAfterFreshSilence() {
+    @Test func transcriptionActivityResetsSilenceTimer() {
+        // The remote client speaks on the system channel; their voice is transcribed but
+        // its RMS sits below the activity gate (listener on low volume). Transcription must
+        // keep the meeting alive even though noteAudio never sees loud-enough audio.
         var engine = MeetingEndEngine(silenceTimeout: 120)
         speak(&engine, from: 0, to: 10)
-        #expect(silence(&engine, from: 11, to: 200) != nil)
-        engine.cancelPrompt(now: 200)             // audio resumed during the countdown
-        speak(&engine, from: 200, to: 260)
-        #expect(engine.evaluate(now: 261) == nil)
-        #expect(silence(&engine, from: 261, to: 420) != nil)
+        var t = 11.0
+        while t <= 400 {
+            engine.noteAudio(now: t, rms: 0.002)          // sub-gate system audio
+            if Int(t) % 15 == 0 { engine.noteActivity(now: t) }  // a transcript result lands
+            if engine.evaluate(now: t) != nil {
+                Issue.record("silence fired at t=\(t) despite ongoing transcription")
+                return
+            }
+            t += 1
+        }
+    }
+
+    @Test func firesOnlyOncePerMeeting() {
+        // "Once is enough" — after the single prompt, no amount of further silence,
+        // snoozing, or resumed-then-quiet audio produces another prompt.
+        var engine = MeetingEndEngine(silenceTimeout: 120, snoozeSeconds: 300)
+        speak(&engine, from: 0, to: 10)
+        #expect(silence(&engine, from: 11, to: 200) != nil)   // the one prompt
+
+        engine.snooze(now: 200)
+        #expect(!engine.isPrompting)
+        #expect(silence(&engine, from: 201, to: 800) == nil)  // never nags again
+
+        // Even a fresh talk-then-silence cycle stays quiet.
+        engine.cancelPrompt(now: 800)
+        speak(&engine, from: 800, to: 860)
+        #expect(silence(&engine, from: 861, to: 1100) == nil)
     }
 }

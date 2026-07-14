@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.6.1] — 2026-07-14
+
+### Fixed
+- **False "has the meeting ended?" prompt while the client was still talking.** The silence
+  timer only reset on audio above the RMS activity gate (≈ −40 dBFS). The remote
+  participant's voice arrives on the system-audio channel and is routinely transcribed well
+  below that gate (a listener on headphones or low volume), so while the client spoke and
+  the local user stayed quiet, both channels read as "silent" and after 2 minutes the app
+  wrongly asked whether the meeting had ended — then re-asked repeatedly. Now **any
+  transcription on any channel resets the silence timer**: if words are being transcribed,
+  the meeting is unambiguously live. The RMS path stays, so untranscribed speech (e.g.
+  Urdu) still keeps a meeting alive.
+- **Repeated end-of-meeting notifications.** The prompt now fires **at most once per
+  meeting**, and dismissing the notification counts as "keep recording" — a single,
+  dismissible notification instead of a recurring nag.
+
 ## [1.6.0] — 2026-07-14
 
 Meeting intelligence release. Design doc:

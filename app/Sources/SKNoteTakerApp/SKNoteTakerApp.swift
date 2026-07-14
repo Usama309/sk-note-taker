@@ -272,6 +272,7 @@ final class AppState {
         session.onEndPromptShown = { [weak self] reason in
             self?.notifier.notifyMeetingMayHaveEnded(reason: reason)
         }
+        session.onEndPromptCleared = { [weak self] in self?.notifier.clearEndPrompts() }
         session.onAutoEnd = { [weak self] in Task { await self?.stopMeeting() } }
         self.session = session
         await session.start()

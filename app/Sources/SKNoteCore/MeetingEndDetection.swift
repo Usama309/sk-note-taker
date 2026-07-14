@@ -58,6 +58,7 @@ public struct MeetingEndEngine: Sendable {
     private var heardAnyAudio = false
     private var farewellAt: Double?
     private var prompted = false
+    private var hasFired = false          // one prompt per meeting — "once is enough"
     private var snoozedUntil: Double = 0
 
     public init(silenceTimeout: Double = 120, farewellQuiet: Double = 20,
@@ -76,8 +77,19 @@ public struct MeetingEndEngine: Sendable {
         }
     }
 
-    /// Feed one FINAL transcript utterance.
+    /// Feed a transcription result (any channel, volatile or final) as proof the meeting is
+    /// live. The remote participant's voice arrives on the system channel and is routinely
+    /// transcribed BELOW the RMS activity gate (a listener on headphones / low volume), so
+    /// transcription must reset the silence timer too — otherwise the client talking while
+    /// the local user stays quiet reads as silence.
+    public mutating func noteActivity(now: Double) {
+        lastAudioAt = now
+        heardAnyAudio = true
+    }
+
+    /// Feed one FINAL transcript utterance for farewell detection. Also counts as activity.
     public mutating func noteUtterance(now: Double, text: String) {
+        noteActivity(now: now)
         if FarewellMatcher.matches(text) {
             farewellAt = now
         }
@@ -86,35 +98,36 @@ public struct MeetingEndEngine: Sendable {
     /// True while a prompt is outstanding (fired but not resolved).
     public var isPrompting: Bool { prompted }
 
-    /// Evaluate the current state. Returns a trigger at most once; the engine then holds
-    /// until `snooze` (user keeps recording) or `cancelPrompt` (audio resumed).
+    /// Evaluate the current state. Fires at most ONCE per meeting — after the single prompt
+    /// the engine stays latched, so resumed-then-quiet audio never nags again.
     public mutating func evaluate(now: Double) -> Trigger? {
-        guard !prompted, now >= snoozedUntil, heardAnyAudio, let lastAudioAt else { return nil }
+        guard !prompted, !hasFired, now >= snoozedUntil, heardAnyAudio,
+              let lastAudioAt else { return nil }
         let quiet = now - lastAudioAt
 
         if let farewellAt, now - farewellAt <= farewellWindow, quiet >= farewellQuiet,
            lastAudioAt <= farewellAt + 2 {   // nobody spoke meaningfully after the farewell
-            prompted = true
+            prompted = true; hasFired = true
             return .farewell
         }
         if quiet >= silenceTimeout {
-            prompted = true
+            prompted = true; hasFired = true
             return .silence(seconds: quiet)
         }
         return nil
     }
 
-    /// User chose "Keep Recording" (or the grace period should not re-fire immediately):
-    /// suppress for `snoozeSeconds` and require fresh evidence.
+    /// User chose "Keep Recording" / dismissed the prompt. Clears the outstanding banner but
+    /// keeps the once-per-meeting latch — we won't prompt again this meeting.
     public mutating func snooze(now: Double) {
         prompted = false
         farewellAt = nil
-        lastAudioAt = now          // silence countdown restarts from here
+        lastAudioAt = now
         snoozedUntil = now + snoozeSeconds
     }
 
-    /// Audio resumed while the prompt/countdown was showing — the meeting clearly continues.
-    /// Re-arms without a long snooze (a fresh silence must accumulate from scratch anyway).
+    /// Audio/transcription resumed while the prompt/countdown was showing — the meeting
+    /// clearly continues. Clears the banner; the latch still prevents a second prompt.
     public mutating func cancelPrompt(now: Double) {
         prompted = false
         farewellAt = nil

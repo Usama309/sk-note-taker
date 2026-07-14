@@ -53,6 +53,9 @@ public final class MeetingSession {
     public private(set) var endPrompt: EndPrompt?
     /// Fired when the end prompt appears (app layer posts the native notification).
     public var onEndPromptShown: ((String) -> Void)?
+    /// Fired when an outstanding end prompt is cleared because the meeting continued
+    /// (app layer removes the delivered notification).
+    public var onEndPromptCleared: (() -> Void)?
     /// Fired when the grace period lapses with no response — the owner should end the
     /// meeting (falls back to `finish()` directly when unset).
     public var onAutoEnd: (() -> Void)?
@@ -244,6 +247,7 @@ public final class MeetingSession {
         if endPrompt != nil, rms >= MeetingEndEngine.activityRMS {
             endEngine?.cancelPrompt(now: now)
             dismissEndPrompt()
+            onEndPromptCleared?()
             return
         }
         if let trigger = endEngine?.evaluate(now: now) {
@@ -287,8 +291,14 @@ public final class MeetingSession {
     }
 
     private func ingest(_ result: TranscriptionResult) {
+        // Any transcription — on either channel, volatile or final — proves the meeting is
+        // live. The remote client's voice (system channel) is often transcribed below the
+        // RMS activity gate, so this is what keeps the silence timer honest while the local
+        // user is quiet and just listening.
+        noteTranscriptionActivity()
+
         if result.isFinal {
-            endEngine?.noteUtterance(now: result.end, text: result.text)
+            endEngine?.noteUtterance(now: elapsed, text: result.text)
             finals.append(result)
             volatileText[result.channel] = nil
             Task { [diarizer] in
@@ -297,6 +307,17 @@ public final class MeetingSession {
             }
         } else {
             volatileText[result.channel] = result.text
+        }
+    }
+
+    private func noteTranscriptionActivity() {
+        guard endEngine != nil, phase == .recording else { return }
+        endEngine?.noteActivity(now: elapsed)
+        // Words are being transcribed while the end prompt is up → the meeting continues.
+        if endPrompt != nil {
+            endEngine?.cancelPrompt(now: elapsed)
+            dismissEndPrompt()
+            onEndPromptCleared?()
         }
     }
 

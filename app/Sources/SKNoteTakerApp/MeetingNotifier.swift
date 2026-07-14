@@ -131,13 +131,15 @@ final class MeetingNotifier: NSObject, UNUserNotificationCenterDelegate {
                 switch action {
                 case Self.endNowActionId:
                     onEndMeeting?()
-                case Self.keepRecordingActionId:
+                case Self.keepRecordingActionId, UNNotificationDismissActionIdentifier:
+                    // Explicitly dismissing = "leave it running." Honors the user's ask that
+                    // the prompt be a single notification they can wave away.
                     onKeepRecording?()
                 case UNNotificationDefaultActionIdentifier:
                     // Clicked the body → surface the app so the user can decide there.
                     NSApp.activate(ignoringOtherApps: true)
                 default:
-                    break   // dismissed → countdown continues, auto-end applies
+                    break
                 }
                 return
             }
