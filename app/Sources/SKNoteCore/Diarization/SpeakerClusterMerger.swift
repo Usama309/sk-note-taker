@@ -20,9 +20,12 @@ enum SpeakerClusterMerger {
     }
 
     struct Tuning {
-        /// Centroid cosine distance below which two clusters are always the same voice
-        /// (matches FluidAudio's high-confidence embedding-update threshold).
-        var sameVoiceDistance: Float = 0.45
+        /// Centroid cosine distance below which two clusters are always the same voice.
+        /// Deliberately strict: distance scales vary wildly with call conditions —
+        /// a same-voice re-clustering split measured d=0.18, while two different men on a
+        /// phone-quality call measured d=0.32. Substantial clusters above this stay
+        /// separate; only fragmentary clusters (below) merge at larger distances.
+        var sameVoiceDistance: Float = 0.25
         /// A minor backchannel cluster is absorbed within this radius. Measured on real
         /// meeting audio: distinct voices sit ≈0.9 apart, while a voice's own backchannel
         /// fragments land 0.6–0.85 from its main cluster.

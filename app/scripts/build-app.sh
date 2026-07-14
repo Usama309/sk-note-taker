@@ -44,8 +44,8 @@ cat > "$BUNDLE/Contents/Info.plist" <<'PLIST'
     <key>CFBundleName</key>               <string>SK Note Taker</string>
     <key>CFBundleDisplayName</key>        <string>SK Note Taker</string>
     <key>CFBundleIdentifier</key>         <string>com.saqibkamran.sknotetaker</string>
-    <key>CFBundleVersion</key>            <string>1.5.2</string>
-    <key>CFBundleShortVersionString</key> <string>1.5.2</string>
+    <key>CFBundleVersion</key>            <string>1.5.3</string>
+    <key>CFBundleShortVersionString</key> <string>1.5.3</string>
     <key>CFBundleExecutable</key>         <string>SKNoteTaker</string>
     <key>CFBundlePackageType</key>        <string>APPL</string>
     <key>CFBundleIconFile</key>           <string>AppIcon</string>

@@ -116,6 +116,26 @@ struct SpeakerClusterMergerTests {
         #expect(map.isEmpty, "long-segment clusters are reliable and must not be absorbed")
     }
 
+    /// The 3-person-call regression (13 Jul 6:30 PM meeting): two different men on a
+    /// phone-quality call measured only d≈0.32 apart — closer than one voice's own
+    /// backchannel fragments in another meeting. Two substantial clusters with real
+    /// sentence-length segments must NEVER merge on distance alone.
+    @Test func twoSubstantialVoicesOnCompressedCallStaySeparate() {
+        var segments: [SpeakerClusterMerger.Segment] = []
+        // Remote speaker A: 45s in long turns.
+        for i in 0..<9 {
+            segments.append(segment("3", start: Double(i) * 12, duration: 5,
+                                    embedding: embedding(angle: 0)))
+        }
+        // Remote speaker B (Wakas): two long turns, centroid d ≈ 0.32 from A.
+        for i in 0..<2 {
+            segments.append(segment("4", start: 110 + Double(i) * 12, duration: 7.7,
+                                    embedding: embedding(angle: 0.823)))
+        }
+        let map = SpeakerClusterMerger.mergeMap(for: segments)
+        #expect(map.isEmpty, "different voices on compressed call audio must stay separate")
+    }
+
     /// Chained merges relabel transitively: if 3 folds into 2 and 2 folds into 1, the map
     /// must send both to 1.
     @Test func chainedMergesResolveTransitively() {

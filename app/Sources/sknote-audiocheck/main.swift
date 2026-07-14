@@ -258,6 +258,15 @@ case "diarize":
         report("MERGED (DiarizationService)", merged.map {
             (id: $0.speakerId, start: $0.start, end: $0.end)
         })
+
+        // Optional: dump merged segments as JSON (for transcript repair scripts).
+        if args.count > 3 {
+            let rows = merged.map { ["speaker": $0.speakerId as Any,
+                                     "start": $0.start, "end": $0.end] }
+            let data = try JSONSerialization.data(withJSONObject: rows, options: [.sortedKeys])
+            try data.write(to: URL(fileURLWithPath: args[3]))
+            print("\nWrote \(merged.count) merged segments to \(args[3])")
+        }
     } catch {
         print("diarize failed: \(error)")
         exit(1)

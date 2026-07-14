@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.5.3] — 2026-07-13
+
+### Fixed
+- **Third speaker not detected** (13 Jul 6:30 PM test call with two remote participants).
+  The inverse of the 1.5.0 bug, caused by its fix: the cluster merger's unconditional
+  "same voice" radius (0.45) was calibrated on one meeting, but distance scales flip with
+  call conditions — two different men on a phone-quality call measured only 0.32 apart
+  (Saqib to a remote voice: 0.42), so the merger folded real people together. The
+  unconditional radius is now 0.25 (a true same-voice split measures ~0.18); anything
+  farther merges only with fragment-shape evidence (short backchannel utterances or
+  sub-12s dust), which real speakers with sentence-length turns never trigger. Verified on
+  both real recordings: the 3-person call now yields 3 speakers AND the Patriot 1:1 still
+  yields exactly 2. The 6:30 PM meeting was repaired in place by re-diarizing its
+  recording and re-attributing the transcript (Speaker 3 restored).
+- `sknote-audiocheck diarize` can now dump merged segments to JSON (second argument) for
+  transcript repair scripts.
+
 ## [1.5.2] — 2026-07-13
 
 ### Fixed
