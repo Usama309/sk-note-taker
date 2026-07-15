@@ -273,6 +273,101 @@ case "diarize":
     }
     exit(0)
 
+case "redo":
+    // Re-diarize a meeting's recording and re-attribute its saved transcript's system
+    // speakers — the post-meeting fix, validated here before wiring into the app.
+    // Usage: sknote-audiocheck redo <meeting-dir> [--write]
+    guard args.count > 2 else {
+        print("usage: sknote-audiocheck redo <meeting-dir> [--write]")
+        exit(2)
+    }
+    let dir = URL(fileURLWithPath: args[2], isDirectory: true)
+    let write = args.contains("--write")
+
+    /// Loads a recording at 16 kHz. Returns the system channel (right) when the file is
+    /// stereo (new mic-L / system-R recordings), else the mono mix (legacy recordings).
+    func loadSystemChannel16k(_ url: URL) throws -> (samples: [Float], wasStereo: Bool) {
+        let file = try AVAudioFile(forReading: url)
+        let channels = file.processingFormat.channelCount
+        let outFormat = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32, sampleRate: 16_000,
+            channels: channels, interleaved: false)!
+        guard let converter = AVAudioConverter(from: file.processingFormat, to: outFormat) else {
+            throw NSError(domain: "audiocheck", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "cannot convert to 16k"])
+        }
+        let inBuf = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 32_768)!
+        var perChannel: [[Float]] = Array(repeating: [], count: Int(channels))
+        var done = false
+        while !done {
+            let outBuf = AVAudioPCMBuffer(pcmFormat: outFormat, frameCapacity: 32_768)!
+            var convError: NSError?
+            let status = converter.convert(to: outBuf, error: &convError) { _, outStatus in
+                inBuf.frameLength = 0
+                try? file.read(into: inBuf, frameCount: 32_768)
+                if inBuf.frameLength == 0 { outStatus.pointee = .endOfStream; return nil }
+                outStatus.pointee = .haveData
+                return inBuf
+            }
+            if let convError { throw convError }
+            if outBuf.frameLength > 0 {
+                for ch in 0..<Int(channels) {
+                    perChannel[ch].append(contentsOf: UnsafeBufferPointer(
+                        start: outBuf.floatChannelData![ch], count: Int(outBuf.frameLength)))
+                }
+            }
+            done = status == .endOfStream || (status == .haveData && outBuf.frameLength == 0)
+        }
+        if channels >= 2 { return (perChannel[1], true) }   // system = right channel
+        return (perChannel[0], false)
+    }
+
+    func breakdown(_ t: Transcript) -> String {
+        var dur: [String: Double] = [:], cnt: [String: Int] = [:]
+        for s in t.segments where s.source == .system {
+            dur[s.speaker, default: 0] += s.end - s.start
+            cnt[s.speaker, default: 0] += 1
+        }
+        return dur.keys.sorted().map {
+            String(format: "%@: %d segs, %.0fs", $0, cnt[$0] ?? 0, dur[$0] ?? 0)
+        }.joined(separator: " | ")
+    }
+
+    _ = loadSystemChannel16k   // (kept for ad-hoc diagnostics)
+    do {
+        let tData = try Data(contentsOf: dir.appendingPathComponent("transcript.json"))
+        let transcript = try SKJSON.decoder.decode(Transcript.self, from: tData)
+        let recURL = dir.appendingPathComponent("recording.m4a")
+        let (mic, system) = try RecordingLoader.channels(at: recURL)
+        print(String(format: "Reprocessing %.1fs (%@) — re-ASR + re-diarize…",
+                     Double(system.count) / 16_000, mic == nil ? "mono mix" : "stereo"))
+
+        let (newT, speakers) = try await MeetingReprocessor.reprocess(recordingURL: recURL)
+        let sysSpeakers = Set(newT.segments.filter { $0.source == .system }.map(\.speaker))
+        print("System speakers after reprocess: \(sysSpeakers.sorted())")
+        print("  BEFORE  \(breakdown(transcript))")
+        print("  AFTER   \(breakdown(newT))")
+
+        if write {
+            try SKJSON.encoder.encode(newT).write(
+                to: dir.appendingPathComponent("transcript.json"))
+            let mURL = dir.appendingPathComponent("meeting.json")
+            var meeting = try SKJSON.decoder.decode(Meeting.self, from: Data(contentsOf: mURL))
+            var merged: [String: SpeakerInfo] = [:]
+            for (key, var info) in speakers {
+                if let name = meeting.speakers[key]?.name { info.name = name }
+                merged[key] = info
+            }
+            meeting.speakers = merged
+            try SKJSON.encoder.encode(meeting).write(to: mURL)
+            print("  WROTE updated transcript.json + meeting.json")
+        }
+    } catch {
+        print("redo failed: \(error)")
+        exit(1)
+    }
+    exit(0)
+
 default:
     print("unknown mode \(mode)")
     exit(2)

@@ -53,7 +53,8 @@ struct MeetingDetailView: View {
         .task { await load() }
         .onDisappear { playback.stop() }
         .sheet(isPresented: $showSpeakers) {
-            SpeakersSheet(meetingId: meeting.id, speakers: meeting.speakers)
+            SpeakersSheet(meetingId: meeting.id, speakers: meeting.speakers,
+                          canRedo: meeting.hasRecording)
         }
     }
 

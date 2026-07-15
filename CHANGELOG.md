@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.7.0] — 2026-07-14
+
+Speaker-separation release. Addresses remote participants collapsing into a single
+"Speaker 2" in multi-person calls.
+
+### Added
+- **Stereo recording (mic-L / system-R).** Meetings now save the microphone and system
+  audio as separate channels instead of a mono mix. This isolates the remote-participant
+  stream so speaker detection can re-run cleanly on it — mixing the two polluted diarization
+  with the local mic and its echo. Playback is unaffected. New `RecordingLoader` /
+  `MeetingReprocessor` in SKNoteCore.
+- **"Redo speaker detection."** In the Speakers sheet of any recorded meeting, re-run
+  detection on the recording. It re-transcribes (fresh word timings), re-diarizes, and
+  re-assembles — so speaker changes that the live pass had merged into one long block become
+  real, separate turns. Validated on real recordings: the 14 Jul 51-minute call went from
+  everyone collapsed into one speaker (1748s in 15 blocks) to four distinct speakers
+  (1367 / 192 / 110 / 362s) with natural turn-taking; the 13 Jul call separated into three.
+
+### Notes
+- On **new stereo recordings** the local speaker stays cleanly labeled "Speaker 1 (you)"
+  while remote voices separate into Speaker 2/3/… On **legacy mono recordings**, Redo still
+  separates the distinct voices but can't peel the local speaker out of the mix (rename as
+  needed).
+- Investigated but not shipped: reducing the live diarization interval (over-splits on small
+  buffers) and segment-level re-attribution of the saved transcript (the live pass had
+  already coalesced audio into long blocks with no word timings to split on) — which is why
+  the fix reprocesses from the recording instead.
+
 ## [1.6.1] — 2026-07-14
 
 ### Fixed

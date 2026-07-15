@@ -120,6 +120,8 @@ struct SpeakersSheet: View {
     @Environment(\.dismiss) private var dismiss
     let meetingId: UUID
     let speakers: [String: SpeakerInfo]
+    /// When true (finished meeting with a recording), offer "Redo speaker detection".
+    var canRedo: Bool = false
     @State private var names: [String: String] = [:]
 
     var body: some View {
@@ -157,6 +159,33 @@ struct SpeakersSheet: View {
                     .frame(width: 110, alignment: .leading)
                     TextField("Name (e.g. Kainat)", text: binding(for: key))
                         .textFieldStyle(.roundedBorder)
+                }
+            }
+
+            if canRedo {
+                Divider()
+                HStack(spacing: 8) {
+                    Image(systemName: "person.2.wave.2")
+                        .foregroundStyle(Theme.indigo)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Speakers merged together?")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text("Re-run detection on the recording to separate remote voices.")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button {
+                        Task { await app.redoSpeakerDetection(meetingId: meetingId); dismiss() }
+                    } label: {
+                        if app.busy.contains("redoSpeakers") {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Text("Redo Detection")
+                        }
+                    }
+                    .controlSize(.small)
+                    .disabled(app.busy.contains("redoSpeakers"))
                 }
             }
 

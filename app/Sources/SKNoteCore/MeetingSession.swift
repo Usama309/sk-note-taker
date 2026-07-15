@@ -75,14 +75,18 @@ public final class MeetingSession {
     private var pumpTasks: [Task<Void, Never>] = []
     private let clock: SessionClock
 
+    /// When false (offline reprocess from file sources), skip the mic TCC prompt.
+    private let requiresMic: Bool
+
     public init(title: String, store: MeetingStore, sources: [any AudioSource],
                 clock: SessionClock, recordAudio: Bool = true,
-                autoEndSilenceSeconds: Double? = nil) {
+                autoEndSilenceSeconds: Double? = nil, requiresMic: Bool = true) {
         self.meeting = Meeting(title: title)
         self.store = store
         self.sources = sources
         self.clock = clock
         self.recordAudio = recordAudio
+        self.requiresMic = requiresMic
         if let autoEndSilenceSeconds {
             self.endEngine = MeetingEndEngine(silenceTimeout: autoEndSilenceSeconds)
         }
@@ -109,12 +113,15 @@ public final class MeetingSession {
         do {
             // Preflight: request mic up front so the TCC prompt fires before we invest in
             // model loading, and so a denial is a clear error rather than silent recording.
-            let micStatus = await Permission.requestMic()
-            if micStatus == .denied {
-                phase = .failed(
-                    "Microphone access is off. Enable it in System Settings → Privacy & "
-                    + "Security → Microphone, then start again.")
-                return
+            // Skipped for offline reprocess (file sources, no live mic).
+            if requiresMic {
+                let micStatus = await Permission.requestMic()
+                if micStatus == .denied {
+                    phase = .failed(
+                        "Microphone access is off. Enable it in System Settings → Privacy & "
+                        + "Security → Microphone, then start again.")
+                    return
+                }
             }
 
             try await store.save(meeting)

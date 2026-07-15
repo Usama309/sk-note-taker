@@ -406,6 +406,39 @@ final class AppState {
         }
     }
 
+    /// Re-run speaker detection on a finished meeting's recording and re-attribute the
+    /// transcript. Recovers remote speakers the live pass collapsed into one. On new stereo
+    /// recordings this uses the isolated system channel; on legacy mono it's best-effort.
+    func redoSpeakerDetection(meetingId: UUID) async {
+        guard let meeting = meetings.first(where: { $0.id == meetingId }), meeting.hasRecording,
+              let transcript = try? await store.transcript(for: meetingId),
+              !transcript.segments.isEmpty else { return }
+        _ = transcript
+        busy.insert("redoSpeakers")
+        defer { busy.remove("redoSpeakers") }
+        let url = await store.recordingURL(for: meetingId)
+        do {
+            let (newTranscript, speakers) = try await MeetingReprocessor.reprocess(
+                recordingURL: url)
+            guard !newTranscript.segments.isEmpty else { return }
+            try await store.save(newTranscript, for: meetingId)
+            if var m = meetings.first(where: { $0.id == meetingId }) {
+                // Merge new speaker set, preserving any names the user already assigned.
+                var merged: [String: SpeakerInfo] = [:]
+                for (key, var info) in speakers {
+                    if let name = m.speakers[key]?.name { info.name = name }
+                    merged[key] = info
+                }
+                m.speakers = merged
+                try await store.save(m)
+                await refresh()
+            }
+            await sync.syncMeeting(meetingId)
+        } catch {
+            errorMessage = "Speaker detection failed: \(error.localizedDescription)"
+        }
+    }
+
     func renameSpeaker(meetingId: UUID, key: String, name: String) async {
         if let session, session.meeting.id == meetingId {
             await session.nameSpeaker(key: key, name: name)
