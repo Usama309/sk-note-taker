@@ -74,12 +74,26 @@ cat > "$ENTITLEMENTS" <<'ENT'
 </plist>
 ENT
 
+# Signing identity, in order of preference:
+#   1. Apple Development — a real developer certificate, if one is installed.
+#   2. "SK Note Taker Dev" — a local self-signed code-signing certificate.
+#   3. ad-hoc.
+# Why this matters beyond "it's signed": macOS records privacy grants (Screen Recording, which
+# gates system-audio capture) against the app's code signature. Ad-hoc signatures change on
+# EVERY rebuild, so each build silently lost the Screen Recording grant while still appearing
+# enabled in System Settings. A stable identity keeps the signature constant across rebuilds,
+# so the grant is given once and sticks.
+# Create the local identity once with: scripts/make-signing-identity.sh
 IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null | awk -F'"' '/Apple Development/{print $2; exit}')"
+if [[ -z "${IDENTITY:-}" ]]; then
+    IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null | awk -F'"' '/SK Note Taker Dev/{print $2; exit}')"
+fi
 if [[ -n "${IDENTITY:-}" ]]; then
     echo "    using identity: $IDENTITY"
     codesign --force --deep --options runtime --entitlements "$ENTITLEMENTS" --sign "$IDENTITY" "$BUNDLE"
 else
-    echo "    no Apple Development identity found — ad-hoc signing"
+    echo "    no signing identity found — ad-hoc signing (privacy grants will reset on every"
+    echo "    rebuild; run scripts/make-signing-identity.sh once to fix that)"
     codesign --force --deep --entitlements "$ENTITLEMENTS" --sign - "$BUNDLE"
 fi
 codesign --verify --deep "$BUNDLE" && echo "    signature OK"
