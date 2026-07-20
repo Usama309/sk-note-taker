@@ -36,13 +36,21 @@ public final class ScreenCaptureAudioSource: NSObject, AudioSource, SCStreamOutp
     private var stream: SCStream?
     private var running = false
 
-    /// Uptime (ns) of the last audio callback — liveness of the stream itself.
+    /// Uptime (ns) of the last audio callback — liveness of the STREAM (callbacks arriving).
     private let lastCallbackNanos = Mutex<UInt64>(0)
+    /// Uptime (ns) of the last callback carrying real sound — liveness of the AUDIO. The
+    /// stream can keep firing callbacks that carry only silence while it has quietly stopped
+    /// capturing the actual system output (observed ~2 min into a real Zoom call).
+    private let lastAudioNanos = Mutex<UInt64>(0)
     private let audioCallbacks = Mutex<Int>(0)
     private let nonSilentCallbacks = Mutex<Int>(0)
     private var watchdog: DispatchSourceTimer?
     private var lastHeartbeatNanos: UInt64 = 0
+    private var lastSilenceRestartNanos: UInt64 = 0
     private var restarts = 0
+    /// Keeps the display (and system) awake while capturing — SCK's display-bound audio
+    /// capture stops delivering real audio if the display sleeps mid-meeting.
+    private var sleepAssertion: NSObjectProtocol?
 
     public init(clock: SessionClock) {
         self.clock = clock
@@ -75,6 +83,12 @@ public final class ScreenCaptureAudioSource: NSObject, AudioSource, SCStreamOutp
 
         let (out, continuation) = AsyncStream<AudioChunk>.makeStream()
         state.withLock { $0 = continuation }
+        // Hold the display and system awake for the whole capture. SCK captures the display's
+        // audio graph, which stops delivering real audio when the display sleeps — a strong
+        // suspect for capture dying ~2 min into a call while the user stepped away.
+        sleepAssertion = ProcessInfo.processInfo.beginActivity(
+            options: [.idleDisplaySleepDisabled, .idleSystemSleepDisabled],
+            reason: "SK Note Taker system-audio capture")
         ctlQueue.sync {
             running = true
             startWatchdog()
@@ -118,7 +132,9 @@ public final class ScreenCaptureAudioSource: NSObject, AudioSource, SCStreamOutp
 
         let now = DispatchTime.now().uptimeNanoseconds
         lastCallbackNanos.withLock { $0 = now }
+        lastAudioNanos.withLock { $0 = now }   // grace period before the silence-restart can fire
         lastHeartbeatNanos = now
+        lastSilenceRestartNanos = now
         SKLog.info(.capture, "system capture: ScreenCaptureKit started (display \(display.displayID))")
     }
 
@@ -129,6 +145,10 @@ public final class ScreenCaptureAudioSource: NSObject, AudioSource, SCStreamOutp
             watchdog = nil
         }
         await teardownStream()
+        if let sleepAssertion {
+            ProcessInfo.processInfo.endActivity(sleepAssertion)
+            self.sleepAssertion = nil
+        }
         state.withLock { cont in
             cont?.finish()
             cont = nil
@@ -151,8 +171,11 @@ public final class ScreenCaptureAudioSource: NSObject, AudioSource, SCStreamOutp
     private func restart(reason: String) async {
         guard ctlQueue.sync(execute: { running }) else { return }
         restarts += 1
-        SKLog.error(.captureStalled, .capture,
-                    "ScreenCaptureKit stalled — restarting stream (restart #\(restarts), reason: \(reason))")
+        // A restart is a RECOVERY, not a hard failure (capture continues), so it's a warning,
+        // not an error. A genuine total failure shows up as repeated restarts plus a silent
+        // recording — visible in the heartbeat's restart count and "last SOUND ms ago".
+        SKLog.warn(.capture,
+                   "ScreenCaptureKit restart #\(restarts) — \(reason)")
         await teardownStream()
         do {
             try await startStream()
@@ -171,6 +194,9 @@ public final class ScreenCaptureAudioSource: NSObject, AudioSource, SCStreamOutp
             let now = DispatchTime.now().uptimeNanoseconds
             let last = self.lastCallbackNanos.withLock { $0 }
 
+            let lastAudio = self.lastAudioNanos.withLock { $0 }
+            let sinceAudioMs = lastAudio == 0 ? 0 : (now &- lastAudio) / 1_000_000
+
             // Heartbeat every 30 s, so a silent failure is diagnosable after the fact.
             if now &- self.lastHeartbeatNanos > 30_000_000_000 {
                 self.lastHeartbeatNanos = now
@@ -178,13 +204,23 @@ public final class ScreenCaptureAudioSource: NSObject, AudioSource, SCStreamOutp
                 let ns = self.nonSilentCallbacks.withLock { $0 }
                 let quiet = (now &- last) / 1_000_000
                 SKLog.info(.capture, "SCK heartbeat: audio callbacks=\(a), with sound=\(ns), "
-                           + "last callback \(quiet) ms ago")
+                           + "last callback \(quiet) ms ago, last SOUND \(sinceAudioMs) ms ago")
             }
 
-            // A live SCStream delivers audio continuously, even over silence. If callbacks
-            // stop entirely the stream has stalled — restart it.
+            // 1. Callbacks stopped entirely — the stream stalled.
             if last != 0, now > last, (now &- last) > 3_000_000_000 {
                 Task { await self.restart(reason: "no audio callbacks for 3s") }
+                return
+            }
+            // 2. Callbacks keep firing but carry only silence for 20 s — the stream is alive
+            //    yet no longer capturing the real system output (the observed mid-call death,
+            //    where the remote kept talking but the system channel went empty). A fresh
+            //    stream re-attaches to the current audio graph. Rate-limited; a restart during
+            //    a genuinely quiet stretch is harmless (there is no audio to lose).
+            if lastAudio != 0, now > lastAudio, (now &- lastAudio) > 20_000_000_000,
+               now &- self.lastSilenceRestartNanos > 20_000_000_000 {
+                self.lastSilenceRestartNanos = now
+                Task { await self.restart(reason: "no captured sound for 20s while running") }
             }
         }
         timer.resume()
@@ -222,6 +258,7 @@ public final class ScreenCaptureAudioSource: NSObject, AudioSource, SCStreamOutp
         var energy: Float = 0
         for s in samples { energy += s * s }
         if (energy / Float(samples.count)).squareRoot() > 0.001 {
+            lastAudioNanos.withLock { $0 = nowNanos }
             nonSilentCallbacks.withLock { $0 += 1 }
         }
 

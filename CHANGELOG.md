@@ -3,6 +3,23 @@
 ## [Unreleased]
 
 ### Fixed
+- **System audio going silent ~2 minutes into a call while the stream stayed "alive".** In a
+  real Zoom call the mic/system split was correct for the first ~134 s, then the system
+  channel went permanently empty and the remote participant was captured only via the mic
+  (labelled as the local user). Unlike the earlier ~101 s stall, ScreenCaptureKit kept
+  firing audio callbacks the whole time — they just carried silence — so the callback-stall
+  watchdog never fired and the flight recorder showed the stream still running. Two fixes:
+  (1) a power assertion (`idleDisplaySleepDisabled` / `idleSystemSleepDisabled`) held for the
+  whole capture, because SCK's display-bound audio capture stops delivering real audio when
+  the display sleeps — the leading suspect given the failure hit right after the user stepped
+  away from the Mac; and (2) a second watchdog branch that restarts the stream when it keeps
+  firing callbacks but captures no real sound for 20 s, recovering regardless of cause. The
+  heartbeat now also logs "last SOUND ms ago" (not just last callback), so a silence failure
+  is visible in the log instead of looking healthy. A restart is logged as a warning
+  (recovery), not an error.
+
+
+### Fixed
 - **Remote voice doubled onto the microphone (heard twice, transcribed twice).** With audio
   on the laptop speakers, the mic recorded the remote participant coming out of the speakers,
   so the same voice landed on both channels — audible as a doubled/echoed voice on playback,
