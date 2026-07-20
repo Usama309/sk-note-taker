@@ -136,6 +136,28 @@ struct SpeakerClusterMergerTests {
         #expect(map.isEmpty, "different voices on compressed call audio must stay separate")
     }
 
+    /// The FSL-Blueprint-call regression (17 Jul): three people on the call, but only two
+    /// speakers surfaced. Measured from that recording's system channel — Afaq 6.4 s in 3
+    /// turns, Waqas 1.2 s in 1 turn, centroids d = 0.751 apart (the raw diarizer separated
+    /// them correctly). The old absorb radius (0.85) swallowed Waqas as a "backchannel"
+    /// purely because his captured speech was short. A voice this far away is a DIFFERENT
+    /// PERSON and must survive, however little of them was captured.
+    @Test func distinctSecondRemoteVoiceIsNotAbsorbedAsBackchannel() {
+        // angle whose cosine distance is 0.751 → cos(angle) = 0.249
+        let farAngle = acos(Float(0.249))
+        var segments: [SpeakerClusterMerger.Segment] = []
+        // Afaq: 3 turns totalling 6.4s (mean 2.13s).
+        for (i, d) in [2.4, 2.0, 2.0].enumerated() {
+            segments.append(segment("1", start: Double(i) * 6, duration: d,
+                                    embedding: embedding(angle: 0)))
+        }
+        // Waqas: a single 1.2s turn, clearly a different voice.
+        segments.append(segment("2", start: 9.0, duration: 1.2,
+                                embedding: embedding(angle: farAngle)))
+        let map = SpeakerClusterMerger.mergeMap(for: segments)
+        #expect(map.isEmpty, "a distinct second remote voice must not be absorbed as a backchannel")
+    }
+
     /// Chained merges relabel transitively: if 3 folds into 2 and 2 folds into 1, the map
     /// must send both to 1.
     @Test func chainedMergesResolveTransitively() {

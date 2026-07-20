@@ -32,9 +32,15 @@ public actor DiarizationService {
     /// Speaker-embedding clustering threshold. FluidAudio's default (0.7) under-splits
     /// system-audio captures — macOS output processing compresses voice-embedding
     /// distances — so we default lower for the meeting use case.
+    ///
+    /// Measured on the FSL Blueprint call (17 Jul), a 3-person call where two remote
+    /// colleagues were reported as one speaker: at 0.6 and 0.5 both landed in the same
+    /// cluster; at 0.45 and below they separate correctly. 0.45 is the loosest value that
+    /// separates them, so it splits real people while over-splitting the least. The
+    /// resulting short/backchannel fragments are folded back by `SpeakerClusterMerger`.
     private let clusteringThreshold: Float
 
-    public init(incrementalInterval: Double = 15.0, clusteringThreshold: Float = 0.6) {
+    public init(incrementalInterval: Double = 15.0, clusteringThreshold: Float = 0.45) {
         self.incrementalInterval = incrementalInterval
         self.clusteringThreshold = clusteringThreshold
     }

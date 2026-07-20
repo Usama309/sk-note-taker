@@ -27,9 +27,13 @@ enum SpeakerClusterMerger {
         /// separate; only fragmentary clusters (below) merge at larger distances.
         var sameVoiceDistance: Float = 0.25
         /// A minor backchannel cluster is absorbed within this radius. Measured on real
-        /// meeting audio: distinct voices sit ≈0.9 apart, while a voice's own backchannel
-        /// fragments land 0.6–0.85 from its main cluster.
-        var absorbDistance: Float = 0.85
+        /// meeting audio: a voice's own backchannel fragments land ≈0.64 from its main
+        /// cluster, while a genuinely different remote speaker on the same compressed call
+        /// measured 0.751 (the FSL Blueprint call, where a real third person was wrongly
+        /// swallowed at the old 0.85 radius). Sits between those two measurements: far
+        /// enough to still fold backchannels, tight enough that a distinct person survives
+        /// even when only a second or two of them was captured.
+        var absorbDistance: Float = 0.70
         /// "Minor" means total speech below this fraction of the cluster it would join…
         var minorShare: Double = 0.25
         /// …and made of short utterances on average (noisy embeddings).
