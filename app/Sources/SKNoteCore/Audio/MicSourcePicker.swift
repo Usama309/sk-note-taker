@@ -55,23 +55,29 @@ public enum MicSourcePicker {
     /// mapping misses unbundled processes and app helpers, and we only need to know that
     /// SOMEONE else has input running (we haven't started our own capture yet).
     public static func pick(clock: SessionClock) async -> any AudioSource {
-        let micBusy = MicActivity.micInUse()
-        let probe: ProbeResult? = micBusy ? await probeRawTap() : nil
-        let choice = decide(othersOnMic: micBusy, probe: probe)
+        // Whether ANOTHER app is truly capturing the mic. `MicActivity.micInUse()` reads the
+        // device-level "running somewhere" flag, which has false positives — it can read true
+        // with NO process actually on the mic. That false positive pushed us onto the raw path
+        // (no echo cancellation), so the remote voice coming out of the speakers bled into the
+        // mic and got recorded on both channels — the "doubled voice". The per-process check is
+        // accurate: a real Zoom/Teams call still shows up here, but idle-device false positives
+        // don't. When nobody else holds the mic we take the AUVoiceIO path, whose echo
+        // canceller removes that speaker bleed.
+        let others = MicActivity.bundleIdsUsingMic()
+        let othersOnMic = !others.isEmpty
+        let probe: ProbeResult? = othersOnMic ? await probeRawTap() : nil
+        let choice = decide(othersOnMic: othersOnMic, probe: probe)
         if choice == .voiceProcessing {
-            let message: String
-            if micBusy {
-                let others = MicActivity.bundleIdsUsingMic()
-                message = "SKNoteTaker: raw mic tap muted by another voice-processing session "
-                    + "(\(others.isEmpty ? "unknown app" : others.joined(separator: ", "))) "
-                    + "— using AUVoiceIO capture\n"
-            } else {
-                message = "SKNoteTaker: using AUVoiceIO capture for acoustic echo cancellation "
-                    + "(removes speaker bleed from the mic)\n"
-            }
-            SKLog.info(.mic, message.trimmingCharacters(in: .whitespacesAndNewlines))
+            let message = othersOnMic
+                ? "raw mic tap muted by another voice-processing session "
+                    + "(\(others.joined(separator: ", "))) — using AUVoiceIO capture"
+                : "using AUVoiceIO capture for acoustic echo cancellation "
+                    + "(removes speaker bleed from the mic)"
+            SKLog.info(.mic, message)
             return VoiceIOMicSource(clock: clock)
         }
+        SKLog.info(.mic, "using raw mic capture (another app is capturing raw: "
+                   + "\(others.joined(separator: ", ")))")
         return MicAudioSource(clock: clock)
     }
 

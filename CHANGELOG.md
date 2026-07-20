@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Remote voice doubled onto the microphone (heard twice, transcribed twice).** With audio
+  on the laptop speakers, the mic recorded the remote participant coming out of the speakers,
+  so the same voice landed on both channels — audible as a doubled/echoed voice on playback,
+  and transcribed twice ("Omni" on the mic speaker, "Omni Road" on the system speaker). Cause:
+  the mic used the raw capture path with no echo cancellation, because `MicActivity.micInUse()`
+  (a coarse device-level "running somewhere" flag) falsely reported another app on the mic
+  when nothing was. `MicSourcePicker` now bases that decision on the accurate per-process check
+  (`bundleIdsUsingMic`), so with no other app truly capturing it takes the AUVoiceIO path,
+  whose echo canceller removes the speaker bleed. Verified: with audio playing through the
+  speakers the recorded mic channel dropped from roughly matching the system channel (ratio
+  ~1.0) to a ratio of 0.02 — the mic is now essentially clean of the remote voice. A real
+  native call (Zoom/Teams capturing the mic raw) still keeps the raw path so its capture isn't
+  disturbed.
+
+
 ### Added
 - **Your name, asked once and used for the microphone speaker.** First run now asks for a name
   in the onboarding sheet, and Settings → You keeps it editable. Anything captured on the
