@@ -10,6 +10,14 @@ struct LiveMeetingView: View {
     @State private var showSpeakers = false
     @State private var sidePane: SidePane = .notes
 
+    /// Mic speaker is the machine owner → "Me" unless they assigned a real name.
+    private func liveLabel(for segment: TranscriptSegment) -> String {
+        let info = session.meeting.speakers[segment.speaker]
+        if let name = info?.name, !name.isEmpty { return name }
+        if segment.source == .mic { return "Me" }
+        return session.meeting.displayName(forSpeakerKey: segment.speaker)
+    }
+
     enum SidePane: String, CaseIterable {
         case notes = "Notes"
         case assistant = "Assistant"
@@ -146,21 +154,23 @@ struct LiveMeetingView: View {
                     }
                     ForEach(session.liveSegments) { segment in
                         UtteranceBubble(
-                            name: session.meeting.displayName(forSpeakerKey: segment.speaker),
+                            name: liveLabel(for: segment),
                             color: Theme.speakerColor(segment.speaker),
                             time: segment.start,
                             text: segment.text,
-                            volatile: false)
+                            volatile: false,
+                            isMe: segment.source == .mic)
                             .id(segment.id)
                     }
                     ForEach([AudioChannel.mic, .system], id: \.self) { channel in
                         if let text = session.volatileText[channel], !text.isEmpty {
                             UtteranceBubble(
-                                name: channel == .mic ? "You" : "…",
+                                name: channel == .mic ? "Me" : "…",
                                 color: .secondary,
                                 time: nil,
                                 text: text,
-                                volatile: true)
+                                volatile: true,
+                                isMe: channel == .mic)
                         }
                     }
                     Color.clear.frame(height: 1).id("bottom")
@@ -396,6 +406,10 @@ struct ChannelMeter: View {
     }
 }
 
+/// One utterance, rendered as a chat bubble. Messaging-app convention: what the MICROPHONE
+/// captured is you, so it sits on the RIGHT; everyone coming through the system audio (the
+/// remote participants) sits on the LEFT. That makes "me vs them" readable at a glance
+/// without decoding speaker numbers.
 struct UtteranceBubble: View {
     let name: String
     let color: Color
@@ -403,12 +417,30 @@ struct UtteranceBubble: View {
     let text: String
     let volatile: Bool
     var selected: Bool = false
+    /// Mic channel — the machine owner. Right-aligned, tinted, labeled "Me".
+    var isMe: Bool = false
     /// When set, the timestamp becomes a "jump playback here" button.
     var onTimeTap: (() -> Void)? = nil
 
     var body: some View {
+        HStack(spacing: 0) {
+            if isMe { Spacer(minLength: 56) }
+            bubble
+            if !isMe { Spacer(minLength: 56) }
+        }
+    }
+
+    private var bubble: some View {
+        // The BOX is pushed right for "me" (see body), but its CONTENTS always read
+        // left-to-right — left-aligned text is how English is read, right-aligned body text
+        // is harder to scan.
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
+                if isMe, selected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.indigo)
+                }
                 Text(name)
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(color)
@@ -430,8 +462,7 @@ struct UtteranceBubble: View {
                             .foregroundStyle(.tertiary)
                     }
                 }
-                if selected {
-                    Spacer()
+                if !isMe, selected {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 12))
                         .foregroundStyle(Theme.indigo)
@@ -441,12 +472,12 @@ struct UtteranceBubble: View {
                 .font(.system(size: 13))
                 .foregroundStyle(volatile ? .secondary : .primary)
                 .italic(volatile)
+                .multilineTextAlignment(.leading)
                 .textSelection(.enabled)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(color.opacity(volatile ? 0.05 : selected ? 0.16 : 0.09),
+        .background(color.opacity(volatile ? 0.05 : selected ? 0.16 : isMe ? 0.13 : 0.09),
                     in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)

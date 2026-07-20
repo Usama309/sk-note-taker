@@ -78,21 +78,37 @@ public struct TranscriptAssembler: Sendable {
         // Real local speech (mic active while the system channel is quiet) triggers none.
         let systemTokens = tokens.filter { $0.source == .system }
         if !systemTokens.isEmpty {
-            tokens = tokens.filter { tok in
-                guard tok.source == .mic else { return true }
+            let micIndices = tokens.indices.filter { tokens[$0].source == .mic }
+            var drop = Set<Int>()
+            for i in micIndices {
+                let tok = tokens[i]
                 let dur = max(tok.end - tok.start, 0.01)
                 let words = Self.normalizedWords(tok.text)
+                // Is this token part of a continuous run of LOCAL speech? A faint echo blip
+                // stands alone; the first word of a real sentence has more mic speech right
+                // behind it. This is what separates the isolated "go?" echo from the leading
+                // "How" of "How you're supposed to improve your English…".
+                let hasMicNeighbour = micIndices.contains { j in
+                    guard j != i else { return false }
+                    let other = tokens[j]
+                    return max(other.start - tok.end, tok.start - other.end) < 0.6
+                }
                 for s in systemTokens {
                     let overlap = min(tok.end, s.end) - max(tok.start, s.start)
-                    if overlap > 0, overlap / dur > 0.4 { return false }
+                    if overlap > 0, overlap / dur > 0.4 { drop.insert(i); break }
                     let gap = max(s.start - tok.end, tok.start - s.end)
                     if gap < 1.0, dur < 0.75, !words.isEmpty,
                        Self.containsWordRun(Self.normalizedWords(s.text), run: words) {
-                        return false
+                        drop.insert(i); break
                     }
-                    if dur < 0.2, gap < 0.75 { return false }
+                    // Faint-echo blip: a sub-articulation mic token near remote audio, and
+                    // ISOLATED. Without the isolation test this silently deleted real
+                    // one-syllable words that open a sentence.
+                    if dur < 0.2, gap < 0.75, !hasMicNeighbour { drop.insert(i); break }
                 }
-                return true
+            }
+            if !drop.isEmpty {
+                tokens = tokens.enumerated().filter { !drop.contains($0.offset) }.map(\.element)
             }
         }
 

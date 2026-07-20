@@ -2,7 +2,16 @@ import SwiftUI
 import AppKit
 import SKNoteCore
 
+/// Entry point. Intercepts hidden `--selftest-*` diagnostics (which run under the app's real
+/// TCC grants and exit) before the normal SwiftUI app launches.
 @main
+enum AppEntry {
+    static func main() {
+        if SelfTest.run(CommandLine.arguments) { exit(0) }
+        SKNoteTakerApp.main()
+    }
+}
+
 struct SKNoteTakerApp: App {
     @State private var appState = AppState()
     @Environment(\.openWindow) private var openWindow
@@ -127,6 +136,10 @@ final class AppState {
     // Transient UI state
     var errorMessage: String?
     var busy: Set<String> = []       // feature keys currently running (e.g. "summary")
+    /// Bumped whenever a meeting's stored transcript is rewritten underneath an open view
+    /// (e.g. "Redo speaker detection"). Detail views key their load on this so the transcript
+    /// pane re-reads from the store instead of showing the pre-redo attribution.
+    private(set) var transcriptRevision = 0
 
     func bootstrap() async {
         settings = await store.loadSettings()
@@ -195,16 +208,27 @@ final class AppState {
 
     func refreshPermissions() {
         micStatus = Permission.micStatus()
-        systemAudioStatus = Permission.systemAudioStatus()
+        // System audio now flows through ScreenCaptureKit, which the Screen Recording grant
+        // gates; the Core Audio process tap is only a fallback. Report granted when either
+        // path can actually capture, preferring the primary one.
+        if Permission.screenRecordingStatus() == .granted {
+            systemAudioStatus = .granted
+        } else {
+            systemAudioStatus = Permission.systemAudioStatus()
+        }
     }
 
     func requestMic() async {
         micStatus = await Permission.requestMic()
     }
 
-    /// Probing system-audio status also triggers its first-time prompt.
+    /// Probing system-audio status also triggers its first-time prompts (Screen Recording for
+    /// the ScreenCaptureKit path, then the process-tap probe for the fallback).
     func probeSystemAudio() {
-        systemAudioStatus = Permission.systemAudioStatus()
+        if Permission.screenRecordingStatus() != .granted {
+            Permission.requestScreenRecording()
+        }
+        refreshPermissions()
     }
 
     func setLaunchAtLogin(_ enabled: Bool) {
@@ -218,6 +242,8 @@ final class AppState {
     }
 
     func openSystemAudioSettings() {
+        // Fire the Screen Recording request first so the app is listed in the pane we open.
+        Permission.requestScreenRecording()
         NSWorkspace.shared.open(Permission.systemAudioSettingsURL)
     }
 
@@ -422,6 +448,7 @@ final class AppState {
                 recordingURL: url)
             guard !newTranscript.segments.isEmpty else { return }
             try await store.save(newTranscript, for: meetingId)
+            transcriptRevision += 1      // force open detail views to re-read the transcript
             if var m = meetings.first(where: { $0.id == meetingId }) {
                 // Merge new speaker set, preserving any names the user already assigned.
                 var merged: [String: SpeakerInfo] = [:]

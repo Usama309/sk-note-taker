@@ -283,6 +283,26 @@ struct TranscriptAssemblerTests {
                 "sub-articulation blip must be dropped, got: \(segments.map { "\($0.speaker):\($0.text)" })")
     }
 
+    @Test func leadingShortWordOfARealSentenceIsKept() {
+        // FSL Blueprint call (17 Jul): the user said "How you're supposed to improve your
+        // English without even practicing it?" 0.4s after the remote speaker stopped. The
+        // sub-0.2s leading "How" was being dropped as an echo blip, so the saved line began
+        // "you're supposed to…". It is not isolated — real mic speech follows it — so it
+        // must survive.
+        let assembler = TranscriptAssembler()
+        let finals = [
+            TranscriptionResult(channel: .mic, text: "", start: 0, end: 0, isFinal: true,
+                                tokens: [("How", 12.05, 12.20), ("you're supposed to improve", 12.20, 13.6)]),
+            TranscriptionResult(channel: .system, text: "", start: 0, end: 0, isFinal: true,
+                                tokens: [("My gosh, sorry", 9.0, 11.7)]),
+        ]
+        let diarized = [SpeakerSegment(speakerId: "A", start: 9.0, end: 11.7)]
+        let (segments, _) = assembler.assemble(finals: finals, speakerSegments: diarized)
+        let micText = segments.filter { $0.source == .mic }.map(\.text).joined(separator: " ")
+        #expect(micText.contains("How"),
+                "leading short word of a real sentence must survive, got: \(micText)")
+    }
+
     @Test func realInterjectionDuringRemoteSpeechIsKept() {
         // A genuine "Got it." from the user mid-remote-speech: proper word duration and
         // different words than the remote channel — must survive all three echo rules.

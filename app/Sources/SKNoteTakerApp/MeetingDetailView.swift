@@ -50,7 +50,9 @@ struct MeetingDetailView: View {
             case .chat: ChatTab(meeting: meeting)
             }
         }
-        .task { await load() }
+        // Re-runs when the meeting changes AND when a stored transcript is rewritten
+        // underneath us (Redo speaker detection), so the pane never shows stale attribution.
+        .task(id: "\(meeting.id)-\(app.transcriptRevision)") { await load() }
         .onDisappear { playback.stop() }
         .sheet(isPresented: $showSpeakers) {
             SpeakersSheet(meetingId: meeting.id, speakers: meeting.speakers,
@@ -449,6 +451,15 @@ struct TranscriptTab: View {
 
     private func transcriptText(_ t: Transcript) -> String { t.rendered(with: meeting) }
 
+    /// The mic speaker is the machine owner: label it "Me" unless the user assigned a real
+    /// name. Remote speakers keep their assigned name or generic "Speaker N".
+    private func label(forKey key: String) -> String {
+        let info = meeting.speakers[key]
+        if let name = info?.name, !name.isEmpty { return name }
+        if info?.source == .mic { return "Me" }
+        return meeting.displayName(forSpeakerKey: key)
+    }
+
     /// Just the selected messages, in transcript order, in the same rendered format.
     private func selectedText(_ t: Transcript) -> String {
         t.segments.filter { selected.contains($0.id) }.map { seg in
@@ -471,7 +482,7 @@ struct TranscriptTab: View {
                                     HStack(spacing: 4) {
                                         Circle().fill(Theme.speakerColor(key))
                                             .frame(width: 7, height: 7)
-                                        Text(meeting.displayName(forSpeakerKey: key))
+                                        Text(label(forKey: key))
                                             .font(.system(size: 11, weight: .semibold))
                                     }
                                     .padding(.horizontal, 9)
@@ -491,12 +502,13 @@ struct TranscriptTab: View {
 
                         ForEach(transcript.segments) { segment in
                             UtteranceBubble(
-                                name: meeting.displayName(forSpeakerKey: segment.speaker),
+                                name: label(forKey: segment.speaker),
                                 color: Theme.speakerColor(segment.speaker),
                                 time: segment.start,
                                 text: segment.text,
                                 volatile: false,
                                 selected: selected.contains(segment.id),
+                                isMe: segment.source == .mic,
                                 onTimeTap: onSeek.map { seek in { seek(segment.start) } })
                                 .contentShape(Rectangle())
                                 .onTapGesture {
