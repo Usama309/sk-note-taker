@@ -33,10 +33,20 @@ public enum Permission: Sendable {
 
     // MARK: System audio (kTCCServiceAudioCapture)
 
-    /// There is no public status API for system-audio capture, so we probe: try to create a
-    /// process tap. Success ⇒ granted. On first attempt for an undetermined app this also
-    /// triggers the prompt. We can't distinguish "denied" from "not yet asked" reliably, so
-    /// callers treat non-granted as "needs attention".
+    /// System audio now flows through ScreenCaptureKit (device-independent, unlike the Core
+    /// Audio process tap it replaced), so the Screen Recording grant is what actually gates
+    /// it. `CGPreflightScreenCaptureAccess` reports it without prompting.
+    public static func screenRecordingStatus() -> Status {
+        CGPreflightScreenCaptureAccess() ? .granted : .denied
+    }
+
+    /// Fires the Screen Recording prompt (or opens the pane) once.
+    @discardableResult
+    public static func requestScreenRecording() -> Bool {
+        CGRequestScreenCaptureAccess()
+    }
+
+    /// Legacy process-tap probe, kept as the fallback path's status check.
     public static func systemAudioStatus() -> Status {
         var tapID = AudioObjectID(kAudioObjectUnknown)
         let desc = CATapDescription(stereoGlobalTapButExcludeProcesses: [])

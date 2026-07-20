@@ -78,8 +78,12 @@ struct AudioSignalTests {
 /// the mic.
 @Suite("Mic source picker")
 struct MicSourcePickerTests {
-    @Test func aloneOnMicUsesRawTap() {
-        #expect(MicSourcePicker.decide(othersOnMic: false, probe: nil) == .raw)
+    @Test func aloneOnMicUsesVoiceProcessingForAEC() {
+        // No other app on the mic → open a voice-processing session for its acoustic echo
+        // canceller, which removes the remote participant's voice (coming out of the laptop
+        // speakers) from the mic so the local channel stays "just you". Safe: there's no
+        // other raw client to mute.
+        #expect(MicSourcePicker.decide(othersOnMic: false, probe: nil) == .voiceProcessing)
     }
 
     @Test func mutedRawTapDuringCallSwitchesToVoiceIO() {

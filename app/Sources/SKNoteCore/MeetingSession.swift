@@ -101,7 +101,7 @@ public final class MeetingSession {
         let mic = await MicSourcePicker.pick(clock: clock)
         return MeetingSession(
             title: title, store: store,
-            sources: [mic, SystemAudioSource(clock: clock)],
+            sources: [mic, SystemAudioCapture(clock: clock)],
             clock: clock,
             autoEndSilenceSeconds: autoEndSilenceSeconds)
     }
