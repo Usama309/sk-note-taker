@@ -442,6 +442,7 @@ struct CopyButton: View {
 }
 
 struct TranscriptTab: View {
+    @Environment(AppState.self) private var app
     let meeting: Meeting
     let transcript: Transcript?
     let onRenameSpeakers: () -> Void
@@ -451,12 +452,13 @@ struct TranscriptTab: View {
 
     private func transcriptText(_ t: Transcript) -> String { t.rendered(with: meeting) }
 
-    /// The mic speaker is the machine owner: label it "Me" unless the user assigned a real
-    /// name. Remote speakers keep their assigned name or generic "Speaker N".
+    /// The mic speaker is the machine owner: label it with the name they gave at onboarding
+    /// (Settings → You), falling back to "Me". A per-meeting rename still wins. Remote
+    /// speakers keep their assigned name or generic "Speaker N".
     private func label(forKey key: String) -> String {
         let info = meeting.speakers[key]
         if let name = info?.name, !name.isEmpty { return name }
-        if info?.source == .mic { return "Me" }
+        if info?.source == .mic { return app.userDisplayName }
         return meeting.displayName(forSpeakerKey: key)
     }
 

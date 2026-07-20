@@ -231,6 +231,19 @@ final class AppState {
         refreshPermissions()
     }
 
+    /// The name shown for anything captured on the microphone — the machine owner. Empty
+    /// falls back to "Me" rather than "Speaker 1", which read as a stranger's label.
+    var userDisplayName: String {
+        let name = settings.defaultSpeakerName?.trimmingCharacters(in: .whitespaces) ?? ""
+        return name.isEmpty ? "Me" : name
+    }
+
+    func setUserName(_ name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        settings.defaultSpeakerName = trimmed.isEmpty ? nil : trimmed
+        Task { try? await store.save(settings: settings) }
+    }
+
     func setLaunchAtLogin(_ enabled: Bool) {
         settings.launchAtLogin = enabled
         LoginItem.setEnabled(enabled)
@@ -294,7 +307,8 @@ final class AppState {
         let session = await MeetingSession.live(
             title: title, store: store,
             autoEndSilenceSeconds: settings.autoEndDetection
-                ? max(60, settings.autoEndSilenceMinutes * 60) : nil)
+                ? max(60, settings.autoEndSilenceMinutes * 60) : nil,
+            userName: settings.defaultSpeakerName)
         session.onEndPromptShown = { [weak self] reason in
             self?.notifier.notifyMeetingMayHaveEnded(reason: reason)
         }

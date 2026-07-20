@@ -14,10 +14,35 @@ struct OnboardingView: View {
                     .shadow(color: Theme.indigo.opacity(0.35), radius: 14, y: 5)
                 Text("Welcome to SK Note Taker")
                     .font(.system(size: 22, weight: .bold, design: .rounded))
-                Text("Two quick permissions and you're ready to record.")
+                Text("Tell us your name, grant two permissions, and you're ready to record.")
                     .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
             }
             .padding(.top, 8)
+
+            // Asked first because it's the one thing only the user can answer — everything
+            // captured on the mic is labelled with this instead of a generic "Speaker 1".
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 12) {
+                    Image(systemName: "person.fill")
+                        .font(.system(size: 18))
+                        .foregroundStyle(Theme.accentGradient)
+                        .frame(width: 30)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Your name").font(.system(size: 13, weight: .semibold))
+                        Text("Labels everything you say in the transcript.")
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    TextField("Me", text: Binding(
+                        get: { app.settings.defaultSpeakerName ?? "" },
+                        set: { app.setUserName($0) }))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 150)
+                }
+                .padding(12)
+                .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
+            }
 
             PermissionRow(
                 icon: "mic.fill",

@@ -320,3 +320,24 @@ struct TranscriptAssemblerTests {
                 "real interjections must be preserved, got: \(segments.map { "\($0.speaker):\($0.text)" })")
     }
 }
+
+/// The machine owner's name is stamped onto the mic speaker so it flows everywhere the
+/// transcript goes — summaries, chat, exports, MCP, web — not just the UI label.
+@Suite("User name on the mic speaker")
+struct UserNameTests {
+    @MainActor private func session(userName: String?) -> MeetingSession {
+        MeetingSession(title: "T", store: MeetingStore(), sources: [], clock: SessionClock(),
+                       recordAudio: false, requiresMic: false, userName: userName)
+    }
+
+    @Test @MainActor func blankNameIsTreatedAsUnset() {
+        // "   " must not become a speaker literally named three spaces.
+        #expect(session(userName: "   ").configuredUserName == nil)
+        #expect(session(userName: "").configuredUserName == nil)
+        #expect(session(userName: nil).configuredUserName == nil)
+    }
+
+    @Test @MainActor func nameIsTrimmed() {
+        #expect(session(userName: "  Usama  ").configuredUserName == "Usama")
+    }
+}

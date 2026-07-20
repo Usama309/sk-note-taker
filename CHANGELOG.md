@@ -3,6 +3,13 @@
 ## [Unreleased]
 
 ### Added
+- **Your name, asked once and used for the microphone speaker.** First run now asks for a name
+  in the onboarding sheet, and Settings → You keeps it editable. Anything captured on the
+  microphone is labelled with it (falling back to "Me" when blank) instead of a generic
+  "Speaker 1", which read as a stranger. The name is stamped onto the meeting's mic speaker
+  when a session starts, not just prettified in the view, so it flows everywhere the
+  transcript goes: summaries, chat, copied text, exports, MCP and the web view. A per-meeting
+  rename still wins over the global name, and existing meetings keep showing "Me".
 - **Desktop logging with error codes.** Diagnostics went to stderr, which is discarded for a
   Finder-launched app — which is why a capture failure mid-meeting left no trace and had to be
   reverse-engineered from the recorded audio. Everything now lands in two files that are

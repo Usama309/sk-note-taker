@@ -10,11 +10,11 @@ struct LiveMeetingView: View {
     @State private var showSpeakers = false
     @State private var sidePane: SidePane = .notes
 
-    /// Mic speaker is the machine owner → "Me" unless they assigned a real name.
+    /// Mic speaker is the machine owner → their configured name, else "Me".
     private func liveLabel(for segment: TranscriptSegment) -> String {
         let info = session.meeting.speakers[segment.speaker]
         if let name = info?.name, !name.isEmpty { return name }
-        if segment.source == .mic { return "Me" }
+        if segment.source == .mic { return app.userDisplayName }
         return session.meeting.displayName(forSpeakerKey: segment.speaker)
     }
 
@@ -165,7 +165,7 @@ struct LiveMeetingView: View {
                     ForEach([AudioChannel.mic, .system], id: \.self) { channel in
                         if let text = session.volatileText[channel], !text.isEmpty {
                             UtteranceBubble(
-                                name: channel == .mic ? "Me" : "…",
+                                name: channel == .mic ? app.userDisplayName : "…",
                                 color: .secondary,
                                 time: nil,
                                 text: text,

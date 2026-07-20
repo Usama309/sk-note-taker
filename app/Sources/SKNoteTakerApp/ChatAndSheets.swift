@@ -235,6 +235,17 @@ struct SettingsView: View {
     var body: some View {
         @Bindable var app = app
         Form {
+            Section("You") {
+                TextField("Your name", text: Binding(
+                    get: { app.settings.defaultSpeakerName ?? "" },
+                    set: { app.setUserName($0) }),
+                          prompt: Text("Me"))
+                    .textFieldStyle(.roundedBorder)
+                Text("Used to label everything captured from your microphone, in the live "
+                     + "transcript and in saved meetings. Leave blank to just show \"Me\".")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            }
             Section("Permissions") {
                 LabeledContent("Microphone") {
                     HStack(spacing: 8) {

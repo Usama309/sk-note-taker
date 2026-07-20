@@ -77,16 +77,25 @@ public final class MeetingSession {
 
     /// When false (offline reprocess from file sources), skip the mic TCC prompt.
     private let requiresMic: Bool
+    /// The machine owner's name. Stamped onto the mic speaker so it flows everywhere the
+    /// transcript goes — summaries, chat, exports, MCP, the web view — instead of only being
+    /// prettified in the UI.
+    private let userName: String?
+    /// Normalised owner name (nil when unset/blank) — exposed for tests.
+    public var configuredUserName: String? { userName }
 
     public init(title: String, store: MeetingStore, sources: [any AudioSource],
                 clock: SessionClock, recordAudio: Bool = true,
-                autoEndSilenceSeconds: Double? = nil, requiresMic: Bool = true) {
+                autoEndSilenceSeconds: Double? = nil, requiresMic: Bool = true,
+                userName: String? = nil) {
         self.meeting = Meeting(title: title)
         self.store = store
         self.sources = sources
         self.clock = clock
         self.recordAudio = recordAudio
         self.requiresMic = requiresMic
+        self.userName = userName?.trimmingCharacters(in: .whitespaces).isEmpty == false
+            ? userName?.trimmingCharacters(in: .whitespaces) : nil
         if let autoEndSilenceSeconds {
             self.endEngine = MeetingEndEngine(silenceTimeout: autoEndSilenceSeconds)
         }
@@ -96,14 +105,16 @@ public final class MeetingSession {
     /// mic path is chosen at start: during an active call (WhatsApp/Teams/FaceTime), macOS
     /// mutes raw mic taps, so `MicSourcePicker` probes and falls back to AUVoiceIO capture.
     public static func live(title: String, store: MeetingStore,
-                            autoEndSilenceSeconds: Double? = nil) async -> MeetingSession {
+                            autoEndSilenceSeconds: Double? = nil,
+                            userName: String? = nil) async -> MeetingSession {
         let clock = SessionClock()
         let mic = await MicSourcePicker.pick(clock: clock)
         return MeetingSession(
             title: title, store: store,
             sources: [mic, SystemAudioCapture(clock: clock)],
             clock: clock,
-            autoEndSilenceSeconds: autoEndSilenceSeconds)
+            autoEndSilenceSeconds: autoEndSilenceSeconds,
+            userName: userName)
     }
 
     // MARK: - Lifecycle
@@ -354,9 +365,11 @@ public final class MeetingSession {
         let (segments, speakers) = assembler.assemble(
             finals: finals, speakerSegments: speakerSegments)
         liveSegments = segments
-        // Preserve any names the user already assigned mid-meeting.
+        // Preserve any names the user already assigned mid-meeting; otherwise stamp the
+        // machine owner's configured name onto the mic speaker.
         for (key, var info) in speakers {
             if let existing = meeting.speakers[key]?.name { info.name = existing }
+            else if info.source == .mic, let userName { info.name = userName }
             meeting.speakers[key] = info
         }
         // Autosave transcript progress so a crash never loses a meeting.
