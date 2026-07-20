@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Fixed
+- **ScreenCaptureKit capture stalling ~100 s into a meeting.** In the 19 Jul demo call the
+  mic/system split was correct for the first 101 s — every remote line landed on the system
+  channel and every local line on the mic — and then the system channel went permanently
+  silent, so the remote speaker was labelled "Me" for the rest of the call. No error, no
+  `didStopWithError`, and `tap.log` showed the stream still nominally running. Cause:
+  `SCStream` always captures video, and the stream was configured with a video surface and a
+  queue depth but only an `.audio` output was registered. Nothing consumed the video frames,
+  the queue filled, and the whole stream stalled — silently taking audio with it. A `.screen`
+  output is now registered on its own queue and discards frames, keeping the queue draining.
+  Added a liveness watchdog that restarts the stream if audio callbacks stop for >3 s, and a
+  30-second heartbeat to `tap.log` (callback counts, time since last callback, restart count)
+  so any future silent failure is diagnosable after the fact. Verified over a 6-minute
+  endurance run: 357/357 s continuous audio, 18,004 callbacks, zero restarts needed —
+  previously it died at 101 s.
+
 ### Changed
 - **System audio now captured via ScreenCaptureKit instead of a Core Audio process tap.** The
   process tap binds its aggregate device to whichever output device was default when it was
