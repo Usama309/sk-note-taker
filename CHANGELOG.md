@@ -1,5 +1,108 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+- **System audio now captured via ScreenCaptureKit instead of a Core Audio process tap.** The
+  process tap binds its aggregate device to whichever output device was default when it was
+  built; a call app engaging its audio engine (Zoom installs its own virtual output) left the
+  aggregate pointing at a stale device and its IOProc went deaf. Measured across five
+  consecutive real meetings, the system channel died 15–22 s in and never recovered, which
+  collapsed every remote voice onto the microphone and mislabelled remote speakers as "Me".
+  ScreenCaptureKit captures the system audio graph rather than a specific device, so there is
+  no device binding to go stale. New `ScreenCaptureAudioSource`; `SystemAudioCapture` picks it
+  and falls back to the old process tap automatically when Screen Recording isn't granted, so
+  capture never hard-fails. The stream excludes our own process audio. Permission reporting
+  now reflects the Screen Recording grant that the primary path needs.
+- **Stable code-signing identity, so privacy grants survive rebuilds.** macOS records the
+  Screen Recording grant against the app's code signature. The build signed ad-hoc, whose
+  signature changes on every rebuild, so each build silently lost the grant — System Settings
+  still showed the app enabled while `CGPreflightScreenCaptureAccess()` reported denied and
+  capture quietly fell back to the process tap. `scripts/make-signing-identity.sh` creates a
+  local self-signed code-signing certificate once, and `build-app.sh` now prefers a real Apple
+  Development identity, then that local one, then ad-hoc. The designated requirement is now
+  `identifier + certificate root` rather than a per-build hash, verified identical across two
+  consecutive builds — so the permission is granted once and persists.
+- **Messaging-app transcript layout.** What the microphone captured is you, so it now renders
+  right-aligned and labeled **"Me"** (or your assigned name); everyone arriving on the system
+  channel stays left-aligned under their own speaker name. Applies to the live meeting view
+  and to every saved transcript, past and future. This also removes a real source of
+  confusion: the app reserves Speaker 1 for the mic and numbers remote people from 2, so a
+  line correctly attributed to the user still read as "Speaker 1" and looked misattributed.
+  The bubble is right-aligned but its text stays left-aligned — right-aligned body text gives
+  a ragged left edge and is harder to read in English.
+
+### Fixed
+- **Two remote speakers reported as one (3-person call showed 2 people).** On the FSL
+  Blueprint call, Afaq and Waqas were both labelled Speaker 2. Two independent causes, both
+  measured against that recording's system channel:
+  1. **Clustering under-split.** FluidAudio's clustering threshold (0.6) put both voices in
+     one cluster; a sweep on the real audio showed they separate at 0.45 and below. Default
+     lowered 0.6 → 0.45 (the loosest value that separates them, so it over-splits least).
+  2. **The merge pass then re-swallowed the survivor.** `SpeakerClusterMerger.absorbDistance`
+     was 0.85, wide enough to absorb a genuinely different voice measured 0.751 away purely
+     because only 1.2 s of him had been captured. Tightened 0.85 → 0.70, which sits between a
+     real backchannel (≈0.64) and a distinct person (0.751).
+  Verified end-to-end by re-processing the real recording: "Sorry, bro." → S2 (Afaq) and
+  "My gosh, sorry." → S3 (Waqas), where both were previously S2.
+- **"Redo speaker detection" left the transcript pane showing the OLD attribution.** The
+  detail view loaded the transcript once on appear and never re-read it, so after a redo the
+  speaker chips updated (they come from the observable meeting) while the messages still
+  showed the pre-redo speakers — the fix looked like it had failed when the saved data was
+  already correct. The view now keys its load on a `transcriptRevision` counter that the
+  redo bumps.
+- **Real one-syllable words deleted as echo.** The echo filter dropped ANY sub-0.2 s mic token
+  within 0.75 s of remote audio, silently eating real words like "how", "no", "so". It now
+  also requires the token to be ISOLATED — a faint echo blip stands alone, whereas the first
+  word of a sentence has more local speech right behind it. (Note: the specific missing "How"
+  on the FSL call turned out to be an ASR miss at utterance onset, not this filter.)
+- **System-audio tap dying ~15 s into a meeting (root cause of "everything is detected as
+  the mic").** Analysis of real stereo recordings showed the system (remote) channel carrying
+  audio only for the first ~15 seconds and then going to pure digital silence for the rest of
+  the meeting, while the mic carried everything — so every remote voice collapsed onto the mic
+  and was labelled Speaker 1. The Core Audio process-tap aggregate was bound to the default
+  output device captured once at start; when a meeting app (Zoom/Teams) switches or
+  reconfigures the default output as the call connects, the aggregate points at a now-idle
+  device and its IOProc stops firing permanently. `SystemAudioSource` now rebuilds the
+  tap+aggregate chain on ANY of four signals: (1) the default output device changes, (2) the
+  bound output device reconfigures its nominal sample rate or stream config (VPIO engagement
+  flips the built-in speakers, leaving the tap stale), (3) the IOProc stops firing entirely
+  (>2.5 s), or (4) the IOProc keeps firing but delivers only silence while the output device
+  is actively rendering for a client (>3 s, rate-limited) — the exact mid-meeting-deaf
+  signature. The output stream and session clock are stable across rebuilds, so the system
+  channel stays continuous. Added an append-only flight recorder at Application Support/
+  SKNoteTaker/tap.log and a hidden `--selftest-systime [--switch]` diagnostic (both run under
+  the app bundle's TCC grant, plus `--selftest-meeting` which runs a real MeetingSession).
+  Two bugs in the first healing pass were then fixed: the silence-rebuild was gated on the
+  output device reporting "running" (false in the real failure, so it never fired), and tap
+  liveness was judged by "any nonzero sample" when a deaf tap actually emits a near-zero
+  noise floor (RMS ~3e-5) — so silence was never detected. Liveness now requires real energy
+  (RMS > 1e-3), the running-device gate is gone, and a proactive refresh rebuilds the chain
+  at least every 10 s (only during a >300 ms quiet gap, so it never clips speech).
+  Verified: baseline and full-pipeline capture deliver continuously (46/46 s with a music
+  reference) under the real grant. The exact real-meeting death could not be reproduced
+  synthetically (it is timing/environment specific), so final confirmation still comes from a
+  real call — tap.log now records every build/rebuild for that.
+
+### Added
+- **`EchoCanceller`** (reference-based NLMS acoustic echo canceller). Groundwork for removing
+  residual speaker→mic echo once the system reference is reliable again: it subtracts the
+  clean system channel from the mic. Validated offline on a real recording (~15 dB echo
+  reduction with the local voice preserved); not yet wired into the live/reprocess pipeline.
+
+### Fixed (earlier this session)
+- **Remote voice bleeding into the mic channel (mislabeled as "Speaker 1").** On laptop
+  speakers the remote participant's voice comes out of the speakers and the raw microphone
+  re-records it, so the same audio was transcribed on the mic channel and attributed to the
+  local user (S1). The mic path now defaults to AUVoiceIO capture, whose acoustic echo
+  canceller subtracts the speaker output from the mic, so the local channel stays "just you".
+  `MicSourcePicker` takes this path whenever it's safe — nobody else on the mic, or another
+  app's voice-processing call has already muted raw taps — and still falls back to the raw tap
+  only when another app is actively capturing the mic *raw* with its own canceller (e.g. Zoom),
+  where opening our own VPIO session would mute that app's call. Known limitation: while a
+  raw-capturing call app like Zoom holds the mic on speakers, capture-side AEC is unavailable
+  (use headphones, or rely on the post-transcription echo suppression).
+
 ## [1.7.0] — 2026-07-14
 
 Speaker-separation release. Addresses remote participants collapsing into a single
