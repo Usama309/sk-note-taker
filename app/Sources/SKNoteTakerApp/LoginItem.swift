@@ -1,5 +1,6 @@
 import Foundation
 import ServiceManagement
+import SKNoteCore
 
 /// Manages "launch SK Note Taker at login" via the modern ServiceManagement API
 /// (SMAppService, macOS 13+). Registering adds the app as a login item; on first enable macOS
@@ -37,8 +38,7 @@ enum LoginItem {
             }
             return true
         } catch {
-            FileHandle.standardError.write(
-                Data("SKNoteTaker: login item \(enabled ? "register" : "unregister") failed: \(error)\n".utf8))
+            SKLog.warn(.app, "SKNoteTaker: login item \(enabled ? "register" : "unregister") failed: \(error)\n")
             return false
         }
     }

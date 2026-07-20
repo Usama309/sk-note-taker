@@ -47,7 +47,7 @@ public actor SupabaseSync {
             }
         } catch {
             lastError = error.localizedDescription
-            FileHandle.standardError.write(Data("SKNoteTaker: sync meeting failed: \(error)\n".utf8))
+            SKLog.error(.syncFailed, .sync, "Cloud sync of a meeting failed (local copy unaffected)", error: error)
         }
     }
 
@@ -56,7 +56,7 @@ public actor SupabaseSync {
         do { try await upsertFolders(await folderStore.all()) }
         catch {
             lastError = error.localizedDescription
-            FileHandle.standardError.write(Data("SKNoteTaker: sync folders failed: \(error)\n".utf8))
+            SKLog.error(.syncFailed, .sync, "Cloud sync of folders failed (local copy unaffected)", error: error)
         }
     }
 
@@ -81,7 +81,7 @@ public actor SupabaseSync {
               let data = try? Data(contentsOf: url) else { return }
         do { try await putStorage(path: "\(id.uuidString.lowercased()).m4a", data: data, contentType: "audio/mp4") }
         catch {
-            FileHandle.standardError.write(Data("SKNoteTaker: upload recording failed: \(error)\n".utf8))
+            SKLog.error(.syncFailed, .sync, "Recording upload failed (local recording unaffected)", error: error)
         }
     }
 

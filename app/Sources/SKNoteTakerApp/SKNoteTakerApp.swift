@@ -345,6 +345,7 @@ final class AppState {
             try await store.saveSummary(summary, for: meetingId)
             await sync.syncMeeting(meetingId)
         } catch {
+            SKLog.error(.aiRequestFailed, .ai, "Summary generation failed", error: error)
             errorMessage = error.localizedDescription
         }
     }
@@ -427,8 +428,8 @@ final class AppState {
             await sync.syncMeeting(meetingId)
         } catch {
             // Categorization is best-effort; surface quietly.
-            FileHandle.standardError.write(
-                Data("SKNoteTaker: auto-categorize failed: \(error)\n".utf8))
+            SKLog.error(.aiRequestFailed, .ai,
+                        "Auto-categorization failed — the meeting stays unfiled", error: error)
         }
     }
 
@@ -462,6 +463,8 @@ final class AppState {
             }
             await sync.syncMeeting(meetingId)
         } catch {
+            SKLog.error(.diarizationPassFailed, .diarization,
+                        "Redo speaker detection failed", error: error)
             errorMessage = "Speaker detection failed: \(error.localizedDescription)"
         }
     }

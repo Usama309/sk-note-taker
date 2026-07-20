@@ -57,17 +57,21 @@ public final class ScreenCaptureAudioSource: NSObject, AudioSource, SCStreamOutp
     public func start() async throws -> AsyncStream<AudioChunk> {
         guard CGPreflightScreenCaptureAccess() else {
             _ = CGRequestScreenCaptureAccess()   // fires the prompt / opens the pane once
-            throw AudioSourceError.permissionDenied(
+            let err = AudioSourceError.permissionDenied(
                 "screen recording (required to capture system audio)")
+            SKLog.error(.captureScreenPermissionDenied, .capture,
+                        "Screen Recording not granted — system audio cannot be captured via "
+                        + "ScreenCaptureKit. Grant it in System Settings → Privacy & Security → "
+                        + "Screen & System Audio Recording.", error: err)
+            throw err
         }
-
-        // Any display works — audio is captured from the whole system graph, not the pixels.
-        let content = try await SCShareableContent.excludingDesktopWindows(
-            false, onScreenWindowsOnly: false)
-        guard let display = content.displays.first else {
-            throw AudioSourceError.deviceUnavailable("no display available for ScreenCaptureKit")
+        do {
+            try await startStream()
+        } catch {
+            SKLog.error(.captureStartFailed, .capture,
+                        "ScreenCaptureKit failed to start", error: error)
+            throw error
         }
-        try await startStream()
 
         let (out, continuation) = AsyncStream<AudioChunk>.makeStream()
         state.withLock { $0 = continuation }
@@ -83,7 +87,9 @@ public final class ScreenCaptureAudioSource: NSObject, AudioSource, SCStreamOutp
         let content = try await SCShareableContent.excludingDesktopWindows(
             false, onScreenWindowsOnly: false)
         guard let display = content.displays.first else {
-            throw AudioSourceError.deviceUnavailable("no display available for ScreenCaptureKit")
+            let err = AudioSourceError.deviceUnavailable("no display available for ScreenCaptureKit")
+            SKLog.error(.captureNoDisplay, .capture, "No display available to attach the audio stream to", error: err)
+            throw err
         }
         let filter = SCContentFilter(display: display, excludingApplications: [],
                                      exceptingWindows: [])
@@ -113,7 +119,7 @@ public final class ScreenCaptureAudioSource: NSObject, AudioSource, SCStreamOutp
         let now = DispatchTime.now().uptimeNanoseconds
         lastCallbackNanos.withLock { $0 = now }
         lastHeartbeatNanos = now
-        TapLog.log("system capture: ScreenCaptureKit started (display \(display.displayID))")
+        SKLog.info(.capture, "system capture: ScreenCaptureKit started (display \(display.displayID))")
     }
 
     public func stop() async {
@@ -128,7 +134,7 @@ public final class ScreenCaptureAudioSource: NSObject, AudioSource, SCStreamOutp
             cont = nil
         }
         let a = audioCallbacks.withLock { $0 }, ns = nonSilentCallbacks.withLock { $0 }
-        TapLog.log("system capture: ScreenCaptureKit stopped "
+        SKLog.info(.capture, "system capture: ScreenCaptureKit stopped "
                    + "(audio callbacks=\(a), with sound=\(ns), restarts=\(restarts))")
     }
 
@@ -145,12 +151,15 @@ public final class ScreenCaptureAudioSource: NSObject, AudioSource, SCStreamOutp
     private func restart(reason: String) async {
         guard ctlQueue.sync(execute: { running }) else { return }
         restarts += 1
-        TapLog.log("ScreenCaptureKit RESTART (\(reason))")
+        SKLog.error(.captureStalled, .capture,
+                    "ScreenCaptureKit stalled — restarting stream (restart #\(restarts), reason: \(reason))")
         await teardownStream()
         do {
             try await startStream()
         } catch {
-            TapLog.log("ScreenCaptureKit restart failed: \(error.localizedDescription)")
+            SKLog.error(.captureRestartFailed, .capture,
+                        "ScreenCaptureKit restart failed — system audio will stay silent until the "
+                        + "next attempt", error: error)
         }
     }
 
@@ -168,7 +177,7 @@ public final class ScreenCaptureAudioSource: NSObject, AudioSource, SCStreamOutp
                 let a = self.audioCallbacks.withLock { $0 }
                 let ns = self.nonSilentCallbacks.withLock { $0 }
                 let quiet = (now &- last) / 1_000_000
-                TapLog.log("SCK heartbeat: audio callbacks=\(a), with sound=\(ns), "
+                SKLog.info(.capture, "SCK heartbeat: audio callbacks=\(a), with sound=\(ns), "
                            + "last callback \(quiet) ms ago")
             }
 
@@ -225,7 +234,9 @@ public final class ScreenCaptureAudioSource: NSObject, AudioSource, SCStreamOutp
     // MARK: - SCStreamDelegate
 
     public func stream(_ stream: SCStream, didStopWithError error: Error) {
-        TapLog.log("ScreenCaptureKit stream stopped with error: \(error.localizedDescription)")
+        SKLog.error(.captureStreamError, .capture,
+                    "ScreenCaptureKit stream stopped unexpectedly", error: error)
+        Task { await self.restart(reason: "stream stopped with error") }
     }
 }
 
@@ -249,8 +260,10 @@ public final class SystemAudioCapture: AudioSource, @unchecked Sendable {
             active = screen
             return stream
         } catch {
-            TapLog.log("ScreenCaptureKit unavailable (\(error.localizedDescription)) — "
-                       + "falling back to Core Audio process tap")
+            SKLog.error(.captureFellBackToTap, .capture,
+                        "ScreenCaptureKit unavailable — falling back to the Core Audio process "
+                        + "tap, which is known to go deaf mid-meeting. Grant Screen Recording "
+                        + "to use the reliable path.", error: error)
             let tap = SystemAudioSource(clock: clock)
             let stream = try await tap.start()
             active = tap

@@ -97,8 +97,10 @@ public actor TranscriptionService {
                         "SKNOTE_DEBUG asr[\(channel.rawValue)] results stream finished\n".utf8))
                 }
             } catch {
-                FileHandle.standardError.write(
-                    Data("SKNoteTaker: transcriber stream ended: \(error)\n".utf8))
+                SKLog.error(.transcriptionStreamEnded, .transcription,
+                            "Transcriber stream ended for the \(channel.rawValue) channel — "
+                            + "that channel will produce no further text this meeting",
+                            error: error)
             }
         }
     }

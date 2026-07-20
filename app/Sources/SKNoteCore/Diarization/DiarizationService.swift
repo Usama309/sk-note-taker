@@ -95,8 +95,9 @@ public actor DiarizationService {
             }.sorted { $0.start < $1.start }
             return segments
         } catch {
-            FileHandle.standardError.write(
-                Data("SKNoteTaker: diarization pass failed: \(error)\n".utf8))
+            SKLog.error(.diarizationPassFailed, .diarization,
+                        "Diarization pass failed — speaker labels will not update this pass",
+                        error: error)
             return nil
         }
     }

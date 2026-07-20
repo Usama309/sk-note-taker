@@ -95,8 +95,9 @@ public actor RecordingWriter {
             let left = buf.floatChannelData![0], right = buf.floatChannelData![1]
             for i in 0..<blockSize { left[i] = mic[i]; right[i] = system[i] }
             do { try file.write(from: buf) } catch {
-                FileHandle.standardError.write(
-                    Data("SKNoteTaker: recording write failed: \(error)\n".utf8))
+                SKLog.error(.recordingWriteFailed, .recording,
+                            "Failed to write a recording block — the saved audio will have a gap",
+                            error: error)
             }
             writtenThrough = (block + 1) * blockSize
         }

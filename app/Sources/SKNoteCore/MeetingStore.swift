@@ -49,7 +49,7 @@ public actor MeetingStore {
             guard let data = try? Data(contentsOf: url),
                   let meeting = try? SKJSON.decoder.decode(Meeting.self, from: data) else {
                 if FileManager.default.fileExists(atPath: url.path) {
-                    FileHandle.standardError.write(Data("SKNoteTaker: skipping malformed \(url.path)\n".utf8))
+                    SKLog.error(.storeReadFailed, .store, "Skipping malformed file: \(url.lastPathComponent)")
                 }
                 continue
             }

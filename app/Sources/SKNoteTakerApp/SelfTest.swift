@@ -22,6 +22,28 @@ final class Flag: @unchecked Sendable {
 enum SelfTest {
 
     static func run(_ args: [String]) -> Bool {
+        // Proves the logging pipeline end to end in the real app: writes one entry of each
+        // level plus representative errors, then prints where they landed. Run this to
+        // confirm the Desktop logs are working before relying on them.
+        if args.contains("--selftest-logging") {
+            print("Log folder: \(SKLog.directory.path)")
+            SKLog.beginMeeting(title: "Logging self-test", id: UUID())
+            SKLog.info(.app, "informational entry — should appear ONLY in the full log")
+            SKLog.warn(.mic, "warning entry — full log only")
+            SKLog.error(.captureStalled, .capture,
+                        "sample: system audio stopped arriving mid-meeting")
+            SKLog.error(.tapStartFailed, .capture, "sample: with an underlying OS error",
+                        error: NSError(domain: "com.apple.coreaudio", code: -10877,
+                                       userInfo: [NSLocalizedDescriptionKey: "device not found"]))
+            SKLog.error(.aiRequestFailed, .ai, "sample: Claude request failed",
+                        error: NSError(domain: "SKNoteTaker", code: 42,
+                                       userInfo: [NSLocalizedDescriptionKey: "usage limit reached"]))
+            SKLog.endMeeting(title: "Logging self-test", durationSec: 0)
+            print("Wrote 3 sample errors. Check:")
+            print("  \(SKLog.fullLogURL.path)")
+            print("  \(SKLog.errorLogURL.path)")
+            return true
+        }
         if let i = args.firstIndex(of: "--selftest-meeting") {
             let seconds = (i + 1 < args.count ? Double(args[i + 1]) : nil) ?? 40
             // runMeeting is @MainActor, so we must NOT block the main thread — pump the main

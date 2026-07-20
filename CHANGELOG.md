@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+### Added
+- **Desktop logging with error codes.** Diagnostics went to stderr, which is discarded for a
+  Finder-launched app — which is why a capture failure mid-meeting left no trace and had to be
+  reverse-engineered from the recorded audio. Everything now lands in two files that are
+  created on first use, so they can be checked after any meeting without tooling:
+  `~/Desktop/SK Note Taker Logs/sknotetaker.log` (every entry, chronological) and
+  `errors.log` (errors only, one detailed block each). Errors carry a stable code
+  (`CAP-004`, `TAP-005`, `AI-001`, …), the category, the meeting they occurred in, and the
+  underlying error's domain and OS status code. Each meeting is bracketed by banners and ends
+  with a summary line (`900s, 0 error(s), 0 warning(s)`) plus a per-channel report of whether
+  mic and system actually carried audio. Every previously silent failure path is wired in:
+  capture start/stall/restart, process-tap rebuilds, mic permission and voice-processing,
+  transcription stream, diarization, recording writes, store reads, cloud sync, AI requests
+  and session start/save. Files rotate at 10 MB. `--selftest-logging` writes sample entries
+  to confirm the pipeline end to end.
+
+
 ### Fixed
 - **ScreenCaptureKit capture stalling ~100 s into a meeting.** In the 19 Jul demo call the
   mic/system split was correct for the first 101 s — every remote line landed on the system

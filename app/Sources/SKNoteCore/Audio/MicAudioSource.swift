@@ -56,8 +56,7 @@ public final class MicAudioSource: AudioSource, @unchecked Sendable {
                 engine.connect(input, to: mixer, format: input.outputFormat(forBus: 0))
                 engine.mainMixerNode.outputVolume = 0   // don't echo the mic to speakers
             } catch {
-                FileHandle.standardError.write(
-                    Data("SKNoteTaker: voice processing unavailable: \(error)\n".utf8))
+                SKLog.error(.micStartFailed, .mic, "Voice processing unavailable on the mic input — echo cancellation is off", error: error)
             }
         }
 

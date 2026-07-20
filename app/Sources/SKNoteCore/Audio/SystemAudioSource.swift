@@ -69,7 +69,7 @@ public final class SystemAudioSource: AudioSource, @unchecked Sendable {
         // (used by the self-test to A/B the resilience fix).
         let heal = ProcessInfo.processInfo.environment["SKNOTE_NO_HEAL"] != "1"
         try ctlQueue.sync {
-            TapLog.log("start (heal=\(heal))")
+            SKLog.info(.capture, "start (heal=\(heal))")
             try buildChain()
             if heal {
                 installDefaultOutputListener()
@@ -87,7 +87,7 @@ public final class SystemAudioSource: AudioSource, @unchecked Sendable {
             removeDefaultOutputListener()
             removeDeviceConfigListener()
             teardownChain()
-            TapLog.log("stop")
+            SKLog.info(.capture, "stop")
         }
         state.withLock { cont in
             cont?.finish()
@@ -106,7 +106,7 @@ public final class SystemAudioSource: AudioSource, @unchecked Sendable {
 
         var err = AudioHardwareCreateProcessTap(description, &tapID)
         guard err == noErr, tapID != kAudioObjectUnknown else {
-            TapLog.log("build FAILED: process tap err=\(err)")
+            SKLog.info(.capture, "build FAILED: process tap err=\(err)")
             throw AudioSourceError.deviceUnavailable("process tap (\(err)) — check System Audio Recording permission")
         }
 
@@ -131,18 +131,18 @@ public final class SystemAudioSource: AudioSource, @unchecked Sendable {
         err = AudioHardwareCreateAggregateDevice(aggregateDescription as CFDictionary, &aggregateID)
         guard err == noErr, aggregateID != kAudioObjectUnknown else {
             cleanupTap()
-            TapLog.log("build FAILED: aggregate err=\(err)")
+            SKLog.info(.capture, "build FAILED: aggregate err=\(err)")
             throw AudioSourceError.deviceUnavailable("aggregate device (\(err))")
         }
 
         // 3. Tap stream format.
         guard let tapFormat = Self.tapStreamFormat(tapID: tapID) else {
             cleanupAll()
-            TapLog.log("build FAILED: tap format unreadable")
+            SKLog.info(.capture, "build FAILED: tap format unreadable")
             throw AudioSourceError.deviceUnavailable("tap format unreadable")
         }
         let asbd = tapFormat.streamDescription.pointee
-        TapLog.log(String(format: "built: output=%@ (id %u) tap rate=%.0f ch=%u",
+        SKLog.info(.capture, String(format: "built: output=%@ (id %u) tap rate=%.0f ch=%u",
                           outputUID, outputID, asbd.mSampleRate, asbd.mChannelsPerFrame))
 
         // Watch the bound output device for reconfiguration (sample-rate / stream changes).
@@ -165,7 +165,7 @@ public final class SystemAudioSource: AudioSource, @unchecked Sendable {
                 loggedBuffers = true
                 var desc = "ioproc buffers=\(abl.count):"
                 for b in abl { desc += " [ch=\(b.mNumberChannels) bytes=\(b.mDataByteSize)]" }
-                TapLog.log(desc)
+                SKLog.info(.capture, desc)
             }
             // The aggregate exposes the physical output device's streams AND the tap's
             // stream. Pick the buffer matching the tap format's channel count (the last
@@ -199,14 +199,14 @@ public final class SystemAudioSource: AudioSource, @unchecked Sendable {
         }
         guard err == noErr, procID != nil else {
             cleanupAll()
-            TapLog.log("build FAILED: ioproc err=\(err)")
+            SKLog.info(.capture, "build FAILED: ioproc err=\(err)")
             throw AudioSourceError.deviceUnavailable("IOProc (\(err))")
         }
 
         err = AudioDeviceStart(aggregateID, procID)
         guard err == noErr else {
             cleanupAll()
-            TapLog.log("build FAILED: start err=\(err)")
+            SKLog.info(.capture, "build FAILED: start err=\(err)")
             throw AudioSourceError.permissionDenied("system audio recording (\(err))")
         }
         let now = DispatchTime.now().uptimeNanoseconds
@@ -229,14 +229,14 @@ public final class SystemAudioSource: AudioSource, @unchecked Sendable {
     /// the listeners and the watchdog; serialised on ctlQueue.
     private func rebuild(reason: String) {
         guard running else { return }
-        TapLog.log("REBUILD: \(reason)")
+        SKLog.info(.capture, "REBUILD: \(reason)")
         teardownChain()
         do {
             try buildChain()
         } catch {
-            TapLog.log("rebuild FAILED (\(reason)): \(error)")
-            FileHandle.standardError.write(Data(
-                "SKNoteTaker: system tap rebuild failed (\(reason)): \(error)\n".utf8))
+            SKLog.info(.capture, "rebuild FAILED (\(reason)): \(error)")
+            SKLog.error(.tapRebuildFailed, .capture,
+                        "Process-tap rebuild failed (\(reason))", error: error)
         }
     }
 
@@ -397,37 +397,5 @@ public final class SystemAudioSource: AudioSource, @unchecked Sendable {
         let err = AudioObjectGetPropertyData(tapID, &address, 0, nil, &size, &asbd)
         guard err == noErr else { return nil }
         return AVAudioFormat(streamDescription: &asbd)
-    }
-}
-
-/// Append-only diagnostic log for the system tap, at Application Support/SKNoteTaker/tap.log.
-/// Real-meeting failures were undiagnosable because stderr is lost for Finder-launched apps;
-/// this file is the flight recorder.
-enum TapLog {
-    private static let lock = NSLock()
-    private static let url: URL = {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory,
-                                           in: .userDomainMask)[0]
-            .appendingPathComponent("SKNoteTaker", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("tap.log")
-    }()
-    private static let stamp: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
-        return f
-    }()
-
-    static func log(_ message: String) {
-        lock.lock(); defer { lock.unlock() }
-        let line = "\(stamp.string(from: Date())) \(message)\n"
-        if let handle = try? FileHandle(forWritingTo: url) {
-            handle.seekToEndOfFile()
-            handle.write(Data(line.utf8))
-            try? handle.close()
-        } else {
-            try? Data(line.utf8).write(to: url)
-        }
-        FileHandle.standardError.write(Data("SKNoteTaker tap: \(line)".utf8))
     }
 }

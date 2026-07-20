@@ -110,6 +110,7 @@ public final class MeetingSession {
 
     public func start() async {
         phase = .preparing
+        SKLog.beginMeeting(title: meeting.title, id: meeting.id)
         do {
             // Preflight: request mic up front so the TCC prompt fires before we invest in
             // model loading, and so a denial is a clear error rather than silent recording.
@@ -117,6 +118,8 @@ public final class MeetingSession {
             if requiresMic {
                 let micStatus = await Permission.requestMic()
                 if micStatus == .denied {
+                    SKLog.error(.micPermissionDenied, .mic,
+                                "Microphone access denied — the meeting cannot record local audio")
                     phase = .failed(
                         "Microphone access is off. Enable it in System Settings → Privacy & "
                         + "Security → Microphone, then start again.")
@@ -156,7 +159,12 @@ public final class MeetingSession {
             phase = .recording
             meeting.state = .recording
             try await store.save(meeting)
+            SKLog.info(.session, "Recording started — sources: "
+                       + sources.map { "\($0.channel.rawValue):\(type(of: $0))" }
+                            .joined(separator: ", "))
         } catch {
+            SKLog.error(.sessionStartFailed, .session,
+                        "Meeting failed to start — no audio is being captured", error: error)
             phase = .failed(error.localizedDescription)
             await teardownSources()
         }
@@ -190,9 +198,23 @@ public final class MeetingSession {
             try await store.save(meeting)
             try await store.save(Transcript(segments: liveSegments), for: meeting.id)
         } catch {
+            SKLog.error(.sessionSaveFailed, .session,
+                        "Saving the finished meeting failed", error: error)
             phase = .failed("Saving failed: \(error.localizedDescription)")
             return
         }
+        // Per-channel summary: the single most useful line when a meeting goes wrong.
+        let micOK = channelHasAudio[.mic] == true, sysOK = channelHasAudio[.system] == true
+        let sysSegs = liveSegments.filter { $0.source == .system }.count
+        let micSegs = liveSegments.filter { $0.source == .mic }.count
+        SKLog.info(.session, "Channels — mic had audio: \(micOK), system had audio: \(sysOK); "
+                   + "segments mic=\(micSegs) system=\(sysSegs)")
+        if !sysOK {
+            SKLog.error(.captureStalled, .capture,
+                        "System channel produced NO audio this meeting — remote speakers will "
+                        + "have been attributed to the microphone")
+        }
+        SKLog.endMeeting(title: meeting.title, durationSec: elapsed)
         phase = .idle
     }
 

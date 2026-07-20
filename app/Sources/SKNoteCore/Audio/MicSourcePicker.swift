@@ -69,7 +69,7 @@ public enum MicSourcePicker {
                 message = "SKNoteTaker: using AUVoiceIO capture for acoustic echo cancellation "
                     + "(removes speaker bleed from the mic)\n"
             }
-            FileHandle.standardError.write(Data(message.utf8))
+            SKLog.info(.mic, message.trimmingCharacters(in: .whitespacesAndNewlines))
             return VoiceIOMicSource(clock: clock)
         }
         return MicAudioSource(clock: clock)
