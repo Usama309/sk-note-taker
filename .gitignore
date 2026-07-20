@@ -31,3 +31,9 @@ supabase/.temp/
 # Ralph context management
 .ralph/
 .ralphrc
+
+# Local convenience symlinks into the project folder (private data — never commit)
+#   meeting-data -> ~/Library/Application Support/SKNoteTaker  (recordings + transcripts)
+#   logs-live    -> ~/Desktop/SK Note Taker Logs               (runtime logs)
+meeting-data
+logs-live

@@ -197,3 +197,17 @@ _(Meeting auto-detection — pop up "take notes?" when a call starts — shipped
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Where things live (this Mac)
+
+Everything is reachable from this project folder:
+
+- `app/`, `mcp/`, `web/`, `supabase/` — the source code (this repo, pushed to GitHub)
+- `app/dist/SK Note Taker.app` — the built app you run (git-ignored)
+- `meeting-data/` → `~/Library/Application Support/SKNoteTaker` — your recordings and
+  transcripts. A symlink, **git-ignored**: this is private audio and never goes to GitHub.
+- `logs-live/` → `~/Desktop/SK Note Taker Logs` — runtime logs (`sknotetaker.log`,
+  `errors.log`). Also a symlink, git-ignored.
+
+The app still stores meeting data in Application Support (standard macOS location); the
+symlinks just surface it here so code, recordings, and logs sit in one place.
