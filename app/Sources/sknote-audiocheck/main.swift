@@ -116,6 +116,40 @@ case "system":
     s.report("system")
     exit(s.maxRMS >= 0.001 ? 0 : 1)
 
+case "systime":
+    // Capture system audio and print per-second RMS, to see WHEN the tap stops delivering.
+    // Usage: sknote-audiocheck systime [seconds]
+    let sys = SystemAudioSource(clock: clock)
+    final class Timeline: @unchecked Sendable {
+        let lock = NSLock(); var buckets: [Int: (n: Int, sum: Float, nz: Int)] = [:]
+        func add(_ t: Double, _ samples: [Float]) {
+            let sec = Int(t)
+            let e = samples.reduce(Float(0)) { $0 + $1 * $1 }
+            let nz = samples.contains { $0 != 0 } ? 1 : 0
+            lock.lock(); var b = buckets[sec] ?? (0,0,0)
+            b.n += samples.count; b.sum += e; b.nz += nz; buckets[sec] = b; lock.unlock()
+        }
+    }
+    let tl = Timeline()
+    do {
+        let stream = try await sys.start()
+        let deadline = Date().addingTimeInterval(seconds)
+        let collector = Task { for await c in stream { tl.add(c.startTime, c.samples) } }
+        while Date() < deadline { try? await Task.sleep(for: .milliseconds(100)) }
+        await sys.stop(); _ = await collector.result
+    } catch { print("system start failed: \(error)") ; exit(1) }
+    print("second : RMS      nonzero-chunks")
+    var lastLive = -1
+    for sec in 0..<Int(seconds) {
+        let b = tl.buckets[sec]
+        let rms = (b != nil && b!.n > 0) ? (b!.sum / Float(b!.n)).squareRoot() : 0
+        let nz = b?.nz ?? 0
+        if rms > 0.0005 { lastLive = sec }
+        print(String(format: "  %3d  : %.5f   %d", sec, rms, nz))
+    }
+    print("\nLast second with audio: \(lastLive)  (of \(Int(seconds)))")
+    exit(0)
+
 case "both":
     let mic = MicAudioSource(clock: clock, voiceProcessing: useVP)
     let sys = SystemAudioSource(clock: clock)
@@ -212,8 +246,11 @@ case "diarize":
 
         // Raw pass — same config the live service uses, no merging.
         let models = try await DiarizerModels.downloadIfNeeded()
+        // SKNOTE_CT overrides the clustering threshold, for sweeping against real audio.
+        let ct = Float(ProcessInfo.processInfo.environment["SKNOTE_CT"] ?? "") ?? 0.45
+        print("clusteringThreshold = \(ct)")
         var config = DiarizerConfig()
-        config.clusteringThreshold = 0.6
+        config.clusteringThreshold = ct
         let raw = DiarizerManager(config: config)
         raw.initialize(models: models)
         let rawResult = try raw.performCompleteDiarization(samples, sampleRate: 16_000)
@@ -251,7 +288,7 @@ case "diarize":
         }
 
         // Through DiarizationService — includes the same-voice cluster merge.
-        let service = DiarizationService()
+        let service = DiarizationService(clusteringThreshold: ct)
         try await service.prepare()
         await service.feed(AudioChunk(channel: .system, samples: samples, startTime: 0))
         let merged = await service.finalPass()
@@ -367,6 +404,87 @@ case "redo":
         exit(1)
     }
     exit(0)
+
+case "aec":
+    // Reference-based echo cancellation over a stereo recording. Reports how much of the
+    // remote echo is removed from the mic (ERLE, higher = better) and whether the local
+    // voice is preserved when the far-end is quiet. Usage: sknote-audiocheck aec <rec.m4a>
+    //   [taps] [mu]
+    guard args.count > 2 else {
+        print("usage: sknote-audiocheck aec <recording.m4a> [taps] [mu]")
+        exit(2)
+    }
+    let recURL = URL(fileURLWithPath: args[2])
+    let taps = args.count > 3 ? (Int(args[3]) ?? 1536) : 1536
+    let mu = args.count > 4 ? (Float(args[4]) ?? 0.5) : 0.5
+    do {
+        let (micOpt, system) = try RecordingLoader.channels(at: recURL)
+        guard let mic = micOpt else {
+            print("recording is mono (legacy) — AEC needs the stereo mic+system channels.")
+            exit(1)
+        }
+        let n = min(mic.count, system.count)
+        let canceller = EchoCanceller(taps: taps, mu: mu)
+        let d0 = canceller.estimateDelay(mic: mic, reference: system)
+        print(String(format: "Loaded %.1fs stereo. Estimated echo delay = %d samples (%.1f ms).",
+                     Double(n) / 16_000, d0, Double(d0) / 16.0))
+        print(String(format: "Running EchoCanceller (taps=%d mu=%.2f)…", taps, mu))
+        let start = Date()
+        let cleaned = canceller.process(mic: mic, reference: system)
+        print(String(format: "  processed in %.1fs", Date().timeIntervalSince(start)))
+
+        // Metrics over 200 ms windows. ERLE is only meaningful on ECHO-DOMINATED windows
+        // (far-end active AND the mic is a delayed copy of the reference); double-talk and
+        // near-only windows are excluded because there the output is *supposed* to keep the
+        // local voice.
+        let win = 3200, act: Float = 0.01
+        func rms(_ x: ArraySlice<Float>) -> Float {
+            x.isEmpty ? 0 : (x.reduce(0) { $0 + $1 * $1 } / Float(x.count)).squareRoot()
+        }
+        // Correlation of mic vs reference at the estimated delay, over a window.
+        func echoCorr(_ t: Int) -> Float {
+            var dot: Float = 0, em: Float = 0, er: Float = 0
+            var i = t
+            while i < t + win {
+                let mi = mic[i]
+                let ri = (i - d0) >= 0 ? system[i - d0] : 0
+                dot += mi * ri; em += mi * mi; er += ri * ri
+                i += 1
+            }
+            return (em > 1e-9 && er > 1e-9) ? dot / (em.squareRoot() * er.squareRoot()) : 0
+        }
+        var echoIn: Float = 0, echoOut: Float = 0, echoWins = 0
+        var erleSum: Float = 0
+        var nearMicPow: Float = 0, nearOutPow: Float = 0     // near-only (voice preservation)
+        var t = 0
+        while t + win <= n {
+            let mr = rms(mic[t..<t+win]), sr = rms(system[t..<t+win])
+            let inE = mic[t..<t+win].reduce(Float(0)) { $0 + $1 * $1 }
+            let outE = cleaned[t..<t+win].reduce(Float(0)) { $0 + $1 * $1 }
+            if sr > act, abs(echoCorr(t)) > 0.30, mr < 3 * sr {   // echo-dominated
+                echoIn += inE; echoOut += outE; echoWins += 1
+                if inE > 0, outE > 0 { erleSum += 10 * log10(inE / outE) }
+            } else if mr > 2 * act, sr < act {                   // near-only → untouched
+                nearMicPow += inE; nearOutPow += outE
+            }
+            t += win
+        }
+        if echoOut > 0 {
+            print(String(format: "ERLE on echo windows = %.1f dB aggregate, %.1f dB mean/window (n=%d)  [higher=more echo removed]",
+                         10 * log10(echoIn / echoOut), erleSum / Float(max(echoWins, 1)), echoWins))
+        } else {
+            print("No echo-dominated windows found to measure.")
+        }
+        if nearMicPow > 0 {
+            print(String(format: "Near-end voice retention = %.1f dB (0 = perfectly preserved)",
+                         10 * log10(nearOutPow / nearMicPow)))
+        }
+        print("  ✅ AEC ran." )
+        exit(0)
+    } catch {
+        print("aec failed: \(error)")
+        exit(1)
+    }
 
 default:
     print("unknown mode \(mode)")
