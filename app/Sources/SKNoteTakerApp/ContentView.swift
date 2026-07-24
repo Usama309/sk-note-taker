@@ -314,16 +314,21 @@ struct EmptyDetailView: View {
     @Environment(AppState.self) private var app
 
     var body: some View {
-        VStack(spacing: 18) {
-            LogoMark(size: 72)
-                .shadow(color: Theme.indigo.opacity(0.35), radius: 18, y: 6)
-            Text("Ready when you are")
-                .font(.skHero)
-            Text("Start a meeting to capture mic and system audio\nwith live, speaker-aware transcription.")
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-            RecordButton()
-                .padding(.top, 6)
+        VStack(spacing: 24) {
+            LogoMark(size: 88)
+                .shadow(color: Theme.indigo.opacity(0.5), radius: 30, y: 12)
+            VStack(spacing: 10) {
+                Text("Ready when you are")
+                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                    .foregroundStyle(Theme.accentGradient)
+                Text("Capture mic and system audio with live, speaker-aware transcription.")
+                    .font(.system(size: 15))
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: 400)
+            }
+            RecordButton(prominent: true)
+                .padding(.top, 4)
             if app.micStatus != .granted || app.systemAudioStatus != .granted {
                 SetupHint()
             }
@@ -339,7 +344,17 @@ struct EmptyDetailView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.background)
+        .background(
+            ZStack {
+                Color(nsColor: .textBackgroundColor)
+                RadialGradient(
+                    colors: [Theme.indigo.opacity(0.12), Theme.teal.opacity(0.05), .clear],
+                    center: .center, startRadius: 0, endRadius: 360)
+                    .offset(y: -110)
+                    .blendMode(.plusLighter)
+            }
+            .ignoresSafeArea()
+        )
         .task { app.refreshPermissions() }
     }
 }
@@ -430,20 +445,23 @@ struct UpcomingEventsCard: View {
 
 struct RecordButton: View {
     @Environment(AppState.self) private var app
+    var prominent = false
 
     var body: some View {
         Button {
             Task { await app.startMeeting() }
         } label: {
-            HStack(spacing: 8) {
+            HStack(spacing: prominent ? 10 : 8) {
                 Image(systemName: "record.circle.fill")
+                    .font(.system(size: prominent ? 16 : 13))
                 Text("Start Meeting")
-                    .fontWeight(.semibold)
+                    .font(.system(size: prominent ? 15 : 13, weight: .semibold))
             }
-            .padding(.horizontal, 22)
-            .padding(.vertical, 11)
+            .padding(.horizontal, prominent ? 30 : 22)
+            .padding(.vertical, prominent ? 14 : 11)
             .background(Theme.accentGradient, in: Capsule())
             .foregroundStyle(.white)
+            .shadow(color: Theme.indigo.opacity(prominent ? 0.4 : 0), radius: 14, y: 6)
         }
         .buttonStyle(.plain)
         .disabled(app.session != nil)

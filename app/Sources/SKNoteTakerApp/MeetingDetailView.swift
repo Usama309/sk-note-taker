@@ -139,7 +139,7 @@ struct DetailTopBar: View {
 
             TextField("Meeting title", text: $title)
                 .textFieldStyle(.plain)
-                .font(.skTitle)
+                .font(.system(size: 20, weight: .bold, design: .rounded))
                 .onSubmit(onSaveTitle)
                 .frame(maxWidth: 460, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
@@ -706,18 +706,18 @@ struct SummaryTab: View {
     var body: some View {
         ScrollView {
             if let summary {
-                VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: 24) {
                     MarkdownBlock(text: summary.body)
 
                     if !summary.decisions.isEmpty {
-                        section("Decisions") {
+                        section("Decisions", tint: Theme.teal) {
                             ForEach(summary.decisions, id: \.self) { d in
                                 bullet(icon: "checkmark.circle.fill", tint: Theme.teal, text: d)
                             }
                         }
                     }
                     if !summary.remember.isEmpty {
-                        section("Things to remember") {
+                        section("Things to remember", tint: .orange) {
                             ForEach(summary.remember, id: \.self) { r in
                                 bullet(icon: "sparkle", tint: .orange, text: r)
                             }
@@ -733,7 +733,8 @@ struct SummaryTab: View {
                     }
                     .padding(.top, 4)
                 }
-                .padding(24)
+                .padding(.horizontal, 28)
+                .padding(.vertical, 24)
             } else {
                 VStack(spacing: 14) {
                     Image(systemName: "sparkles").font(.system(size: 34))
@@ -749,9 +750,13 @@ struct SummaryTab: View {
         }
     }
 
-    @ViewBuilder private func section<C: View>(_ title: String, @ViewBuilder _ content: () -> C) -> some View {
-        VStack(alignment: .leading, spacing: 9) {
-            Text(title).font(.skHeadline)
+    @ViewBuilder private func section<C: View>(_ title: String, tint: Color = Theme.indigo,
+                                               @ViewBuilder _ content: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Capsule().fill(tint).frame(width: 3, height: 16)
+                Text(title).font(.system(size: 16, weight: .bold))
+            }
             content()
         }
     }
