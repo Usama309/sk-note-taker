@@ -17,13 +17,32 @@ public struct GoogleCalendarEvent: Identifiable, Sendable, Hashable {
     public let htmlLink: URL?
     public let notes: String?
     public let attendees: [String]
+    public var calendarId: String
+    public var calendarColorHex: String?
 
     public init(id: String, title: String, start: Date, end: Date,
                 isAllDay: Bool, location: String?, meetingURL: URL?,
-                htmlLink: URL? = nil, notes: String? = nil, attendees: [String] = []) {
+                htmlLink: URL? = nil, notes: String? = nil, attendees: [String] = [],
+                calendarId: String = "primary", calendarColorHex: String? = nil) {
         self.id = id; self.title = title; self.start = start; self.end = end
         self.isAllDay = isAllDay; self.location = location; self.meetingURL = meetingURL
         self.htmlLink = htmlLink; self.notes = notes; self.attendees = attendees
+        self.calendarId = calendarId; self.calendarColorHex = calendarColorHex
+    }
+}
+
+/// One of the user's Google calendars (for the Visible calendars picker).
+public struct GoogleCalendarInfo: Identifiable, Sendable, Hashable {
+    public let id: String
+    public let displayName: String
+    public let colorHex: String?
+    public let isPrimary: Bool
+    /// Google's own "show this calendar" flag, used to seed default visibility.
+    public let selectedByDefault: Bool
+
+    public init(id: String, displayName: String, colorHex: String?, isPrimary: Bool, selectedByDefault: Bool) {
+        self.id = id; self.displayName = displayName; self.colorHex = colorHex
+        self.isPrimary = isPrimary; self.selectedByDefault = selectedByDefault
     }
 }
 
@@ -102,31 +121,81 @@ public final class GoogleCalendarService {
         try await exchange(code: code, verifier: verifier, redirect: redirect)
     }
 
-    /// Upcoming events on the primary calendar, from now forward.
-    public func upcomingEvents(days: Int = 14, max: Int = 12) async throws -> [GoogleCalendarEvent] {
+    /// The user's calendars (for the Visible calendars picker). colorRgbFormat=true is required
+    /// to get #rrggbb hex colours rather than opaque colour ids.
+    public func calendarList() async throws -> [GoogleCalendarInfo] {
         let token = try await validAccessToken()
+        var comps = URLComponents(
+            string: "https://www.googleapis.com/calendar/v3/users/me/calendarList")!
+        comps.queryItems = [
+            .init(name: "colorRgbFormat", value: "true"),
+            .init(name: "minAccessRole", value: "reader"),
+        ]
+        var req = URLRequest(url: comps.url!)
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        guard (resp as? HTTPURLResponse)?.statusCode == 200 else {
+            throw GoogleCalendarError("Calendar list failed: \(Self.body(data))")
+        }
+        let decoded = try JSONDecoder().decode(CalendarListResponse.self, from: data)
+        return decoded.items.map {
+            GoogleCalendarInfo(
+                id: $0.id,
+                displayName: $0.summaryOverride ?? $0.summary ?? $0.id,
+                colorHex: $0.backgroundColor,
+                isPrimary: $0.primary ?? false,
+                selectedByDefault: $0.selected ?? ($0.primary ?? false))
+        }
+    }
+
+    /// Upcoming events from now forward, aggregated across the given calendars (defaults to
+    /// the primary calendar). Fetches all calendars concurrently; a calendar that errors is
+    /// skipped rather than failing the whole refresh.
+    public func upcomingEvents(days: Int = 14, max: Int = 12,
+                               calendarIds: [String] = ["primary"],
+                               colorByCalendar: [String: String] = [:]) async throws -> [GoogleCalendarEvent] {
+        let ids = calendarIds.isEmpty ? ["primary"] : calendarIds
+        let token = try await validAccessToken()   // once, up front (mutates Keychain; don't race it)
         let now = Date()
         let until = now.addingTimeInterval(Double(days) * 86_400)
-        let iso = ISO8601DateFormatter()
 
+        let merged = try await withThrowingTaskGroup(of: [GoogleCalendarEvent].self) { group -> [GoogleCalendarEvent] in
+            for id in ids {
+                group.addTask {
+                    (try? await Self.events(calendarId: id, token: token, from: now, to: until,
+                                            max: max, colorHex: colorByCalendar[id])) ?? []
+                }
+            }
+            var all: [GoogleCalendarEvent] = []
+            for try await batch in group { all.append(contentsOf: batch) }
+            return all
+        }
+        return Array(merged.sorted { $0.start < $1.start }.prefix(max))
+    }
+
+    /// One calendar's events. calendarId is percent-encoded into the path (ids are emails and
+    /// holiday ids contain @ and #).
+    private static func events(calendarId: String, token: String, from: Date, to: Date,
+                               max: Int, colorHex: String?) async throws -> [GoogleCalendarEvent] {
+        let iso = ISO8601DateFormatter()
+        let encoded = calendarId.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? calendarId
         var comps = URLComponents(
-            string: "https://www.googleapis.com/calendar/v3/calendars/primary/events")!
+            string: "https://www.googleapis.com/calendar/v3/calendars/\(encoded)/events")!
         comps.queryItems = [
-            .init(name: "timeMin", value: iso.string(from: now)),
-            .init(name: "timeMax", value: iso.string(from: until)),
+            .init(name: "timeMin", value: iso.string(from: from)),
+            .init(name: "timeMax", value: iso.string(from: to)),
             .init(name: "singleEvents", value: "true"),
             .init(name: "orderBy", value: "startTime"),
             .init(name: "maxResults", value: String(max)),
         ]
         var req = URLRequest(url: comps.url!)
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-
         let (data, resp) = try await URLSession.shared.data(for: req)
         guard (resp as? HTTPURLResponse)?.statusCode == 200 else {
             throw GoogleCalendarError("Calendar request failed: \(Self.body(data))")
         }
         let decoded = try JSONDecoder().decode(EventsResponse.self, from: data)
-        return decoded.items.compactMap { $0.toEvent() }
+        return decoded.items.compactMap { $0.toEvent(calendarId: calendarId, colorHex: colorHex) }
     }
 
     // MARK: Token handling
@@ -408,7 +477,7 @@ private struct EventsResponse: Decodable {
         struct When: Decodable { let dateTime: String?; let date: String? }
         struct Attendee: Decodable { let email: String?; let displayName: String? }
 
-        func toEvent() -> GoogleCalendarEvent? {
+        func toEvent(calendarId: String = "primary", colorHex: String? = nil) -> GoogleCalendarEvent? {
             guard status != "cancelled", let id, let start, let end else { return nil }
             let iso = ISO8601DateFormatter()
             let day = DateFormatter(); day.dateFormat = "yyyy-MM-dd"; day.timeZone = .current
@@ -426,7 +495,21 @@ private struct EventsResponse: Decodable {
                 meetingURL: hangoutLink.flatMap(URL.init(string:)),
                 htmlLink: htmlLink.flatMap(URL.init(string:)),
                 notes: description,
-                attendees: names)
+                attendees: names,
+                calendarId: calendarId,
+                calendarColorHex: colorHex)
         }
+    }
+}
+
+private struct CalendarListResponse: Decodable {
+    let items: [Item]
+    struct Item: Decodable {
+        let id: String
+        let summary: String?
+        let summaryOverride: String?
+        let backgroundColor: String?
+        let primary: Bool?
+        let selected: Bool?
     }
 }

@@ -213,11 +213,20 @@ public struct AppSettings: Codable, Sendable, Equatable {
     public var autoEndSilenceMinutes: Double
     /// Generate the AI summary automatically when a meeting ends. On by default.
     public var autoSummarize: Bool
+    /// Show the next calendar meeting + countdown in the macOS menu bar. On by default.
+    public var showUpcomingInMenuBar: Bool
+    /// Include events with no participants / no video link in the Upcoming list. On by default.
+    public var showEventsWithoutParticipants: Bool
+    /// Google calendar ids whose events appear in Upcoming. Empty means "not yet chosen" —
+    /// seed from each calendar's Google-side `selected` flag on first load.
+    public var visibleCalendarIds: [String]
 
     public init(claudeModel: String = "sonnet", defaultSpeakerName: String? = nil,
                 locale: String = "en-US", autoDetectMeetings: Bool = true,
                 launchAtLogin: Bool = true, autoEndDetection: Bool = true,
-                autoEndSilenceMinutes: Double = 2, autoSummarize: Bool = true) {
+                autoEndSilenceMinutes: Double = 2, autoSummarize: Bool = true,
+                showUpcomingInMenuBar: Bool = true, showEventsWithoutParticipants: Bool = true,
+                visibleCalendarIds: [String] = []) {
         self.claudeModel = claudeModel
         self.defaultSpeakerName = defaultSpeakerName
         self.locale = locale
@@ -226,12 +235,16 @@ public struct AppSettings: Codable, Sendable, Equatable {
         self.autoEndDetection = autoEndDetection
         self.autoEndSilenceMinutes = autoEndSilenceMinutes
         self.autoSummarize = autoSummarize
+        self.showUpcomingInMenuBar = showUpcomingInMenuBar
+        self.showEventsWithoutParticipants = showEventsWithoutParticipants
+        self.visibleCalendarIds = visibleCalendarIds
     }
 
     // Tolerant decode: older settings.json without new fields default to on.
     private enum CodingKeys: String, CodingKey {
         case claudeModel, defaultSpeakerName, locale, autoDetectMeetings, launchAtLogin
         case autoEndDetection, autoEndSilenceMinutes, autoSummarize
+        case showUpcomingInMenuBar, showEventsWithoutParticipants, visibleCalendarIds
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -244,6 +257,10 @@ public struct AppSettings: Codable, Sendable, Equatable {
         autoEndSilenceMinutes =
             try c.decodeIfPresent(Double.self, forKey: .autoEndSilenceMinutes) ?? 2
         autoSummarize = try c.decodeIfPresent(Bool.self, forKey: .autoSummarize) ?? true
+        showUpcomingInMenuBar = try c.decodeIfPresent(Bool.self, forKey: .showUpcomingInMenuBar) ?? true
+        showEventsWithoutParticipants =
+            try c.decodeIfPresent(Bool.self, forKey: .showEventsWithoutParticipants) ?? true
+        visibleCalendarIds = try c.decodeIfPresent([String].self, forKey: .visibleCalendarIds) ?? []
     }
 }
 

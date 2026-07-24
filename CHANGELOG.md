@@ -3,6 +3,15 @@
 ## [Unreleased]
 
 ### Added
+- **Calendar settings page (multi-calendar).** Settings is now tabbed (General / Calendar). The
+  Calendar tab matches the reference: a Display section (Show upcoming meetings in menu bar, Show
+  events with no participants) and a Visible calendars list showing every Google calendar with its
+  colour dot and an on/off toggle, plus Reset. Upcoming now aggregates events across all enabled
+  calendars (not just the primary one), fetched concurrently.
+- **Menu-bar live indicator.** The menu-bar item shows a red recording badge with a live elapsed
+  timer while a meeting records (a pause glyph when paused), and otherwise (when enabled) the next
+  meeting's short title and a countdown. The dropdown lists the next few upcoming events; clicking
+  one opens it. Calendar data refreshes every 5 minutes to keep the countdown current.
 - **Speaker tags (Zoom), scaffolding.** Groundwork for real participant names on the transcript:
   a name-attribution engine that labels each speaker cluster with the dominant name from the
   meeting-app UI, a macOS Accessibility permission flow, a Zoom accessibility reader that attaches

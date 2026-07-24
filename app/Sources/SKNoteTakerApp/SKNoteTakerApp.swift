@@ -41,8 +41,12 @@ struct SKNoteTakerApp: App {
         }
 
         // Menu bar item — open, start a meeting, or quit from anywhere (Zoom/Willow style).
-        MenuBarExtra("SK Note Taker", systemImage: "waveform") {
+        // Live label: a recording badge while recording, else the next meeting + countdown.
+        MenuBarExtra {
             MenuBarContent()
+                .environment(appState)
+        } label: {
+            MenuBarLabel()
                 .environment(appState)
         }
 
@@ -86,6 +90,17 @@ struct MenuBarContent: View {
         if app.session == nil {
             Button("Preview meeting popup") { app.previewMeetingPopup() }
         }
+        if app.settings.showUpcomingInMenuBar, app.calendarConnected, !app.upcomingEvents.isEmpty {
+            Divider()
+            Text("Upcoming")
+            ForEach(app.upcomingEvents.prefix(4)) { event in
+                Button(MenuBarLabel.rowTitle(event)) {
+                    app.libraryFilter = .upcoming
+                    app.selectEvent(event.id)
+                    app.showMainWindow?()
+                }
+            }
+        }
         Divider()
         if !app.meetings.isEmpty {
             Text("Recent")
@@ -100,6 +115,51 @@ struct MenuBarContent: View {
         SettingsLink { Text("Settings…") }
         Button("Quit SK Note Taker") { NSApp.terminate(nil) }
             .keyboardShortcut("q")
+    }
+}
+
+/// The menu-bar item's label: a recording badge while recording, otherwise the next meeting and
+/// a live countdown (when enabled), otherwise the app glyph.
+struct MenuBarLabel: View {
+    @Environment(AppState.self) private var app
+
+    var body: some View {
+        if let session = app.session {
+            HStack(spacing: 4) {
+                Image(systemName: session.isPaused ? "pause.circle.fill" : "record.circle.fill")
+                TimelineView(.periodic(from: .now, by: 1)) { _ in
+                    Text(Theme.timestamp(session.elapsed)).monospacedDigit()
+                }
+            }
+        } else if app.settings.showUpcomingInMenuBar, app.calendarConnected,
+                  let event = app.nextMenuBarEvent {
+            TimelineView(.periodic(from: .now, by: 30)) { ctx in
+                HStack(spacing: 4) {
+                    Image(systemName: "calendar")
+                    Text("\(Self.shortTitle(event)) · \(Self.countdown(event, now: ctx.date))")
+                }
+            }
+        } else {
+            Image(systemName: "waveform")
+        }
+    }
+
+    static func shortTitle(_ event: GoogleCalendarEvent) -> String {
+        event.title.count > 18 ? String(event.title.prefix(17)) + "…" : event.title
+    }
+
+    static func countdown(_ event: GoogleCalendarEvent, now: Date) -> String {
+        let mins = Int(event.start.timeIntervalSince(now) / 60)
+        if mins <= 0 { return "now" }
+        if mins < 60 { return "\(mins)m" }
+        let h = mins / 60, m = mins % 60
+        return m == 0 ? "\(h)h" : "\(h)h \(m)m"
+    }
+
+    static func rowTitle(_ event: GoogleCalendarEvent) -> String {
+        let df = DateFormatter()
+        df.dateFormat = event.isAllDay ? "EEE" : "EEE h:mm a"
+        return "\(df.string(from: event.start))  ·  \(event.title)"
     }
 }
 
@@ -147,6 +207,8 @@ final class AppState {
     var calendarBusy = false
     var calendarError: String?
     var upcomingEvents: [GoogleCalendarEvent] = []
+    var calendarList: [GoogleCalendarInfo] = []
+    @ObservationIgnored private var calendarPollTask: Task<Void, Never>?
     /// Selected calendar event id (drives the event detail pane in the Upcoming view).
     var selectedEventId: String?
     var selectedEvent: GoogleCalendarEvent? {
@@ -252,7 +314,11 @@ final class AppState {
         googleCredentialsSaved = calendar.hasCredentials
         calendarConnected = calendar.isConnected
         calendarEmail = calendar.connectedEmail
-        if calendarConnected { await refreshUpcoming() }
+        if calendarConnected {
+            await loadCalendarList()
+            await refreshUpcoming()
+            startCalendarPolling()
+        }
         // Catch-up cloud sync in the background (local-first: never blocks the UI).
         Task { await sync.syncAll() }
     }
@@ -274,7 +340,9 @@ final class AppState {
             try await calendar.connect { NSWorkspace.shared.open($0) }
             calendarConnected = calendar.isConnected
             calendarEmail = calendar.connectedEmail
+            await loadCalendarList()
             await refreshUpcoming()
+            startCalendarPolling()
         } catch {
             calendarError = (error as? GoogleCalendarError)?.message ?? error.localizedDescription
         }
@@ -285,14 +353,85 @@ final class AppState {
         calendarConnected = false
         calendarEmail = nil
         upcomingEvents = []
+        calendarList = []
+        calendarPollTask?.cancel(); calendarPollTask = nil
     }
 
     func cancelCalendarConnect() { calendar.cancelConnect() }
 
+    /// The calendar ids whose events should show: the user's saved selection, or (first run,
+    /// empty selection) each calendar's Google-side `selected` flag.
+    var enabledCalendarIds: [String] {
+        if !settings.visibleCalendarIds.isEmpty { return settings.visibleCalendarIds }
+        let seeded = calendarList.filter(\.selectedByDefault).map(\.id)
+        return seeded.isEmpty ? ["primary"] : seeded
+    }
+
+    func loadCalendarList() async {
+        guard calendar.isConnected else { return }
+        do { calendarList = try await calendar.calendarList() }
+        catch { calendarError = (error as? GoogleCalendarError)?.message ?? error.localizedDescription }
+    }
+
     func refreshUpcoming() async {
         guard calendar.isConnected else { return }
-        do { upcomingEvents = try await calendar.upcomingEvents(days: 30, max: 50) }
-        catch { calendarError = (error as? GoogleCalendarError)?.message ?? error.localizedDescription }
+        let ids = enabledCalendarIds
+        let colors = Dictionary(uniqueKeysWithValues: calendarList.compactMap { info in
+            info.colorHex.map { (info.id, $0) }
+        })
+        do {
+            var events = try await calendar.upcomingEvents(
+                days: 30, max: 50, calendarIds: ids, colorByCalendar: colors)
+            if !settings.showEventsWithoutParticipants {
+                events = events.filter { !$0.attendees.isEmpty || $0.meetingURL != nil }
+            }
+            upcomingEvents = events
+        } catch {
+            calendarError = (error as? GoogleCalendarError)?.message ?? error.localizedDescription
+        }
+    }
+
+    func setCalendarVisible(_ id: String, _ visible: Bool) {
+        var ids = Set(enabledCalendarIds)
+        if visible { ids.insert(id) } else { ids.remove(id) }
+        settings.visibleCalendarIds = calendarList.map(\.id).filter { ids.contains($0) }
+        Task { try? await store.save(settings: settings); await refreshUpcoming() }
+    }
+
+    func resetCalendarVisibility() {
+        settings.visibleCalendarIds = []
+        Task { try? await store.save(settings: settings); await refreshUpcoming() }
+    }
+
+    func isCalendarVisible(_ id: String) -> Bool { enabledCalendarIds.contains(id) }
+
+    func setShowUpcomingInMenuBar(_ on: Bool) {
+        settings.showUpcomingInMenuBar = on
+        Task { try? await store.save(settings: settings) }
+    }
+
+    func setShowEventsWithoutParticipants(_ on: Bool) {
+        settings.showEventsWithoutParticipants = on
+        Task { try? await store.save(settings: settings); await refreshUpcoming() }
+    }
+
+    /// The next timed event that hasn't started yet (skips all-day and in-progress) — drives
+    /// the menu-bar countdown.
+    var nextMenuBarEvent: GoogleCalendarEvent? {
+        let now = Date()
+        return upcomingEvents.first { !$0.isAllDay && $0.start > now }
+    }
+
+    /// Refresh calendar data periodically so the menu-bar countdown stays current.
+    private func startCalendarPolling() {
+        calendarPollTask?.cancel()
+        calendarPollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(300))
+                guard let self, self.calendar.isConnected else { return }
+                await self.refreshUpcoming()
+            }
+        }
     }
 
     func selectEvent(_ id: String) {

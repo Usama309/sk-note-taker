@@ -31,6 +31,21 @@ enum Theme {
     }
 }
 
+extension Color {
+    /// Parse a Google calendar colour like "#a4bdfc". Falls back to grey on a bad string.
+    init(hex: String) {
+        let s = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#")).lowercased()
+        var value: UInt64 = 0
+        guard s.count == 6, Scanner(string: s).scanHexInt64(&value) else {
+            self = .gray; return
+        }
+        self = Color(
+            red: Double((value >> 16) & 0xff) / 255,
+            green: Double((value >> 8) & 0xff) / 255,
+            blue: Double(value & 0xff) / 255)
+    }
+}
+
 /// The logo mark: rounded gradient square with soundwave bars (mirrors assets/logo.svg).
 struct LogoMark: View {
     var size: CGFloat = 28

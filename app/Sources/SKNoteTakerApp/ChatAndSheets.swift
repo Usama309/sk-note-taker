@@ -230,9 +230,19 @@ struct SpeakersSheet: View {
 // MARK: - Settings
 
 struct SettingsView: View {
+    var body: some View {
+        TabView {
+            GeneralSettingsView()
+                .tabItem { Label("General", systemImage: "gearshape") }
+            CalendarSettingsView()
+                .tabItem { Label("Calendar", systemImage: "calendar") }
+        }
+        .frame(width: 500, height: 590)
+    }
+}
+
+struct GeneralSettingsView: View {
     @Environment(AppState.self) private var app
-    @State private var gClientID = ""
-    @State private var gClientSecret = ""
 
     var body: some View {
         @Bindable var app = app
@@ -358,22 +368,96 @@ struct SettingsView: View {
                     .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
             }
-            Section("Google Calendar") {
-                if app.calendarConnected {
+            Section("After the meeting") {
+                Toggle("Generate summary automatically", isOn: $app.settings.autoSummarize)
+                Text("The AI summary (action items, decisions, things to remember) is created right after each meeting ends.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            }
+            Section("Speakers") {
+                TextField("Your name (used for Speaker 1)", text: Binding(
+                    get: { app.settings.defaultSpeakerName ?? "" },
+                    set: { app.settings.defaultSpeakerName = $0.isEmpty ? nil : $0 }))
+            }
+            Section("Storage") {
+                LabeledContent("Data folder") {
+                    Text(MeetingStore.defaultDataDir().path)
+                        .font(.system(size: 11, design: .monospaced))
+                        .textSelection(.enabled)
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .onAppear { app.refreshPermissions() }
+        .onChange(of: app.settings) {
+            Task { await app.saveSettings() }
+        }
+    }
+}
+
+/// The Calendar settings page: display toggles + a per-calendar visibility list (or the
+/// connect/credentials flow when not yet signed in).
+struct CalendarSettingsView: View {
+    @Environment(AppState.self) private var app
+    @State private var gClientID = ""
+    @State private var gClientSecret = ""
+
+    var body: some View {
+        Form {
+            if app.calendarConnected {
+                Section("Display") {
+                    Toggle("Show upcoming meetings in menu bar", isOn: Binding(
+                        get: { app.settings.showUpcomingInMenuBar },
+                        set: { app.setShowUpcomingInMenuBar($0) }))
+                    Text("Display your next meeting and time until it starts in the macOS menu bar.")
+                        .font(.system(size: 10)).foregroundStyle(.tertiary)
+                    Toggle("Show events with no participants", isOn: Binding(
+                        get: { app.settings.showEventsWithoutParticipants },
+                        set: { app.setShowEventsWithoutParticipants($0) }))
+                    Text("Include events without participants or a video link in the Upcoming list.")
+                        .font(.system(size: 10)).foregroundStyle(.tertiary)
+                }
+                Section {
+                    if app.calendarList.isEmpty {
+                        Text("Loading calendars…").font(.system(size: 11)).foregroundStyle(.tertiary)
+                    }
+                    ForEach(app.calendarList) { cal in
+                        HStack(spacing: 10) {
+                            Circle().fill(cal.colorHex.map { Color(hex: $0) } ?? .gray)
+                                .frame(width: 10, height: 10)
+                            Text(cal.displayName).lineLimit(1)
+                            Spacer()
+                            Toggle("", isOn: Binding(
+                                get: { app.isCalendarVisible(cal.id) },
+                                set: { app.setCalendarVisible(cal.id, $0) }))
+                                .labelsHidden()
+                        }
+                    }
+                    Text("Don't see the calendar you want? Add it in Google Calendar first, then Refresh.")
+                        .font(.system(size: 10)).foregroundStyle(.tertiary)
+                } header: {
+                    HStack {
+                        Text("Visible calendars")
+                        Spacer()
+                        Button("Reset") { app.resetCalendarVisibility() }
+                            .buttonStyle(.plain).font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(Theme.indigo)
+                    }
+                }
+                Section {
                     LabeledContent("Signed in") {
                         Label(app.calendarEmail ?? "Connected", systemImage: "checkmark.circle.fill")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.green)
+                            .font(.system(size: 11, weight: .medium)).foregroundStyle(.green)
                     }
                     HStack {
-                        Button("Refresh events") { Task { await app.refreshUpcoming() } }
+                        Button("Refresh") { Task { await app.loadCalendarList(); await app.refreshUpcoming() } }
                             .controlSize(.small)
                         Button("Disconnect", role: .destructive) { app.disconnectCalendar() }
                             .controlSize(.small)
                     }
-                    Text("\(app.upcomingEvents.count) upcoming event(s) loaded. They appear on the home screen.")
-                        .font(.system(size: 10)).foregroundStyle(.tertiary)
-                } else {
+                }
+            } else {
+                Section("Connect Google Calendar") {
                     TextField("OAuth Client ID", text: $gClientID, prompt: Text("xxxx.apps.googleusercontent.com"))
                         .textFieldStyle(.roundedBorder)
                         .onAppear { if gClientID.isEmpty { gClientID = app.savedGoogleClientID } }
@@ -415,31 +499,10 @@ struct SettingsView: View {
                     .controlSize(.small)
                 }
             }
-            Section("After the meeting") {
-                Toggle("Generate summary automatically", isOn: $app.settings.autoSummarize)
-                Text("The AI summary (action items, decisions, things to remember) is created right after each meeting ends.")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
-            }
-            Section("Speakers") {
-                TextField("Your name (used for Speaker 1)", text: Binding(
-                    get: { app.settings.defaultSpeakerName ?? "" },
-                    set: { app.settings.defaultSpeakerName = $0.isEmpty ? nil : $0 }))
-            }
-            Section("Storage") {
-                LabeledContent("Data folder") {
-                    Text(MeetingStore.defaultDataDir().path)
-                        .font(.system(size: 11, design: .monospaced))
-                        .textSelection(.enabled)
-                }
-            }
         }
         .formStyle(.grouped)
-        .frame(width: 480)
-        .padding(.bottom, 10)
-        .onAppear { app.refreshPermissions() }
-        .onChange(of: app.settings) {
-            Task { await app.saveSettings() }
+        .task {
+            if app.calendarConnected && app.calendarList.isEmpty { await app.loadCalendarList() }
         }
     }
 }
