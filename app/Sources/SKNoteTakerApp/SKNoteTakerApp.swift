@@ -425,7 +425,8 @@ final class AppState {
 
     func generateSummary(for meetingId: UUID, notes: String) async {
         guard let meeting = meetings.first(where: { $0.id == meetingId }),
-              let transcript = try? await store.transcript(for: meetingId) else { return }
+              let transcript = try? await store.transcript(for: meetingId),
+              !transcript.segments.isEmpty else { return }   // nothing to summarize → no scary alert
         busy.insert("summary")
         defer { busy.remove("summary") }
         do {

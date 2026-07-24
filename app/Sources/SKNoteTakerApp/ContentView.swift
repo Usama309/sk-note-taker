@@ -50,8 +50,24 @@ struct SidebarView: View {
     @Environment(AppState.self) private var app
     @State private var newFolderName = ""
     @State private var addingFolder = false
+    /// "all" or a folder uuid string while a meeting is dragged over that row (for highlight).
+    @State private var dropTarget: String?
 
     private var clients: [Folder] { app.folders.filter { $0.parentId == nil } }
+
+    /// Row background reflecting both the current filter selection and an active drag-over.
+    private func rowBackground(token: String, selected: Bool) -> Color {
+        if dropTarget == token { return Theme.teal.opacity(0.30) }
+        return selected ? Theme.indigo.opacity(0.14) : .clear
+    }
+
+    /// A meeting (or several) was dropped onto a folder (nil = unfile to All Meetings).
+    private func dropMeetings(_ items: [String], to folderId: UUID?) -> Bool {
+        let ids = items.compactMap { UUID(uuidString: $0) }
+        guard !ids.isEmpty else { return false }
+        Task { for id in ids { await app.move(meetingId: id, to: folderId) } }
+        return true
+    }
 
     var body: some View {
         // Rows are Buttons, not `List(selection:)` — a selection-driven sidebar row would not
@@ -70,8 +86,12 @@ struct SidebarView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .listRowBackground(app.selectedFolderId == nil
-                                   ? Theme.indigo.opacity(0.14) : Color.clear)
+                .listRowBackground(rowBackground(token: "all", selected: app.selectedFolderId == nil))
+                .dropDestination(for: String.self, action: { items, _ in
+                    dropMeetings(items, to: nil)
+                }, isTargeted: { over in
+                    if over { dropTarget = "all" } else if dropTarget == "all" { dropTarget = nil }
+                })
             }
 
             Section("Projects & Clients") {
@@ -139,8 +159,14 @@ struct SidebarView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .listRowBackground(app.selectedFolderId == folder.id
-                           ? Theme.indigo.opacity(0.14) : Color.clear)
+        .listRowBackground(rowBackground(token: folder.id.uuidString,
+                                         selected: app.selectedFolderId == folder.id))
+        .dropDestination(for: String.self, action: { items, _ in
+            dropMeetings(items, to: folder.id)
+        }, isTargeted: { over in
+            if over { dropTarget = folder.id.uuidString }
+            else if dropTarget == folder.id.uuidString { dropTarget = nil }
+        })
         .contextMenu {
             Button("Delete Folder", role: .destructive) {
                 Task {

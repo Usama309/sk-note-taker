@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- **File meetings into folders by drag-and-drop.** Drag a meeting from the list onto a folder
+  in the sidebar (the folder highlights as you hover); drop onto "All Meetings" to unfile.
+  A right-click "Move to Folder" submenu does the same precisely.
 - **Meeting-detection popup.** When a Zoom / Meet / Teams / WhatsApp call starts (a call app
   running with the mic active), a custom floating panel appears top-right, on top of other apps
   (even a fullscreen call), for ~40s with a draining bar and a "Start Notes" button. Start Notes
@@ -25,6 +28,8 @@
 - **"TL;DR" renamed to "Quick summary"** in generated summaries (plainer language).
 
 ### Fixed
+- **Ending an empty meeting popped a "No transcript" error.** A recording with no speech no
+  longer triggers an auto-summary attempt (and its alert).
 - **"All Meetings" and folder rows were not clickable in the sidebar.** They relied on
   `List(selection:)`, whose rows did not register clicks; they are now buttons that reliably
   switch the meeting-list filter, with the active one highlighted.

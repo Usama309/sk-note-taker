@@ -38,7 +38,9 @@ struct MeetingListView: View {
                     ForEach(app.visibleMeetings) { meeting in
                         MeetingRow(meeting: meeting)
                             .tag(meeting.id)
+                            .draggable(meeting.id.uuidString)   // drag onto a sidebar folder to file it
                             .contextMenu {
+                                MoveToFolderMenu(meetingId: meeting.id)
                                 Button("Delete Meeting", role: .destructive) {
                                     Task { await app.delete(meetingId: meeting.id) }
                                 }
@@ -56,6 +58,30 @@ struct MeetingListView: View {
             }
         }
         .navigationTitle("")
+    }
+}
+
+/// Right-click "Move to Folder" submenu — the keyboard/precise counterpart to dragging a
+/// meeting onto a sidebar folder.
+struct MoveToFolderMenu: View {
+    @Environment(AppState.self) private var app
+    let meetingId: UUID
+
+    var body: some View {
+        Menu("Move to Folder") {
+            Button("All Meetings (unfiled)") {
+                Task { await app.move(meetingId: meetingId, to: nil) }
+            }
+            let clients = app.folders.filter { $0.parentId == nil }
+            if !clients.isEmpty {
+                Divider()
+                ForEach(clients) { folder in
+                    Button(folder.name) {
+                        Task { await app.move(meetingId: meetingId, to: folder.id) }
+                    }
+                }
+            }
+        }
     }
 }
 

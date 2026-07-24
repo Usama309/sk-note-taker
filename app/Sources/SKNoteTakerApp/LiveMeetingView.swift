@@ -110,6 +110,8 @@ struct LiveMeetingView: View {
                     Label(session.isPaused ? "Resume" : "Pause",
                           systemImage: session.isPaused ? "play.fill" : "pause.fill")
                 }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
                 .help(session.isPaused ? "Resume recording" : "Pause recording — the paused time isn't recorded")
 
                 Button {
@@ -117,6 +119,8 @@ struct LiveMeetingView: View {
                 } label: {
                     Label("Compact", systemImage: "arrow.down.right.and.arrow.up.left")
                 }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
                 .help("Shrink to a floating transcript panel docked to the right")
             }
 
@@ -125,6 +129,8 @@ struct LiveMeetingView: View {
             } label: {
                 Label("Speakers", systemImage: "person.2")
             }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
 
             Button {
                 Task { await app.stopMeeting() }
