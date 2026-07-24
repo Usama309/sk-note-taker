@@ -3,6 +3,15 @@
 ## [Unreleased]
 
 ### Added
+- **Redesigned meeting detail view.** A cleaner header (editable title, star/favourite, overflow
+  menu, "New recording", share) with a metadata row and participant avatars; an underline tab
+  bar (Summary / Transcript / Notes / Chat); and a right rail with an Action items card (owner
+  avatars) and a Participants card (Host badge). Prev/next arrows step through the list.
+- **WhatsApp-style waveform audio player** with play/pause, a clickable amplitude waveform that
+  fills as it plays, a **speed** menu (0.75×–2×), and a **volume** control. The waveform is
+  computed off the main thread from the recording.
+- **Star / favourite meetings** (persisted). The saved AI chat per meeting stays available in
+  the Chat tab.
 - **File meetings into folders by drag-and-drop.** Drag a meeting from the list onto a folder
   in the sidebar (the folder highlights as you hover); drop onto "All Meetings" to unfile.
   A right-click "Move to Folder" submenu does the same precisely.

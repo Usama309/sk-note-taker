@@ -2,8 +2,9 @@ import SwiftUI
 import AVFoundation
 import SKNoteCore
 
-/// A finished meeting: Summary / Transcript / Notes / Chat tabs, speaker naming,
-/// folder assignment, audio playback.
+/// A finished meeting, redesigned: a header with title/star/actions and participant avatars, a
+/// WhatsApp-style waveform player (speed + volume), tabbed content, and a right rail with action
+/// items and participants.
 struct MeetingDetailView: View {
     @Environment(AppState.self) private var app
     let meeting: Meeting
@@ -24,66 +25,53 @@ struct MeetingDetailView: View {
     @State private var playback = PlaybackController()
 
     var body: some View {
+        @Bindable var app = app
         VStack(spacing: 0) {
-            header
+            DetailTopBar(meeting: meeting, title: $title, playback: playback,
+                         summary: summary, transcript: transcript,
+                         onSaveTitle: saveTitle, onRenameSpeakers: { showSpeakers = true })
+            DetailMetaRow(meeting: meeting, onParticipants: { showSpeakers = true })
+
             if meeting.hasRecording {
-                PlayerBar(playback: playback)
+                WaveformPlayer(playback: playback)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 6)
             }
             Divider()
-            Picker("", selection: $tab) {
-                ForEach(Tab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .padding(.horizontal, 60)
-            .padding(.vertical, 10)
 
-            switch tab {
-            case .summary: SummaryTab(meeting: meeting, summary: summary, notes: notes,
-                                      onGenerate: generateSummary)
-            case .transcript: TranscriptTab(meeting: meeting, transcript: transcript,
-                                            onRenameSpeakers: { showSpeakers = true },
-                                            onSeek: meeting.hasRecording
-                                                ? { playback.seek(to: $0, andPlay: true) }
-                                                : nil)
-            case .notes: NotesTab(notes: $notes, onSave: saveNotes)
-            case .chat: ChatTab(meeting: meeting)
+            HStack(spacing: 0) {
+                VStack(spacing: 0) {
+                    DetailTabBar(tab: $tab)
+                    Divider()
+                    switch tab {
+                    case .summary:
+                        SummaryTab(meeting: meeting, summary: summary, notes: notes,
+                                   onGenerate: generateSummary)
+                    case .transcript:
+                        TranscriptTab(meeting: meeting, transcript: transcript,
+                                      onRenameSpeakers: { showSpeakers = true },
+                                      onSeek: meeting.hasRecording
+                                          ? { playback.seek(to: $0, andPlay: true) } : nil)
+                    case .notes:
+                        NotesTab(notes: $notes, onSave: saveNotes)
+                    case .chat:
+                        ChatTab(meeting: meeting)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+
+                Divider()
+                DetailRightRail(meeting: meeting, summary: summary,
+                                onRenameSpeakers: { showSpeakers = true })
+                    .frame(width: 292)
             }
         }
-        // Re-runs when the meeting changes AND when a stored transcript is rewritten
-        // underneath us (Redo speaker detection), so the pane never shows stale attribution.
         .task(id: "\(meeting.id)-\(app.transcriptRevision)") { await load() }
         .onDisappear { playback.stop() }
         .sheet(isPresented: $showSpeakers) {
             SpeakersSheet(meetingId: meeting.id, speakers: meeting.speakers,
                           canRedo: meeting.hasRecording)
         }
-    }
-
-    private var header: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                TextField("Meeting title", text: $title)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 17, weight: .bold, design: .rounded))
-                    .onSubmit { saveTitle() }
-                HStack(spacing: 8) {
-                    Text(meeting.createdAt.formatted(date: .abbreviated, time: .shortened))
-                    if meeting.durationSec > 0 { Text("· \(Theme.timestamp(meeting.durationSec))") }
-                    FolderMenu(meeting: meeting)
-                }
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            Button { showSpeakers = true } label: {
-                Label("Speakers", systemImage: "person.2")
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
     }
 
     // MARK: - Data
@@ -119,81 +107,485 @@ struct MeetingDetailView: View {
             await app.refresh()
         }
     }
-
 }
 
-// MARK: - Player bar
+// MARK: - Top bar
 
-/// Full playback controls for the meeting recording: play/pause, scrubber, speed, Finder.
-struct PlayerBar: View {
+struct DetailTopBar: View {
+    @Environment(AppState.self) private var app
+    let meeting: Meeting
+    @Binding var title: String
     @Bindable var playback: PlaybackController
+    let summary: SummaryData?
+    let transcript: Transcript?
+    let onSaveTitle: () -> Void
+    let onRenameSpeakers: () -> Void
+
+    private var siblings: [Meeting] { app.visibleMeetings }
+    private func adjacent(_ offset: Int) -> Meeting? {
+        guard let i = siblings.firstIndex(where: { $0.id == meeting.id }) else { return nil }
+        let j = i + offset
+        return siblings.indices.contains(j) ? siblings[j] : nil
+    }
 
     var body: some View {
-        HStack(spacing: 10) {
-            Button {
-                playback.toggle()
+        HStack(spacing: 12) {
+            HStack(spacing: 4) {
+                navButton("chevron.left", to: adjacent(-1))
+                navButton("chevron.right", to: adjacent(1))
+            }
+
+            TextField("Meeting title", text: $title)
+                .textFieldStyle(.plain)
+                .font(.system(size: 18, weight: .bold))
+                .onSubmit(onSaveTitle)
+                .frame(maxWidth: 460, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button { app.toggleStar(meeting.id) } label: {
+                Image(systemName: app.isStarred(meeting.id) ? "star.fill" : "star")
+                    .foregroundStyle(app.isStarred(meeting.id) ? Color.yellow : Color.secondary)
+            }
+            .buttonStyle(.plain)
+            .help(app.isStarred(meeting.id) ? "Unstar" : "Star")
+
+            Menu {
+                Button { onRenameSpeakers() } label: { Label("Rename speakers", systemImage: "person.2") }
+                MoveToFolderMenu(meetingId: meeting.id)
+                Divider()
+                Button(role: .destructive) {
+                    Task { await app.delete(meetingId: meeting.id) }
+                } label: { Label("Delete meeting", systemImage: "trash") }
             } label: {
-                Image(systemName: playback.playing ? "pause.circle.fill" : "play.circle.fill")
-                    .font(.system(size: 24))
-                    .foregroundStyle(playback.ready
-                                     ? AnyShapeStyle(Theme.accentGradient)
-                                     : AnyShapeStyle(.tertiary))
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(width: 26, height: 22)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+
+            Spacer()
+
+            Button { Task { await app.startMeeting() } } label: {
+                Label("New recording", systemImage: "record.circle")
+                    .font(.system(size: 12, weight: .semibold))
+                    .padding(.horizontal, 12).padding(.vertical, 7)
+                    .background(Theme.accentGradient, in: RoundedRectangle(cornerRadius: 9))
+                    .foregroundStyle(.white)
+            }
+            .buttonStyle(.plain)
+            .disabled(app.session != nil)
+
+            Menu {
+                if let summary {
+                    Button("Copy summary") { copy(SummaryTab.summaryText(summary)) }
+                }
+                if let transcript, !transcript.segments.isEmpty {
+                    Button("Copy transcript") { copy(transcript.rendered(with: meeting)) }
+                }
+                if meeting.hasRecording {
+                    Button("Show recording in Finder") { playback.revealInFinder() }
+                }
+            } label: {
+                Image(systemName: "square.and.arrow.up")
+                    .font(.system(size: 13))
+                    .frame(width: 30, height: 26)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 14)
+        .padding(.bottom, 4)
+    }
+
+    private func navButton(_ icon: String, to target: Meeting?) -> some View {
+        Button { if let target { app.selectedMeetingId = target.id } } label: {
+            Image(systemName: icon).font(.system(size: 12, weight: .semibold))
+                .frame(width: 26, height: 24)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(target == nil ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.secondary))
+        .disabled(target == nil)
+    }
+
+    private func copy(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+}
+
+// MARK: - Metadata row
+
+struct DetailMetaRow: View {
+    @Environment(AppState.self) private var app
+    let meeting: Meeting
+    let onParticipants: () -> Void
+
+    var body: some View {
+        HStack(spacing: 14) {
+            meta("calendar", meeting.createdAt.formatted(date: .abbreviated, time: .omitted))
+            meta("clock", meeting.createdAt.formatted(date: .omitted, time: .shortened))
+            if meeting.durationSec > 0 {
+                meta("timer", Theme.timestamp(meeting.durationSec))
+            }
+            FolderMenu(meeting: meeting)
+
+            Spacer()
+
+            Button(action: onParticipants) {
+                HStack(spacing: -6) {
+                    ForEach(meeting.speakers.keys.sorted().prefix(4), id: \.self) { key in
+                        SpeakerAvatar(meeting: meeting, key: key, size: 24)
+                            .overlay(Circle().strokeBorder(.background, lineWidth: 1.5))
+                    }
+                    if !meeting.speakers.isEmpty {
+                        Text("Edit")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(Theme.indigo)
+                            .padding(.leading, 12)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+            .help("Rename speakers")
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 8)
+    }
+
+    private func meta(_ icon: String, _ text: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon).font(.system(size: 11))
+            Text(text).font(.system(size: 12))
+        }
+        .foregroundStyle(.secondary)
+    }
+}
+
+// MARK: - Waveform player
+
+struct WaveformPlayer: View {
+    @Bindable var playback: PlaybackController
+    @State private var showVolume = false
+
+    private var progress: Double {
+        playback.duration > 0 ? min(1, playback.currentTime / playback.duration) : 0
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Button { playback.toggle() } label: {
+                Image(systemName: playback.playing ? "pause.fill" : "play.fill")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 38, height: 38)
+                    .background(playback.ready ? AnyShapeStyle(Theme.accentGradient)
+                                : AnyShapeStyle(Color.secondary), in: Circle())
             }
             .buttonStyle(.plain)
             .disabled(!playback.ready)
-            .help(playback.playing ? "Pause" : "Play meeting audio")
 
             Text(Theme.timestamp(playback.currentTime))
-                .font(.system(size: 10, design: .monospaced))
+                .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(.secondary)
-                .frame(width: 40, alignment: .trailing)
+                .frame(width: 46, alignment: .leading)
 
-            Slider(
-                value: Binding(
-                    get: { playback.currentTime },
-                    set: { playback.seek(to: $0) }),
-                in: 0...max(1, playback.duration))
-                .controlSize(.small)
-                .disabled(!playback.ready)
+            Group {
+                if playback.waveform.isEmpty {
+                    ProgressBarLine(progress: progress) { playback.seek(to: $0 * playback.duration) }
+                } else {
+                    WaveformView(bars: playback.waveform, progress: progress) {
+                        playback.seek(to: $0 * playback.duration)
+                    }
+                }
+            }
+            .frame(height: 34)
+            .frame(maxWidth: .infinity)
 
             Text(Theme.timestamp(playback.duration))
-                .font(.system(size: 10, design: .monospaced))
+                .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(.secondary)
-                .frame(width: 40, alignment: .leading)
+                .frame(width: 46, alignment: .trailing)
 
             Menu {
-                ForEach([Float(1.0), 1.25, 1.5, 2.0], id: \.self) { speed in
+                ForEach([Float(0.75), 1.0, 1.25, 1.5, 2.0], id: \.self) { speed in
                     Button {
                         playback.rate = speed
                     } label: {
                         HStack {
-                            Text(speed == 1.0 ? "1×" : String(format: "%g×", speed))
+                            Text(String(format: "%g×", speed))
                             if playback.rate == speed { Image(systemName: "checkmark") }
                         }
                     }
                 }
             } label: {
-                Text(playback.rate == 1.0 ? "1×" : String(format: "%g×", playback.rate))
-                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                Text(String(format: "%g×", playback.rate))
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .frame(width: 34, height: 24)
+                    .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 7))
             }
             .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
             .fixedSize()
             .help("Playback speed")
 
-            Button {
-                playback.revealInFinder()
-            } label: {
-                Image(systemName: "folder")
-                    .font(.system(size: 12))
+            Button { showVolume.toggle() } label: {
+                Image(systemName: playback.volume == 0 ? "speaker.slash.fill"
+                      : playback.volume < 0.5 ? "speaker.wave.1.fill" : "speaker.wave.2.fill")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 24, height: 24)
             }
             .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
             .disabled(!playback.ready)
-            .help("Show recording in Finder")
+            .popover(isPresented: $showVolume, arrowEdge: .bottom) {
+                HStack(spacing: 8) {
+                    Image(systemName: "speaker.fill").font(.system(size: 10)).foregroundStyle(.secondary)
+                    Slider(value: $playback.volume, in: 0...1).frame(width: 130)
+                    Image(systemName: "speaker.wave.3.fill").font(.system(size: 10)).foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 12).padding(.vertical, 10)
+            }
+            .help("Volume")
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
-        .background(.background.secondary.opacity(0.5))
+    }
+}
+
+/// WhatsApp-style amplitude bars. Played portion is tinted; the rest is muted. Click/drag seeks.
+struct WaveformView: View {
+    let bars: [Float]
+    let progress: Double
+    let onSeek: (Double) -> Void
+
+    var body: some View {
+        GeometryReader { geo in
+            let count = max(bars.count, 1)
+            HStack(alignment: .center, spacing: 2) {
+                ForEach(bars.indices, id: \.self) { i in
+                    let played = Double(i) / Double(count) <= progress
+                    Capsule()
+                        .fill(played ? AnyShapeStyle(Theme.accentGradient)
+                              : AnyShapeStyle(Color.secondary.opacity(0.28)))
+                        .frame(height: max(3, CGFloat(bars[i]) * geo.size.height))
+                }
+            }
+            .frame(width: geo.size.width, height: geo.size.height, alignment: .center)
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0)
+                .onEnded { onSeek(min(1, max(0, $0.location.x / geo.size.width))) })
+        }
+    }
+}
+
+struct ProgressBarLine: View {
+    let progress: Double
+    let onSeek: (Double) -> Void
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.secondary.opacity(0.22)).frame(height: 5)
+                Capsule().fill(Theme.accentGradient)
+                    .frame(width: geo.size.width * progress, height: 5)
+            }
+            .frame(maxHeight: .infinity, alignment: .center)
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0)
+                .onEnded { onSeek(min(1, max(0, $0.location.x / geo.size.width))) })
+        }
+    }
+}
+
+// MARK: - Tab bar (underline)
+
+struct DetailTabBar: View {
+    @Binding var tab: MeetingDetailView.Tab
+
+    var body: some View {
+        HStack(spacing: 22) {
+            ForEach(MeetingDetailView.Tab.allCases, id: \.self) { t in
+                Button { tab = t } label: {
+                    VStack(spacing: 6) {
+                        Text(t.rawValue)
+                            .font(.system(size: 13, weight: tab == t ? .semibold : .regular))
+                            .foregroundStyle(tab == t ? AnyShapeStyle(Theme.indigo) : AnyShapeStyle(.secondary))
+                        Rectangle()
+                            .fill(tab == t ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(Color.clear))
+                            .frame(height: 2)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 22)
+        .padding(.top, 12)
+    }
+}
+
+// MARK: - Right rail (action items + participants)
+
+struct DetailRightRail: View {
+    @Environment(AppState.self) private var app
+    let meeting: Meeting
+    let summary: SummaryData?
+    let onRenameSpeakers: () -> Void
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                ActionItemsCard(meeting: meeting, items: summary?.actionItems ?? [])
+                ParticipantsCard(meeting: meeting, onRename: onRenameSpeakers)
+                Spacer(minLength: 0)
+            }
+            .padding(16)
+        }
+        .background(.background.secondary.opacity(0.35))
+    }
+}
+
+struct ActionItemsCard: View {
+    let meeting: Meeting
+    let items: [SummaryData.ActionItem]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Action items").font(.system(size: 14, weight: .semibold))
+                Spacer()
+                Text("\(items.count)")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(minWidth: 20)
+                    .padding(.vertical, 2)
+                    .background(.quaternary.opacity(0.5), in: Capsule())
+            }
+            if items.isEmpty {
+                Text("No action items yet. Generate a summary to extract them.")
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
+            } else {
+                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                    HStack(alignment: .top, spacing: 9) {
+                        Image(systemName: "circle")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 1)
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(item.text).font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
+                            if let owner = item.owner, !owner.isEmpty {
+                                HStack(spacing: 5) {
+                                    OwnerBadge(meeting: meeting, owner: owner)
+                                    Text(owner).font(.system(size: 11)).foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                    if item.text != items.last?.text { Divider() }
+                }
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.background, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.quaternary.opacity(0.6)))
+    }
+}
+
+struct ParticipantsCard: View {
+    @Environment(AppState.self) private var app
+    let meeting: Meeting
+    let onRename: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Participants").font(.system(size: 14, weight: .semibold))
+                Spacer()
+                Button(action: onRename) {
+                    Image(systemName: "pencil").font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain).help("Rename speakers")
+            }
+            if meeting.speakers.isEmpty {
+                Text("No speakers detected.").font(.system(size: 12)).foregroundStyle(.secondary)
+            } else {
+                ForEach(meeting.speakers.keys.sorted(), id: \.self) { key in
+                    HStack(spacing: 9) {
+                        SpeakerAvatar(meeting: meeting, key: key, size: 26)
+                        Text(participantName(key)).font(.system(size: 12, weight: .medium))
+                        Spacer()
+                        if meeting.speakers[key]?.source == .mic {
+                            Text("Host")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.background, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.quaternary.opacity(0.6)))
+    }
+
+    private func participantName(_ key: String) -> String {
+        let info = meeting.speakers[key]
+        if let name = info?.name, !name.isEmpty { return name }
+        if info?.source == .mic { return app.userDisplayName }
+        return meeting.displayName(forSpeakerKey: key)
+    }
+}
+
+/// Circular initials avatar coloured by speaker.
+struct SpeakerAvatar: View {
+    @Environment(AppState.self) private var app
+    let meeting: Meeting
+    let key: String
+    var size: CGFloat = 24
+
+    private var short: String {
+        let info = meeting.speakers[key]
+        if info?.source == .mic {
+            let name = (info?.name?.isEmpty == false ? info!.name! : app.userDisplayName)
+            return String(name.prefix(1)).uppercased()
+        }
+        return key   // "S2", "S3"
+    }
+
+    var body: some View {
+        Text(short)
+            .font(.system(size: size * (short.count > 1 ? 0.36 : 0.46), weight: .bold))
+            .foregroundStyle(.white)
+            .frame(width: size, height: size)
+            .background(Theme.speakerColor(key), in: Circle())
+    }
+}
+
+struct OwnerBadge: View {
+    @Environment(AppState.self) private var app
+    let meeting: Meeting
+    let owner: String
+
+    /// Match the owner string to a speaker key when possible (for the right colour), else indigo.
+    private var key: String? {
+        meeting.speakers.first { (k, info) in
+            (info.name?.caseInsensitiveCompare(owner) == .orderedSame)
+            || (info.source == .mic && app.userDisplayName.caseInsensitiveCompare(owner) == .orderedSame)
+            || k.caseInsensitiveCompare(owner) == .orderedSame
+        }?.key
+    }
+
+    var body: some View {
+        Text(String(owner.prefix(1)).uppercased())
+            .font(.system(size: 9, weight: .bold))
+            .foregroundStyle(.white)
+            .frame(width: 18, height: 18)
+            .background(key.map(Theme.speakerColor) ?? Theme.indigo, in: Circle())
     }
 }
 
@@ -221,7 +613,8 @@ struct FolderMenu: View {
                 Image(systemName: "folder")
                 Text(folderLabel)
             }
-            .font(.system(size: 11, weight: .medium))
+            .font(.system(size: 12))
+            .foregroundStyle(.secondary)
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
@@ -251,140 +644,98 @@ struct SummaryTab: View {
 
     static func summaryText(_ s: SummaryData) -> String {
         var lines: [String] = []
+        if !s.body.isEmpty { lines.append(s.body); lines.append("") }
+        if !s.decisions.isEmpty {
+            lines.append("DECISIONS:"); s.decisions.forEach { lines.append("- \($0)") }; lines.append("")
+        }
         if !s.actionItems.isEmpty {
             lines.append("ACTION ITEMS:")
             for i in s.actionItems { lines.append("- \(i.owner.map { "\($0): " } ?? "")\(i.text)") }
             lines.append("")
         }
-        if !s.decisions.isEmpty {
-            lines.append("DECISIONS:"); s.decisions.forEach { lines.append("- \($0)") }; lines.append("")
-        }
         if !s.remember.isEmpty {
-            lines.append("THINGS TO REMEMBER:"); s.remember.forEach { lines.append("- \($0)") }; lines.append("")
+            lines.append("THINGS TO REMEMBER:"); s.remember.forEach { lines.append("- \($0)") }
         }
-        if !s.body.isEmpty { lines.append(s.body) }
         return lines.joined(separator: "\n")
     }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                if let summary {
-                    if !summary.actionItems.isEmpty {
-                        SummaryCard(title: "Action Items", icon: "checklist", tint: Theme.teal) {
-                            ForEach(Array(summary.actionItems.enumerated()), id: \.offset) { _, item in
-                                HStack(alignment: .top, spacing: 8) {
-                                    Image(systemName: "circle")
-                                        .font(.system(size: 11))
-                                        .foregroundStyle(Theme.teal)
-                                        .padding(.top, 3)
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        Text(item.text).font(.system(size: 13))
-                                        if let owner = item.owner {
-                                            Text(owner)
-                                                .font(.system(size: 11, weight: .semibold))
-                                                .foregroundStyle(Theme.indigo)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+            if let summary {
+                VStack(alignment: .leading, spacing: 22) {
+                    MarkdownBlock(text: summary.body)
+
                     if !summary.decisions.isEmpty {
-                        SummaryCard(title: "Decisions", icon: "hammer", tint: Theme.indigo) {
-                            ForEach(summary.decisions, id: \.self) { decision in
-                                Label { Text(decision).font(.system(size: 13)) } icon: {
-                                    Image(systemName: "checkmark.seal")
-                                        .foregroundStyle(Theme.indigo)
-                                }
+                        section("Decisions") {
+                            ForEach(summary.decisions, id: \.self) { d in
+                                bullet(icon: "checkmark.circle.fill", tint: Theme.teal, text: d)
                             }
                         }
                     }
                     if !summary.remember.isEmpty {
-                        SummaryCard(title: "Things to Remember", icon: "brain",
-                                    tint: .orange) {
-                            ForEach(summary.remember, id: \.self) { item in
-                                Label { Text(item).font(.system(size: 13)) } icon: {
-                                    Image(systemName: "sparkle").foregroundStyle(.orange)
-                                }
+                        section("Things to remember") {
+                            ForEach(summary.remember, id: \.self) { r in
+                                bullet(icon: "sparkle", tint: .orange, text: r)
                             }
                         }
                     }
-                    MarkdownBlock(text: summary.body)
-                        .padding(.horizontal, 4)
 
                     HStack {
                         Text("Generated \(summary.generatedAt.formatted(date: .abbreviated, time: .shortened))")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.tertiary)
+                            .font(.system(size: 11)).foregroundStyle(.tertiary)
                         Spacer()
                         CopyButton(label: "Copy summary") { Self.summaryText(summary) }
                         regenerateButton(label: "Regenerate")
                     }
-                } else {
-                    VStack(spacing: 14) {
-                        Image(systemName: "sparkles")
-                            .font(.system(size: 34))
-                            .foregroundStyle(Theme.accentGradient)
-                        Text("No summary yet")
-                            .font(.system(size: 18, weight: .bold, design: .rounded))
-                        Text("Generate an intelligent summary with action items,\ndecisions, and things to remember — powered by Claude.")
-                            .multilineTextAlignment(.center)
-                            .foregroundStyle(.secondary)
-                            .font(.system(size: 13))
-                        regenerateButton(label: "Generate Summary")
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 70)
+                    .padding(.top, 4)
                 }
+                .padding(24)
+            } else {
+                VStack(spacing: 14) {
+                    Image(systemName: "sparkles").font(.system(size: 34))
+                        .foregroundStyle(Theme.accentGradient)
+                    Text("No summary yet").font(.system(size: 18, weight: .bold))
+                    Text("Generate an intelligent summary with an overview, decisions,\nand action items — powered by Claude.")
+                        .multilineTextAlignment(.center).foregroundStyle(.secondary)
+                        .font(.system(size: 13))
+                    regenerateButton(label: "Generate Summary")
+                }
+                .frame(maxWidth: .infinity).padding(.top, 70)
             }
-            .padding(20)
         }
     }
 
-    @ViewBuilder
-    private func regenerateButton(label: String) -> some View {
-        Button {
-            onGenerate()
-        } label: {
+    @ViewBuilder private func section<C: View>(_ title: String, @ViewBuilder _ content: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text(title).font(.system(size: 15, weight: .semibold))
+            content()
+        }
+    }
+
+    private func bullet(icon: String, tint: Color, text: String) -> some View {
+        HStack(alignment: .top, spacing: 9) {
+            Image(systemName: icon).font(.system(size: 13)).foregroundStyle(tint).padding(.top, 2)
+            Text(text).font(.system(size: 13)).fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+        }
+    }
+
+    @ViewBuilder private func regenerateButton(label: String) -> some View {
+        Button(action: onGenerate) {
             HStack(spacing: 6) {
                 if app.busy.contains("summary") {
-                    ProgressView().controlSize(.small)
-                    Text("Summarizing…")
+                    ProgressView().controlSize(.small); Text("Summarizing…")
                 } else {
-                    Image(systemName: "sparkles")
-                    Text(label).fontWeight(.semibold)
+                    Image(systemName: "sparkles"); Text(label).fontWeight(.semibold)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
+            .font(.system(size: 12))
+            .padding(.horizontal, 14).padding(.vertical, 7)
             .background(Theme.accentGradient, in: Capsule())
             .foregroundStyle(.white)
         }
         .buttonStyle(.plain)
         .disabled(app.busy.contains("summary") || !app.claudeAvailable)
-    }
-}
-
-struct SummaryCard<Content: View>: View {
-    let title: String
-    let icon: String
-    let tint: Color
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label(title, systemImage: icon)
-                .font(.system(size: 12, weight: .heavy))
-                .foregroundStyle(tint)
-            content
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(tint.opacity(0.07), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(tint.opacity(0.18)))
     }
 }
 
@@ -396,30 +747,22 @@ struct MarkdownBlock: View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(Array(text.components(separatedBy: "\n").enumerated()), id: \.offset) { _, line in
                 if line.hasPrefix("# ") {
-                    Text(line.dropFirst(2))
-                        .font(.system(size: 19, weight: .bold, design: .rounded))
-                        .padding(.top, 6)
+                    Text(line.dropFirst(2)).font(.system(size: 19, weight: .bold)).padding(.top, 6)
                 } else if line.hasPrefix("## ") {
-                    Text(line.dropFirst(3))
-                        .font(.system(size: 15, weight: .bold, design: .rounded))
-                        .padding(.top, 4)
+                    Text(line.dropFirst(3)).font(.system(size: 15, weight: .semibold)).padding(.top, 4)
                 } else if line.hasPrefix("### ") {
-                    Text(line.dropFirst(4))
-                        .font(.system(size: 13, weight: .bold))
-                        .padding(.top, 2)
+                    Text(line.dropFirst(4)).font(.system(size: 13, weight: .semibold)).padding(.top, 2)
                 } else if !line.trimmingCharacters(in: .whitespaces).isEmpty {
                     Text((try? AttributedString(markdown: String(line))) ?? AttributedString(line))
-                        .font(.system(size: 13))
-                        .textSelection(.enabled)
+                        .font(.system(size: 13)).textSelection(.enabled).lineSpacing(2)
                 }
             }
         }
     }
 }
 
-// MARK: - Transcript tab
+// MARK: - Copy button
 
-/// Copies text to the macOS pasteboard and briefly confirms.
 struct CopyButton: View {
     let label: String
     let text: () -> String
@@ -432,8 +775,7 @@ struct CopyButton: View {
             copied = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { copied = false }
         } label: {
-            Label(copied ? "Copied" : label,
-                  systemImage: copied ? "checkmark" : "doc.on.doc")
+            Label(copied ? "Copied" : label, systemImage: copied ? "checkmark" : "doc.on.doc")
                 .font(.system(size: 11, weight: .medium))
         }
         .buttonStyle(.bordered)
@@ -441,20 +783,18 @@ struct CopyButton: View {
     }
 }
 
+// MARK: - Transcript tab
+
 struct TranscriptTab: View {
     @Environment(AppState.self) private var app
     let meeting: Meeting
     let transcript: Transcript?
     let onRenameSpeakers: () -> Void
-    /// Present when the meeting has a recording — clicking a timestamp jumps playback there.
     var onSeek: ((Double) -> Void)?
     @State private var selected: Set<Int> = []
 
     private func transcriptText(_ t: Transcript) -> String { t.rendered(with: meeting) }
 
-    /// The mic speaker is the machine owner: label it with the name they gave at onboarding
-    /// (Settings → You), falling back to "Me". A per-meeting rename still wins. Remote
-    /// speakers keep their assigned name or generic "Speaker N".
     private func label(forKey key: String) -> String {
         let info = meeting.speakers[key]
         if let name = info?.name, !name.isEmpty { return name }
@@ -462,7 +802,6 @@ struct TranscriptTab: View {
         return meeting.displayName(forSpeakerKey: key)
     }
 
-    /// Just the selected messages, in transcript order, in the same rendered format.
     private func selectedText(_ t: Transcript) -> String {
         t.segments.filter { selected.contains($0.id) }.map { seg in
             let m = Int(seg.start) / 60, s = Int(seg.start) % 60
@@ -478,26 +817,17 @@ struct TranscriptTab: View {
                     LazyVStack(alignment: .leading, spacing: 10) {
                         HStack(spacing: 6) {
                             ForEach(meeting.speakers.keys.sorted(), id: \.self) { key in
-                                Button {
-                                    onRenameSpeakers()
-                                } label: {
+                                Button(action: onRenameSpeakers) {
                                     HStack(spacing: 4) {
-                                        Circle().fill(Theme.speakerColor(key))
-                                            .frame(width: 7, height: 7)
-                                        Text(label(forKey: key))
-                                            .font(.system(size: 11, weight: .semibold))
+                                        Circle().fill(Theme.speakerColor(key)).frame(width: 7, height: 7)
+                                        Text(label(forKey: key)).font(.system(size: 11, weight: .semibold))
                                     }
-                                    .padding(.horizontal, 9)
-                                    .padding(.vertical, 4)
+                                    .padding(.horizontal, 9).padding(.vertical, 4)
                                     .background(Theme.speakerColor(key).opacity(0.12), in: Capsule())
                                 }
-                                .buttonStyle(.plain)
-                                .help("Rename speakers")
+                                .buttonStyle(.plain).help("Rename speakers")
                             }
                             Spacer()
-                            Text("Click messages to select")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.tertiary)
                             CopyButton(label: "Copy all") { transcriptText(transcript) }
                         }
                         .padding(.bottom, 4)
@@ -514,39 +844,24 @@ struct TranscriptTab: View {
                                 onTimeTap: onSeek.map { seek in { seek(segment.start) } })
                                 .contentShape(Rectangle())
                                 .onTapGesture {
-                                    if selected.contains(segment.id) {
-                                        selected.remove(segment.id)
-                                    } else {
-                                        selected.insert(segment.id)
-                                    }
+                                    if selected.contains(segment.id) { selected.remove(segment.id) }
+                                    else { selected.insert(segment.id) }
                                 }
                         }
-                        // Keep the last messages reachable above the floating selection bar.
-                        if !selected.isEmpty {
-                            Color.clear.frame(height: 46)
-                        }
+                        if !selected.isEmpty { Color.clear.frame(height: 46) }
                     }
                     .padding(16)
                 }
-
-                // Floating selection bar — always visible while messages are selected, no
-                // matter how far the transcript is scrolled.
                 if !selected.isEmpty {
                     HStack(spacing: 10) {
-                        Text("\(selected.count) selected")
-                            .font(.system(size: 12, weight: .semibold))
+                        Text("\(selected.count) selected").font(.system(size: 12, weight: .semibold))
                         CopyButton(label: "Copy selected") { selectedText(transcript) }
-                        Button {
-                            selected.removeAll()
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundStyle(.secondary)
+                        Button { selected.removeAll() } label: {
+                            Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                         }
-                        .buttonStyle(.plain)
-                        .help("Clear selection")
+                        .buttonStyle(.plain).help("Clear selection")
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, 14).padding(.vertical, 8)
                     .background(.regularMaterial, in: Capsule())
                     .overlay(Capsule().strokeBorder(.quaternary))
                     .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
@@ -555,11 +870,8 @@ struct TranscriptTab: View {
             }
         } else {
             VStack(spacing: 10) {
-                Image(systemName: "text.bubble")
-                    .font(.system(size: 30))
-                    .foregroundStyle(.tertiary)
-                Text("No transcript for this meeting")
-                    .foregroundStyle(.secondary)
+                Image(systemName: "text.bubble").font(.system(size: 30)).foregroundStyle(.tertiary)
+                Text("No transcript for this meeting").foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -578,8 +890,7 @@ struct NotesTab: View {
                 Spacer()
                 CopyButton(label: "Copy notes") { notes }
             }
-            .padding(.horizontal, 14)
-            .padding(.top, 10)
+            .padding(.horizontal, 14).padding(.top, 10)
             TextEditor(text: $notes)
                 .font(.system(size: 13))
                 .scrollContentBackground(.hidden)

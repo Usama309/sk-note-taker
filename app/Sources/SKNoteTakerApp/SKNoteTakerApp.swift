@@ -119,6 +119,8 @@ final class AppState {
     var selectedFolderId: UUID?      // nil = All Meetings
     var selectedMeetingId: UUID?
     var searchText = ""
+    /// Starred meeting ids (persisted in UserDefaults so no Codable migration on Meeting).
+    var starred: Set<UUID> = []
 
     var session: MeetingSession?     // non-nil while recording
     var settings = AppSettings()
@@ -190,7 +192,18 @@ final class AppState {
     /// pane re-reads from the store instead of showing the pre-redo attribution.
     private(set) var transcriptRevision = 0
 
+    private static let starredKey = "sk.starredMeetings"
+
+    func isStarred(_ id: UUID) -> Bool { starred.contains(id) }
+
+    func toggleStar(_ id: UUID) {
+        if starred.contains(id) { starred.remove(id) } else { starred.insert(id) }
+        UserDefaults.standard.set(starred.map(\.uuidString), forKey: Self.starredKey)
+    }
+
     func bootstrap() async {
+        starred = Set((UserDefaults.standard.array(forKey: Self.starredKey) as? [String] ?? [])
+            .compactMap(UUID.init(uuidString:)))
         settings = await store.loadSettings()
         ai = ClaudeCLIService(model: settings.claudeModel)
         claudeAvailable = await ai.isAvailable()
