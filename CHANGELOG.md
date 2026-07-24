@@ -3,6 +3,13 @@
 ## [Unreleased]
 
 ### Added
+- **Google Meet speaker names.** A Chrome/Chromium extension (bundled in the app; load unpacked
+  via Settings → Speaker tags → "Get extension") reads the active speaker from a Google Meet tab
+  and posts it to a loopback bridge the app runs during meetings, so Meet participants show their
+  real names on the transcript (same path as the Zoom reader). The Meet DOM reader is best-effort
+  and tunable against a live call.
+- **Reopen on dock click.** Closing the window no longer makes the app vanish into the menu bar
+  with no way back; clicking the dock icon reopens the main window.
 - **Optional per-meeting screen recording.** During a meeting you can toggle **Record screen** in
   the header; it records your screen to a video via the macOS screen recorder (ScreenCaptureKit,
   H.264, downscaled and frame-capped to stay light), saved as `screen.mov` with the meeting and

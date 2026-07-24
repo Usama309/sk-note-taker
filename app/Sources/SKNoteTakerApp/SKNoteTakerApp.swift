@@ -12,9 +12,20 @@ enum AppEntry {
     }
 }
 
+/// Reopens the main window when the user clicks the dock icon after closing it — otherwise the
+/// app "disappears" into the menu bar with no obvious way back, which reads as broken.
+final class AppReopenDelegate: NSObject, NSApplicationDelegate {
+    nonisolated(unsafe) static var onReopen: (() -> Void)?
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { AppReopenDelegate.onReopen?() }
+        return true
+    }
+}
+
 struct SKNoteTakerApp: App {
     @State private var appState = AppState()
     @Environment(\.openWindow) private var openWindow
+    @NSApplicationDelegateAdaptor(AppReopenDelegate.self) private var reopenDelegate
 
     var body: some Scene {
         Window("SK Note Taker", id: "main") {
@@ -30,6 +41,7 @@ struct SKNoteTakerApp: App {
                         openWindow(id: "main")
                         NSApp.activate(ignoringOtherApps: true)
                     }
+                    AppReopenDelegate.onReopen = { appState.showMainWindow?() }
                 }
         }
         .windowStyle(.hiddenTitleBar)
@@ -251,6 +263,10 @@ final class AppState {
     // Zoom speaker tags: read Zoom's active-speaker via Accessibility, feed noteActiveSpeaker.
     @ObservationIgnored let zoomReader = ZoomSpeakerReader()
     var speakerTagsActive = false
+    // Google Meet speaker tags: a loopback bridge the browser extension posts names to.
+    @ObservationIgnored lazy var meetBridge = MeetSpeakerBridge { [weak self] name in
+        Task { @MainActor in self?.session?.noteActiveSpeaker(name) }
+    }
     var notificationStatus: String = "notDetermined"
     var showOnboarding = false
 
@@ -549,19 +565,36 @@ final class AppState {
     }
 
     /// Start reading Zoom for the active speaker if the meeting is a Zoom call and we're trusted.
-    private func startZoomSpeakerReaderIfPossible() {
-        guard session != nil,
-              ZoomSpeakerReader.zoomIsRunning(),
-              Permission.accessibilityStatus() == .granted else { return }
-        speakerTagsActive = true
-        zoomReader.start { [weak self] name in
-            Task { @MainActor in self?.session?.noteActiveSpeaker(name) }
+    /// Start every meeting-app speaker source: the Zoom Accessibility reader (if Zoom is the call)
+    /// and the Google Meet loopback bridge (the browser extension posts names to it).
+    private func startSpeakerSources() {
+        guard session != nil else { return }
+        if ZoomSpeakerReader.zoomIsRunning(), Permission.accessibilityStatus() == .granted {
+            speakerTagsActive = true
+            zoomReader.start { [weak self] name in
+                Task { @MainActor in self?.session?.noteActiveSpeaker(name) }
+            }
         }
+        Task { try? await meetBridge.start() }   // the extension connects while the meeting runs
     }
 
-    private func stopZoomSpeakerReader() {
+    private func stopSpeakerSources() {
         zoomReader.stop()
+        meetBridge.stop()
         speakerTagsActive = false
+    }
+
+    /// Reveal the bundled Google Meet extension folder so the user can load it unpacked in Chrome.
+    func revealMeetExtension() {
+        let candidates = [
+            Bundle.main.resourceURL?.appendingPathComponent("browser-extension/meet-speaker-tags"),
+            URL(fileURLWithPath: NSHomeDirectory())
+                .appendingPathComponent("sk-note-taker/app/browser-extension/meet-speaker-tags"),
+        ].compactMap { $0 }
+        let folder = candidates.first { FileManager.default.fileExists(atPath: $0.path) }
+        if let folder {
+            NSWorkspace.shared.selectFile(folder.path, inFileViewerRootedAtPath: "")
+        }
     }
 
     /// Dump Zoom's accessibility tree to the Desktop log so the active-speaker nodes can be
@@ -691,12 +724,12 @@ final class AppState {
         } else {
             selectedMeetingId = session.meeting.id
             await refresh()
-            startZoomSpeakerReaderIfPossible()
+            startSpeakerSources()
         }
     }
 
     func stopMeeting() async {
-        stopZoomSpeakerReader()
+        stopSpeakerSources()
         guard let session else { return }
         if compactMode { setCompact(false) }   // restore the full window when the meeting ends
         notifier.clearEndPrompts()

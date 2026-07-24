@@ -22,6 +22,11 @@ rm -rf "$BUNDLE"
 mkdir -p "$BUNDLE/Contents/MacOS" "$BUNDLE/Contents/Resources"
 cp "$BIN" "$BUNDLE/Contents/MacOS/SKNoteTaker"
 
+# Bundle the Google Meet browser extension so users can load it unpacked.
+if [[ -d "$APP_DIR/browser-extension" ]]; then
+    cp -R "$APP_DIR/browser-extension" "$BUNDLE/Contents/Resources/browser-extension"
+fi
+
 echo "==> Icon"
 ICONSET="$DIST/AppIcon.iconset"
 rm -rf "$ICONSET"

@@ -305,6 +305,11 @@ struct GeneralSettingsView: View {
                     Button("Dump Zoom accessibility tree (debug)") { app.dumpZoomTree() }
                         .controlSize(.small)
                 }
+                LabeledContent("Google Meet") {
+                    Button("Get extension") { app.revealMeetExtension() }.controlSize(.small)
+                }
+                Text("For Google Meet, install the SK Note Taker browser extension (Load unpacked in Chrome from the revealed folder). It reads the active speaker from your Meet tab and sends names to the app while you record.")
+                    .font(.system(size: 10)).foregroundStyle(.tertiary)
             }
             Section("AI (Claude Code CLI)") {
                 Picker("Model", selection: $app.settings.claudeModel) {
