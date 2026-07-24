@@ -185,9 +185,22 @@ struct SidebarView: View {
             icon.frame(width: 18)
             Text(title).font(.skBody)
             Spacer()
-            Text("\(count)").font(.skCaption).foregroundStyle(.secondary)
+            countBadge(count)
         }
         .contentShape(Rectangle())
+    }
+
+    /// Subtle count chip shown on sidebar rows (hidden when zero, so empty rows stay clean).
+    @ViewBuilder
+    private func countBadge(_ count: Int) -> some View {
+        if count > 0 {
+            Text("\(count)")
+                .font(.skCaption)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 1)
+                .background(.quaternary.opacity(0.5), in: Capsule())
+        }
     }
 
     /// Meetings filed directly in a folder plus those in its sub-folders (matches the
@@ -238,7 +251,7 @@ struct SidebarView: View {
                 Circle().fill(folderColor(folder)).frame(width: 9, height: 9)
                 Text(folder.name).font(.skBody).lineLimit(1)
                 Spacer()
-                Text("\(count)").font(.skCaption).foregroundStyle(.secondary)
+                countBadge(count)
             }
             .contentShape(Rectangle())
         }

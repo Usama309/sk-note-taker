@@ -428,15 +428,23 @@ struct CalendarSettingsView: View {
                     }
                     ForEach(app.calendarList) { cal in
                         HStack(spacing: 10) {
-                            Circle().fill(cal.colorHex.map { Color(hex: $0) } ?? .gray)
-                                .frame(width: 10, height: 10)
-                            Text(cal.displayName).lineLimit(1)
+                            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                .fill(cal.colorHex.map { Color(hex: $0) } ?? .gray)
+                                .frame(width: 12, height: 12)
+                            Text(cal.displayName).font(.skBody).lineLimit(1)
+                            if cal.isPrimary {
+                                Text("Primary")
+                                    .font(.skFootnote).foregroundStyle(.secondary)
+                                    .padding(.horizontal, 5).padding(.vertical, 1)
+                                    .background(.quaternary.opacity(0.5), in: Capsule())
+                            }
                             Spacer()
                             Toggle("", isOn: Binding(
                                 get: { app.isCalendarVisible(cal.id) },
                                 set: { app.setCalendarVisible(cal.id, $0) }))
                                 .labelsHidden()
                         }
+                        .padding(.vertical, 1)
                     }
                     Text("Don't see the calendar you want? Add it in Google Calendar first, then Refresh.")
                         .font(.skFootnote).foregroundStyle(.tertiary)
