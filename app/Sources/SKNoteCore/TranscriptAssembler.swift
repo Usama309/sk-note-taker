@@ -27,9 +27,16 @@ public struct TranscriptAssembler: Sendable {
     }
 
     /// Builds the full transcript + the speakers map for meeting.json.
+    ///
+    /// `nameSpans` (optional) carries real participant names read from the meeting app's UI
+    /// (Zoom Accessibility / Meet extension). Each diarizer cluster is labelled with the name
+    /// that dominates its speaking time, so "Speaker 2" becomes "Alice"; the diarizer's own
+    /// clustering is preserved and still drives segmentation, so this never regresses the
+    /// diarize-only case (empty `nameSpans`).
     public func assemble(
         finals: [TranscriptionResult],
-        speakerSegments: [SpeakerSegment]
+        speakerSegments: [SpeakerSegment],
+        nameSpans: [NameSpan] = []
     ) -> (segments: [TranscriptSegment], speakers: [String: SpeakerInfo]) {
 
         // Stable mapping: diarizer id -> S2, S3, … by first appearance in the timeline.
@@ -37,6 +44,16 @@ public struct TranscriptAssembler: Sendable {
         for seg in speakerSegments.sorted(by: { $0.start < $1.start }) {
             if diarizerKey[seg.speakerId] == nil {
                 diarizerKey[seg.speakerId] = "S\(diarizerKey.count + 2)"
+            }
+        }
+
+        // Attach a real name to each diarizer cluster from the meeting-app active-speaker signal.
+        var nameForKey: [String: String] = [:]
+        if !nameSpans.isEmpty {
+            for (diarId, key) in diarizerKey {
+                if let name = Self.dominantName(diarizerId: diarId, segments: speakerSegments, spans: nameSpans) {
+                    nameForKey[key] = name
+                }
             }
         }
 
@@ -140,9 +157,29 @@ public struct TranscriptAssembler: Sendable {
         }
         for key in usedKeys where key != "S1" {
             let number = Int(key.dropFirst()) ?? 2
-            speakers[key] = SpeakerInfo(label: "Speaker \(number)", source: .system)
+            speakers[key] = SpeakerInfo(
+                label: "Speaker \(number)", name: nameForKey[key], source: .system)
         }
         return (segments, speakers)
+    }
+
+    /// The participant name that dominates a diarizer cluster's speaking time, or nil if no name
+    /// covers a meaningful fraction (30%) of it. Uses total overlap of the cluster's segments
+    /// against each name's spans, so a coarse 1-2 Hz active-speaker poll still labels correctly.
+    static func dominantName(diarizerId: String, segments: [SpeakerSegment], spans: [NameSpan]) -> String? {
+        var total = 0.0
+        var byName: [String: Double] = [:]
+        for seg in segments where seg.speakerId == diarizerId {
+            total += max(0, seg.end - seg.start)
+            for span in spans {
+                let overlap = min(seg.end, span.end) - max(seg.start, span.start)
+                if overlap > 0 { byName[span.name, default: 0] += overlap }
+            }
+        }
+        guard total > 0,
+              let best = byName.max(by: { $0.value < $1.value }),
+              best.value / total >= 0.3 else { return nil }
+        return best.key
     }
 
     /// Max-overlap lookup: the diarizer segment containing the midpoint, else nearest.

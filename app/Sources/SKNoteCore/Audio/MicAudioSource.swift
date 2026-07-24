@@ -159,6 +159,15 @@ public final class SessionClock: Sendable {
         cursors.withLock { $0[channel] ?? 0 }
     }
 
+    /// Current session time (seconds since start, excluding paused time), frozen while paused.
+    /// Used to stamp external events like an active-speaker signal onto the transcript timeline.
+    public func sessionTime() -> Double {
+        guard anchorToWallClock else { return elapsed }
+        let ps = pauseState.withLock { $0 }
+        if ps.paused { return max(0, ps.since - origin - ps.total) }
+        return max(0, now() - origin - ps.total)
+    }
+
     public var elapsed: Double {
         cursors.withLock { $0.values.max() ?? 0 }
     }

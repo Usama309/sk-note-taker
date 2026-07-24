@@ -74,6 +74,11 @@ public final class MeetingSession {
     private var services: [AudioChannel: TranscriptionService] = [:]
     private var diarizer = DiarizationService()
     private var assembler = TranscriptAssembler()
+    /// Real participant names from the meeting-app UI (Zoom Accessibility / Meet extension),
+    /// fed live via `noteActiveSpeaker` and merged into the transcript by the assembler.
+    public let nameTrack = SpeakerNameTrack()
+    /// Speaker keys the user renamed by hand — these always win over auto-detected names.
+    private var userNamedKeys: Set<String> = []
     private var recorder: RecordingWriter?
     private var pumpTasks: [Task<Void, Never>] = []
     /// Live speaker-labelling runs on its own cadence, off the ingestion path.
@@ -279,8 +284,9 @@ public final class MeetingSession {
         // Final full-quality diarization pass, then one authoritative synchronous assemble so
         // the saved transcript below reflects it (the live rebuild is async/coalesced).
         let segments = await diarizer.finalPass()
+        nameTrack.clearActive(at: elapsed)
         let (finalSegments, finalSpeakers) = assembler.assemble(
-            finals: finals, speakerSegments: segments)
+            finals: finals, speakerSegments: segments, nameSpans: nameTrack.snapshot(now: elapsed))
         applyRebuild(segments: finalSegments, speakers: finalSpeakers)
 
         await recorder?.finish()
@@ -338,7 +344,16 @@ public final class MeetingSession {
     /// Assign a human name to a speaker key (S2 → "Kainat").
     public func nameSpeaker(key: String, name: String) async {
         meeting.speakers[key]?.name = name.isEmpty ? nil : name
+        if name.isEmpty { userNamedKeys.remove(key) } else { userNamedKeys.insert(key) }
         try? await store.save(meeting)
+    }
+
+    /// Fed by the meeting-app speaker reader (Zoom Accessibility / Meet extension): "this named
+    /// participant is the active speaker right now". Stamped onto the transcript timeline and
+    /// picked up by the next rebuild, so remote speakers show their real name instead of "Speaker N".
+    public func noteActiveSpeaker(_ name: String) {
+        guard phase == .recording, !isPaused else { return }
+        nameTrack.record(name: name, at: clock.sessionTime())
     }
 
     // MARK: - Pause / resume
@@ -511,12 +526,13 @@ public final class MeetingSession {
     private func launchRebuild() {
         let finalsSnapshot = finals
         let segs = latestSpeakerSegments
+        let nameSnapshot = nameTrack.snapshot(now: clock.sessionTime())
         let assembler = self.assembler
         // Low priority: the O(mic×system) assemble grows with the meeting and must yield to
         // real-time audio ingestion.
         Task.detached(priority: .utility) { [weak self] in
             let (segments, speakers) = assembler.assemble(
-                finals: finalsSnapshot, speakerSegments: segs)
+                finals: finalsSnapshot, speakerSegments: segs, nameSpans: nameSnapshot)
             await MainActor.run {
                 guard let self else { return }
                 // A finishing/failed meeting does its own authoritative final assemble; ignore
@@ -540,8 +556,13 @@ public final class MeetingSession {
         // Preserve any names the user already assigned mid-meeting; otherwise stamp the
         // machine owner's configured name onto the mic speaker.
         for (key, var info) in speakers {
-            if let existing = meeting.speakers[key]?.name { info.name = existing }
-            else if info.source == .mic, let userName { info.name = userName }
+            // User renames win over everything; otherwise keep the assembler's name (from the
+            // meeting-app UI), and seed the mic owner's configured name when none is known.
+            if userNamedKeys.contains(key), let existing = meeting.speakers[key]?.name {
+                info.name = existing
+            } else if info.name == nil, info.source == .mic, let userName {
+                info.name = userName
+            }
             meeting.speakers[key] = info
         }
         // Autosave transcript progress so a crash never loses a meeting.
