@@ -6,22 +6,31 @@ struct ContentView: View {
 
     var body: some View {
         @Bindable var app = app
-        NavigationSplitView {
-            SidebarView()
-                .navigationSplitViewColumnWidth(min: 210, ideal: 240)
-        } content: {
-            MeetingListView()
-                .navigationSplitViewColumnWidth(min: 280, ideal: 330)
-        } detail: {
-            if let session = app.session {
-                LiveMeetingView(session: session)
-            } else if let meeting = app.selectedMeeting {
-                MeetingDetailView(meeting: meeting)
-                    .id(meeting.id)
+        Group {
+            if app.compactMode, let session = app.session {
+                CompactLiveView(session: session)
             } else {
-                EmptyDetailView()
+                NavigationSplitView {
+                    SidebarView()
+                        .navigationSplitViewColumnWidth(min: 210, ideal: 240)
+                } content: {
+                    MeetingListView()
+                        .navigationSplitViewColumnWidth(min: 280, ideal: 330)
+                } detail: {
+                    if let session = app.session {
+                        LiveMeetingView(session: session)
+                    } else if let meeting = app.selectedMeeting {
+                        MeetingDetailView(meeting: meeting)
+                            .id(meeting.id)
+                    } else {
+                        EmptyDetailView()
+                    }
+                }
             }
         }
+        .frame(minWidth: app.compactMode ? 260 : 1080,
+               minHeight: app.compactMode ? 360 : 680)
+        .background(WindowAccessor { app.mainWindow = $0 })
         .alert("Something went wrong", isPresented: .init(
             get: { app.errorMessage != nil },
             set: { if !$0 { app.errorMessage = nil } })) {
@@ -45,17 +54,24 @@ struct SidebarView: View {
     private var clients: [Folder] { app.folders.filter { $0.parentId == nil } }
 
     var body: some View {
-        @Bindable var app = app
-        List(selection: $app.selectedFolderId) {
+        // Rows are Buttons, not `List(selection:)` — a selection-driven sidebar row would not
+        // register clicks reliably (the "All Meetings not clickable" report). A Button always
+        // fires; the current filter is shown with a row-background highlight.
+        List {
             Section {
-                Label {
-                    Text("All Meetings")
-                } icon: {
-                    Image(systemName: "tray.full")
-                        .foregroundStyle(Theme.accentGradient)
+                Button { app.selectedFolderId = nil } label: {
+                    HStack {
+                        Label { Text("All Meetings") } icon: {
+                            Image(systemName: "tray.full").foregroundStyle(Theme.accentGradient)
+                        }
+                        Spacer()
+                        Text("\(app.meetings.count)").font(.callout).foregroundStyle(.secondary)
+                    }
+                    .contentShape(Rectangle())
                 }
-                .tag(nil as UUID?)
-                .badge(app.meetings.count)
+                .buttonStyle(.plain)
+                .listRowBackground(app.selectedFolderId == nil
+                                   ? Theme.indigo.opacity(0.14) : Color.clear)
             }
 
             Section("Projects & Clients") {
@@ -101,14 +117,21 @@ struct SidebarView: View {
     }
 
     private func folderRow(_ folder: Folder) -> some View {
-        Label {
-            Text(folder.name)
-        } icon: {
-            Image(systemName: folder.kind == .client ? "building.2" : "folder")
-                .foregroundStyle(folder.kind == .client ? Theme.indigo : Theme.teal)
+        Button { app.selectedFolderId = folder.id } label: {
+            HStack {
+                Label { Text(folder.name) } icon: {
+                    Image(systemName: folder.kind == .client ? "building.2" : "folder")
+                        .foregroundStyle(folder.kind == .client ? Theme.indigo : Theme.teal)
+                }
+                Spacer()
+                Text("\(app.meetings.filter { $0.folderId == folder.id }.count)")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+            .contentShape(Rectangle())
         }
-        .tag(folder.id as UUID?)
-        .badge(app.meetings.filter { $0.folderId == folder.id }.count)
+        .buttonStyle(.plain)
+        .listRowBackground(app.selectedFolderId == folder.id
+                           ? Theme.indigo.opacity(0.14) : Color.clear)
         .contextMenu {
             Button("Delete Folder", role: .destructive) {
                 Task {

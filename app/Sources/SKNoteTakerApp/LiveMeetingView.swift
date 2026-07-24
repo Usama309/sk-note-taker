@@ -10,14 +10,6 @@ struct LiveMeetingView: View {
     @State private var showSpeakers = false
     @State private var sidePane: SidePane = .notes
 
-    /// Mic speaker is the machine owner → their configured name, else "Me".
-    private func liveLabel(for segment: TranscriptSegment) -> String {
-        let info = session.meeting.speakers[segment.speaker]
-        if let name = info?.name, !name.isEmpty { return name }
-        if segment.source == .mic { return app.userDisplayName }
-        return session.meeting.displayName(forSpeakerKey: segment.speaker)
-    }
-
     enum SidePane: String, CaseIterable {
         case notes = "Notes"
         case assistant = "Assistant"
@@ -77,10 +69,11 @@ struct LiveMeetingView: View {
         HStack(spacing: 14) {
             HStack(spacing: 8) {
                 Circle()
-                    .fill(.red)
+                    .fill(session.isPaused ? Color.orange : .red)
                     .frame(width: 10, height: 10)
-                    .opacity(session.phase == .recording ? 1 : 0.3)
-                Text(session.phase == .preparing ? "Preparing…" :
+                    .opacity(session.phase == .recording && !session.isPaused ? 1 : 0.4)
+                Text(session.isPaused ? "Paused" :
+                     session.phase == .preparing ? "Preparing…" :
                      session.phase == .finishing ? "Finishing…" : "Recording")
                     .font(.system(size: 13, weight: .semibold))
                 Text(Theme.timestamp(session.elapsed))
@@ -108,6 +101,23 @@ struct LiveMeetingView: View {
                 ChannelMeter(label: "System", systemImage: "speaker.wave.2.fill",
                              level: session.levels[.system] ?? 0,
                              hasAudio: session.channelHasAudio[.system] ?? false)
+            }
+
+            if session.phase == .recording {
+                Button {
+                    session.isPaused ? session.resume() : session.pause()
+                } label: {
+                    Label(session.isPaused ? "Resume" : "Pause",
+                          systemImage: session.isPaused ? "play.fill" : "pause.fill")
+                }
+                .help(session.isPaused ? "Resume recording" : "Pause recording — the paused time isn't recorded")
+
+                Button {
+                    app.setCompact(true)
+                } label: {
+                    Label("Compact", systemImage: "arrow.down.right.and.arrow.up.left")
+                }
+                .help("Shrink to a floating transcript panel docked to the right")
             }
 
             Button {
@@ -138,50 +148,7 @@ struct LiveMeetingView: View {
     }
 
     private var transcriptPane: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 10) {
-                    if session.liveSegments.isEmpty && session.volatileText.values.allSatisfy(\.isEmpty) {
-                        VStack(spacing: 10) {
-                            Image(systemName: "waveform")
-                                .font(.system(size: 26))
-                                .foregroundStyle(Theme.accentGradient)
-                            Text("Listening… start talking or play meeting audio.")
-                                .foregroundStyle(.secondary)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 60)
-                    }
-                    ForEach(session.liveSegments) { segment in
-                        UtteranceBubble(
-                            name: liveLabel(for: segment),
-                            color: Theme.speakerColor(segment.speaker),
-                            time: segment.start,
-                            text: segment.text,
-                            volatile: false,
-                            isMe: segment.source == .mic)
-                            .id(segment.id)
-                    }
-                    ForEach([AudioChannel.mic, .system], id: \.self) { channel in
-                        if let text = session.volatileText[channel], !text.isEmpty {
-                            UtteranceBubble(
-                                name: channel == .mic ? app.userDisplayName : "…",
-                                color: .secondary,
-                                time: nil,
-                                text: text,
-                                volatile: true,
-                                isMe: channel == .mic)
-                        }
-                    }
-                    Color.clear.frame(height: 1).id("bottom")
-                }
-                .padding(14)
-            }
-            .onChange(of: session.liveSegments.count) {
-                withAnimation { proxy.scrollTo("bottom") }
-            }
-        }
-        .background(.background.secondary.opacity(0.4))
+        LiveTranscriptList(session: session)
     }
 
     private var sidePaneView: some View {
@@ -482,5 +449,122 @@ struct UtteranceBubble: View {
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .strokeBorder(Theme.indigo.opacity(selected ? 0.55 : 0), lineWidth: 1.5))
+    }
+}
+
+/// The scrolling live transcript (speaker-attributed bubbles + volatile in-flight text).
+/// Shared by the full meeting view and the compact floating panel.
+struct LiveTranscriptList: View {
+    @Environment(AppState.self) private var app
+    let session: MeetingSession
+
+    /// Mic speaker is the machine owner → their configured name, else "Me".
+    private func liveLabel(for segment: TranscriptSegment) -> String {
+        let info = session.meeting.speakers[segment.speaker]
+        if let name = info?.name, !name.isEmpty { return name }
+        if segment.source == .mic { return app.userDisplayName }
+        return session.meeting.displayName(forSpeakerKey: segment.speaker)
+    }
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    if session.liveSegments.isEmpty && session.volatileText.values.allSatisfy(\.isEmpty) {
+                        VStack(spacing: 10) {
+                            Image(systemName: "waveform")
+                                .font(.system(size: 26))
+                                .foregroundStyle(Theme.accentGradient)
+                            Text("Listening… start talking or play meeting audio.")
+                                .foregroundStyle(.secondary)
+                                .font(.system(size: 12))
+                                .multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 60)
+                    }
+                    ForEach(session.liveSegments) { segment in
+                        UtteranceBubble(
+                            name: liveLabel(for: segment),
+                            color: Theme.speakerColor(segment.speaker),
+                            time: segment.start,
+                            text: segment.text,
+                            volatile: false,
+                            isMe: segment.source == .mic)
+                            .id(segment.id)
+                    }
+                    ForEach([AudioChannel.mic, .system], id: \.self) { channel in
+                        if let text = session.volatileText[channel], !text.isEmpty {
+                            UtteranceBubble(
+                                name: channel == .mic ? app.userDisplayName : "…",
+                                color: .secondary,
+                                time: nil,
+                                text: text,
+                                volatile: true,
+                                isMe: channel == .mic)
+                        }
+                    }
+                    Color.clear.frame(height: 1).id("bottom")
+                }
+                .padding(14)
+            }
+            .onChange(of: session.liveSegments.count) {
+                withAnimation { proxy.scrollTo("bottom") }
+            }
+        }
+        .background(.background.secondary.opacity(0.4))
+    }
+}
+
+/// Compact "floating transcript" panel: a narrow right-docked window (on top of other apps)
+/// with the live transcript and the Ask-AI pane, so the meeting can be followed in Zoom/Outlook
+/// without the full app in the way. Recording keeps running.
+struct CompactLiveView: View {
+    @Environment(AppState.self) private var app
+    let session: MeetingSession
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(session.isPaused ? Color.orange : .red)
+                    .frame(width: 8, height: 8)
+                    .opacity(session.isPaused ? 0.5 : 1)
+                Text(session.isPaused ? "Paused" : "REC")
+                    .font(.system(size: 11, weight: .semibold))
+                Text(Theme.timestamp(session.elapsed))
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if session.phase == .recording {
+                    Button {
+                        session.isPaused ? session.resume() : session.pause()
+                    } label: {
+                        Image(systemName: session.isPaused ? "play.fill" : "pause.fill")
+                    }
+                    .buttonStyle(.plain)
+                    .help(session.isPaused ? "Resume" : "Pause")
+                }
+                Button { app.setCompact(false) } label: {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                }
+                .buttonStyle(.plain)
+                .help("Expand back to the full app")
+                Button { Task { await app.stopMeeting() } } label: {
+                    Image(systemName: "stop.fill").foregroundStyle(.red)
+                }
+                .buttonStyle(.plain)
+                .help("End meeting")
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            Divider()
+            VSplitView {
+                LiveTranscriptList(session: session)
+                    .frame(minHeight: 160)
+                LiveAssistantPane(session: session)
+                    .frame(minHeight: 130)
+            }
+        }
     }
 }

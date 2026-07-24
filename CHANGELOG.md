@@ -2,7 +2,19 @@
 
 ## [Unreleased]
 
+### Added
+- **Pause / resume during a recording.** A pause button in the meeting header (and in compact
+  mode) freezes the timeline stopwatch-style — the paused stretch is neither recorded nor
+  transcribed, and resuming continues seamlessly with no silent gap and no jumped timer.
+- **Compact floating transcript mode.** A button shrinks the window to a narrow strip docked to
+  the right edge that floats on top of other apps, showing the live transcript and the Ask-AI
+  pane, so a meeting can be followed over Zoom/Outlook without the full app in the way.
+  Recording keeps running; an expand button restores the previous window.
+
 ### Fixed
+- **"All Meetings" and folder rows were not clickable in the sidebar.** They relied on
+  `List(selection:)`, whose rows did not register clicks; they are now buttons that reliably
+  switch the meeting-list filter, with the active one highlighted.
 - **Remote voices collapsing onto the mic, and the recording running slow / behind real time.**
   A chain of related capture-pipeline bugs, root-caused across several real calls plus a
   multi-agent investigation:

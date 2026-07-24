@@ -64,4 +64,23 @@ struct SessionClockTests {
         #expect(abs(next - 0.05) < 1e-6,
                 "offline reprocess must timestamp from audio content, not wall time, got \(next)")
     }
+
+    @Test("pause freezes the timeline and excludes paused time on resume")
+    func pauseFreezesAndExcludesTime() {
+        let fake = FakeClock()
+        let clock = SessionClock(anchorToWallClock: true, now: { fake.read() })
+        var last = 0.0
+        for _ in 0..<100 { last = clock.advance(channel: .mic, by: 0.05); fake.t += 0.05 }
+        #expect(abs(last - 4.95) < 1e-6)              // reached ~5 s
+
+        clock.setPaused(true)
+        let frozen = clock.position(of: .mic)
+        fake.t += 10                                  // 10 s of real time passes while paused
+        let during = clock.advance(channel: .mic, by: 0.05)
+        #expect(abs(during - frozen) < 1e-6, "paused advance must return the frozen cursor, got \(during)")
+
+        clock.setPaused(false)
+        let after = clock.advance(channel: .mic, by: 0.05)
+        #expect(after < 5.2, "after resume the timeline continues from the pause point, not +10s, got \(after)")
+    }
 }

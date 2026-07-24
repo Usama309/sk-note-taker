@@ -30,6 +30,9 @@ public final class MeetingSession {
     }
 
     public private(set) var phase: Phase = .idle
+    /// True while paused: incoming audio is dropped and the timeline is frozen (stopwatch-style),
+    /// so the paused stretch is neither recorded nor transcribed. Recording resumes seamlessly.
+    public private(set) var isPaused = false
     public private(set) var meeting: Meeting
     /// Finalized, speaker-attributed segments (rebuilt as diarization refines).
     public private(set) var liveSegments: [TranscriptSegment] = []
@@ -195,6 +198,15 @@ public final class MeetingSession {
                     for await chunk in stream {
                         if Task.isCancelled { break }
                         guard let self else { break }
+                        // Paused: flush anything pending, then drop audio until resumed.
+                        if self.isPaused {
+                            if !batch.isEmpty {
+                                await self.pump(AudioChunk(channel: channel, samples: batch,
+                                                           startTime: batchStart), into: service)
+                                batch.removeAll(keepingCapacity: true)
+                            }
+                            continue
+                        }
                         // A non-contiguous chunk (a capture gap re-anchored the clock) must not be
                         // concatenated onto the batch — flush first so timestamps stay exact.
                         if !batch.isEmpty, abs(chunk.startTime - batchEnd) > 0.005 {
@@ -327,6 +339,22 @@ public final class MeetingSession {
     public func nameSpeaker(key: String, name: String) async {
         meeting.speakers[key]?.name = name.isEmpty ? nil : name
         try? await store.save(meeting)
+    }
+
+    // MARK: - Pause / resume
+
+    public func pause() {
+        guard phase == .recording, !isPaused else { return }
+        isPaused = true
+        clock.setPaused(true)
+        SKLog.info(.session, "Meeting paused")
+    }
+
+    public func resume() {
+        guard phase == .recording, isPaused else { return }
+        isPaused = false
+        clock.setPaused(false)
+        SKLog.info(.session, "Meeting resumed")
     }
 
     // MARK: - Pipeline plumbing

@@ -120,18 +120,34 @@ public final class SessionClock: Sendable {
         Double(DispatchTime.now().uptimeNanoseconds) / 1_000_000_000
     }
 
+    /// Pause bookkeeping: while paused the timeline freezes (like a stopwatch) and paused wall
+    /// time is subtracted, so resuming continues seamlessly instead of jumping forward by the
+    /// pause duration or leaving a silent gap in the recording.
+    private let pauseState = Mutex<(paused: Bool, since: Double, total: Double)>((false, 0, 0))
+
+    public func setPaused(_ paused: Bool) {
+        pauseState.withLock { s in
+            guard s.paused != paused else { return }
+            let t = now()
+            if paused { s.paused = true; s.since = t }
+            else { s.total += max(0, t - s.since); s.paused = false }
+        }
+    }
+
     /// Returns the chunk's start time and advances the channel cursor.
     public func advance(channel: AudioChannel, by duration: Double) -> Double {
         cursors.withLock { c in
             let cursor = c[channel] ?? 0
             var start = cursor
             if anchorToWallClock {
+                let ps = pauseState.withLock { $0 }
+                if ps.paused { return cursor }   // frozen; the chunk is dropped upstream anyway
                 // In steady state the cursor already tracks wall time, so `max` keeps the
                 // smooth accumulation (identical to before). After a capture gap the cursor
                 // has fallen behind; re-anchor the resumed audio to its true wall position so
                 // it lines up with the other channel instead of drifting behind and being
-                // dropped by the recorder as "too late".
-                let wall = max(0, now() - origin)
+                // dropped by the recorder as "too late". Paused wall time is excluded.
+                let wall = max(0, now() - origin - ps.total)
                 start = max(cursor, wall - duration)
             }
             c[channel] = start + duration

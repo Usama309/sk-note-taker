@@ -21,7 +21,6 @@ struct SKNoteTakerApp: App {
             ContentView()
                 .environment(appState)
                 .preferredColorScheme(.light)   // brand look: light surfaces, readable speaker colors
-                .frame(minWidth: 1080, minHeight: 680)
                 .task { await appState.bootstrap() }
                 .onAppear {
                     // Give AppState a way to surface the main window (from the menu bar
@@ -46,6 +45,19 @@ struct SKNoteTakerApp: App {
                 .environment(appState)
                 .preferredColorScheme(.light)
         }
+    }
+}
+
+/// Captures the hosting NSWindow so AppState can resize/float it for compact mode.
+struct WindowAccessor: NSViewRepresentable {
+    let onWindow: (NSWindow) -> Void
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { if let w = view.window { onWindow(w) } }
+        return view
+    }
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { if let w = nsView.window { onWindow(w) } }
     }
 }
 
@@ -102,6 +114,32 @@ final class AppState {
     var session: MeetingSession?     // non-nil while recording
     var settings = AppSettings()
     var claudeAvailable = true
+
+    /// Compact "floating transcript" mode: the window shrinks to a right-docked strip that
+    /// floats over other apps, showing just the live transcript + Ask AI while recording runs.
+    var compactMode = false
+    @ObservationIgnored var mainWindow: NSWindow?
+    @ObservationIgnored private var savedFrame: NSRect?
+
+    func setCompact(_ compact: Bool) {
+        guard compactMode != compact else { return }
+        compactMode = compact
+        guard let window = mainWindow else { return }
+        if compact {
+            savedFrame = window.frame
+            window.level = .floating
+            window.collectionBehavior.insert(.canJoinAllSpaces)
+            if let vf = (window.screen ?? NSScreen.main)?.visibleFrame {
+                let w: CGFloat = 360
+                window.setFrame(NSRect(x: vf.maxX - w, y: vf.minY, width: w, height: vf.height),
+                                display: true, animate: true)
+            }
+        } else {
+            window.level = .normal
+            window.collectionBehavior.remove(.canJoinAllSpaces)
+            if let saved = savedFrame { window.setFrame(saved, display: true, animate: true) }
+        }
+    }
 
     // Permission state (refreshed on launch, after grants, and when the window activates).
     var micStatus: Permission.Status = .notDetermined
@@ -328,6 +366,7 @@ final class AppState {
 
     func stopMeeting() async {
         guard let session else { return }
+        if compactMode { setCompact(false) }   // restore the full window when the meeting ends
         notifier.clearEndPrompts()
         await session.finish()
         let finishedId = session.meeting.id
