@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### Added
+- **Expandable project folders.** Each folder now has a disclosure arrow; clicking a folder
+  rotates the arrow and expands it inline to list every recording inside it (indented in the
+  sidebar) while also filtering the middle column to that folder. Clicking a nested recording
+  opens it directly in the detail pane. Clicking the folder again collapses it.
 - **Redesigned sidebar.** A sectioned layout: a **Library** section (All Meetings + a **Starred**
   filter, each with live counts) and a **Projects** section (folders shown with a stable colour
   dot and count, a "+" to add one inline). A profile card pinned to the bottom shows the user

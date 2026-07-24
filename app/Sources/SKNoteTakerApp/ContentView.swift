@@ -52,6 +52,8 @@ struct SidebarView: View {
     @State private var addingFolder = false
     /// "all" / "starred" / a folder uuid string while a meeting is dragged over (for highlight).
     @State private var dropTarget: String?
+    /// Folders currently expanded to reveal their recordings inline.
+    @State private var expandedFolders: Set<UUID> = []
 
     private var clients: [Folder] { app.folders.filter { $0.parentId == nil } }
     private var starredCount: Int {
@@ -109,19 +111,10 @@ struct SidebarView: View {
 
             Section {
                 ForEach(clients) { client in
-                    let children = app.folders.filter { $0.parentId == client.id }
-                    if children.isEmpty {
-                        folderRow(client)
-                    } else {
-                        DisclosureGroup {
-                            ForEach(children) { folderRow($0) }
-                        } label: {
-                            folderRow(client)
-                        }
-                    }
+                    folderGroup(client)
                 }
                 if clients.isEmpty {
-                    Text("No projects yet — drag a meeting here or tap +")
+                    Text("No projects yet. Drag a meeting here or click +.")
                         .font(.system(size: 10)).foregroundStyle(.tertiary)
                 }
             } header: {
@@ -179,14 +172,55 @@ struct SidebarView: View {
         .contentShape(Rectangle())
     }
 
-    private func folderRow(_ folder: Folder) -> some View {
-        Button { app.libraryFilter = .folder(folder.id) } label: {
-            HStack(spacing: 9) {
+    /// Meetings filed directly in a folder plus those in its sub-folders (matches the
+    /// middle-column filter), so an expanded folder shows every recording under it.
+    private func recordings(under folder: Folder) -> [Meeting] {
+        let childIds = Set(app.folders.filter { $0.parentId == folder.id }.map(\.id))
+        return app.meetings.filter { m in
+            m.folderId == folder.id || (m.folderId.map { childIds.contains($0) } ?? false)
+        }
+    }
+
+    /// A folder header row plus, when expanded, an indented row per recording inside it.
+    @ViewBuilder
+    private func folderGroup(_ folder: Folder) -> some View {
+        let recs = recordings(under: folder)
+        let isOpen = expandedFolders.contains(folder.id)
+        folderHeaderRow(folder, count: recs.count, isOpen: isOpen)
+        if isOpen {
+            if recs.isEmpty {
+                Text("No recordings yet")
+                    .font(.system(size: 11)).foregroundStyle(.tertiary)
+                    .padding(.leading, 20)
+                    .listRowBackground(Color.clear)
+            } else {
+                ForEach(recs) { nestedMeetingRow($0) }
+            }
+        }
+    }
+
+    private func folderHeaderRow(_ folder: Folder, count: Int, isOpen: Bool) -> some View {
+        // Whole-row click opens the folder (and filters the middle list); the chevron shows state.
+        Button {
+            withAnimation(.easeInOut(duration: 0.18)) {
+                if expandedFolders.contains(folder.id) {
+                    expandedFolders.remove(folder.id)
+                } else {
+                    expandedFolders.insert(folder.id)
+                    app.libraryFilter = .folder(folder.id)
+                }
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(isOpen ? 90 : 0))
+                    .frame(width: 10)
                 Circle().fill(folderColor(folder)).frame(width: 9, height: 9)
                 Text(folder.name).font(.system(size: 13)).lineLimit(1)
                 Spacer()
-                Text("\(app.meetings.filter { $0.folderId == folder.id }.count)")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                Text("\(count)").font(.system(size: 11)).foregroundStyle(.secondary)
             }
             .contentShape(Rectangle())
         }
@@ -196,6 +230,11 @@ struct SidebarView: View {
         .dropDestination(for: String.self, action: { items, _ in dropMeetings(items, to: folder.id) },
                          isTargeted: { setDrop(folder.id.uuidString, $0) })
         .contextMenu {
+            Button(isOpen ? "Collapse" : "Expand") {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    if isOpen { expandedFolders.remove(folder.id) } else { expandedFolders.insert(folder.id) }
+                }
+            }
             Button("Delete Folder", role: .destructive) {
                 Task {
                     try? await app.folderStore.remove(id: folder.id)
@@ -203,6 +242,26 @@ struct SidebarView: View {
                 }
             }
         }
+    }
+
+    private func nestedMeetingRow(_ meeting: Meeting) -> some View {
+        Button {
+            app.selectedMeetingId = meeting.id
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: meeting.hasRecording ? "waveform" : "doc.text")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 12)
+                Text(meeting.title).font(.system(size: 12)).lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.leading, 18)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(app.selectedMeetingId == meeting.id
+                           ? Theme.indigo.opacity(0.14) : Color.clear)
     }
 
     private func addFolder() {
