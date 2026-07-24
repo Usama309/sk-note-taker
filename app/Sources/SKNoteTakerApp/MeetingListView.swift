@@ -90,6 +90,9 @@ struct MeetingRow: View {
     let meeting: Meeting
 
     private var isLive: Bool { app.session?.meeting.id == meeting.id }
+    // The selected row's background is the accent fill (blue when focused, grey when not), on which
+    // the tinted speaker chips are unreadable — switch them to a solid white pill there.
+    private var isSelected: Bool { app.selectedMeetingId == meeting.id }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -126,7 +129,9 @@ struct MeetingRow: View {
                             .font(.skFootnote)
                             .padding(.horizontal, 7)
                             .padding(.vertical, 2)
-                            .background(Theme.speakerColor(key).opacity(0.18), in: Capsule())
+                            .background(
+                                isSelected ? Color.white.opacity(0.92) : Theme.speakerColor(key).opacity(0.18),
+                                in: Capsule())
                             .foregroundStyle(Theme.speakerColor(key))
                     }
                 }
