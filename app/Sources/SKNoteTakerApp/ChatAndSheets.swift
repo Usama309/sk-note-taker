@@ -365,7 +365,7 @@ struct SettingsView: View {
                         }
                         .controlSize(.small)
                         .disabled(gClientID.isEmpty || gClientSecret.isEmpty)
-                        if app.hasGoogleCredentials {
+                        if app.googleCredentialsSaved {
                             Label("Saved", systemImage: "lock.fill")
                                 .font(.system(size: 10)).foregroundStyle(.green)
                         }
@@ -379,7 +379,7 @@ struct SettingsView: View {
                             Label("Connect Google Calendar", systemImage: "globe")
                         }
                     }
-                    .disabled(!app.hasGoogleCredentials || app.calendarBusy)
+                    .disabled(!app.googleCredentialsSaved || app.calendarBusy)
                     if let err = app.calendarError {
                         Text(err).font(.system(size: 10)).foregroundStyle(.red).textSelection(.enabled)
                     }

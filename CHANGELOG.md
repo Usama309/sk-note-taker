@@ -55,6 +55,10 @@
 - **"TL;DR" renamed to "Quick summary"** in generated summaries (plainer language).
 
 ### Fixed
+- **Saving Google Calendar credentials showed no feedback.** The "Saved" badge and the Connect
+  button didn't react because the saved-credentials state lived on the non-observable service; it
+  now mirrors into an observable property, so the UI updates the instant credentials are saved.
+  (The credentials were always being written to the Keychain correctly.)
 - **Ending an empty meeting popped a "No transcript" error.** A recording with no speech no
   longer triggers an auto-summary attempt (and its alert).
 - **"All Meetings" and folder rows were not clickable in the sidebar.** They relied on

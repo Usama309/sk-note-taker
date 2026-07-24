@@ -136,6 +136,9 @@ final class AppState {
     // Google Calendar (in-app browser sign-in). The service holds the Keychain-backed tokens;
     // these mirror its state for the UI to observe.
     @ObservationIgnored let calendar = GoogleCalendarService()
+    /// Observable mirror of the (non-observable) service's saved-credentials state, so the
+    /// Settings UI re-renders the moment credentials are saved.
+    var googleCredentialsSaved = false
     var calendarConnected = false
     var calendarEmail: String?
     var calendarBusy = false
@@ -233,6 +236,7 @@ final class AppState {
         await recoverOrphanedMeetings()
         await refresh()
         await startAutoDetectIfEnabled()
+        googleCredentialsSaved = calendar.hasCredentials
         calendarConnected = calendar.isConnected
         calendarEmail = calendar.connectedEmail
         if calendarConnected { await refreshUpcoming() }
@@ -242,11 +246,11 @@ final class AppState {
 
     // MARK: - Google Calendar
 
-    var hasGoogleCredentials: Bool { calendar.hasCredentials }
     var savedGoogleClientID: String { calendar.savedClientID ?? "" }
 
     func setGoogleCredentials(clientID: String, clientSecret: String) {
         calendar.setCredentials(clientID: clientID, clientSecret: clientSecret)
+        googleCredentialsSaved = calendar.hasCredentials
     }
 
     func connectCalendar() async {
