@@ -95,13 +95,13 @@ struct MeetingRow: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack {
                 Text(meeting.title)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.skSubtitle)
                     .lineLimit(1)
                 Spacer()
                 if isLive {
                     HStack(spacing: 4) {
                         Circle().fill(.red).frame(width: 7, height: 7)
-                        Text("LIVE").font(.system(size: 9, weight: .heavy))
+                        Text("LIVE").font(.skBadge)
                     }
                     .foregroundStyle(.red)
                 }
@@ -116,14 +116,14 @@ struct MeetingRow: View {
                     Image(systemName: "waveform").font(.system(size: 9))
                 }
             }
-            .font(.system(size: 11))
+            .font(.skCaption)
             .foregroundStyle(.secondary)
 
             if !meeting.speakers.isEmpty {
                 HStack(spacing: 4) {
                     ForEach(meeting.speakers.keys.sorted(), id: \.self) { key in
                         Text(meeting.displayName(forSpeakerKey: key))
-                            .font(.system(size: 10, weight: .medium))
+                            .font(.skFootnote)
                             .padding(.horizontal, 7)
                             .padding(.vertical, 2)
                             .background(Theme.speakerColor(key).opacity(0.18), in: Capsule())

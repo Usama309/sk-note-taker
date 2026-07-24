@@ -95,16 +95,16 @@ struct DetectionPanelView: View {
                 LogoMark(size: 34)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("\(model.appName) meeting started")
-                        .font(.system(size: 13.5, weight: .semibold))
+                        .font(.skSubtitle)
                         .foregroundStyle(.primary)
                     Text("Take notes with SK Note Taker")
-                        .font(.system(size: 12))
+                        .font(.skCallout)
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 8)
                 Button(action: onStart) {
                     Text("Start")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.skSubtitle)
                         .padding(.horizontal, 18).padding(.vertical, 7)
                         .background(Theme.accentGradient,
                                     in: RoundedRectangle(cornerRadius: 9, style: .continuous))

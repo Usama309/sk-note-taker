@@ -13,7 +13,7 @@ struct OnboardingView: View {
                 LogoMark(size: 60)
                     .shadow(color: Theme.indigo.opacity(0.35), radius: 14, y: 5)
                 Text("Welcome to SK Note Taker")
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .font(.skHero)
                 Text("Tell us your name, grant two permissions, and you're ready to record.")
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -29,9 +29,9 @@ struct OnboardingView: View {
                         .foregroundStyle(Theme.accentGradient)
                         .frame(width: 30)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("Your name").font(.system(size: 13, weight: .semibold))
+                        Text("Your name").font(.skSubtitle)
                         Text("Labels everything you say in the transcript.")
-                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                            .font(.skCaption).foregroundStyle(.secondary)
                     }
                     Spacer()
                     TextField("Me", text: Binding(
@@ -67,7 +67,7 @@ struct OnboardingView: View {
                 })
 
             Text("System audio uses macOS “System Audio Recording”. If you don't see a prompt, grant it in System Settings → Privacy & Security → Screen & System Audio Recording.")
-                .font(.system(size: 11))
+                .font(.skCaption)
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
@@ -111,8 +111,8 @@ struct PermissionRow: View {
                 .foregroundStyle(Theme.accentGradient)
                 .frame(width: 30)
             VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(.system(size: 13, weight: .semibold))
-                Text(subtitle).font(.system(size: 11)).foregroundStyle(.secondary)
+                Text(title).font(.skSubtitle)
+                Text(subtitle).font(.skCaption).foregroundStyle(.secondary)
             }
             Spacer()
             StatusBadge(status: status)
@@ -138,7 +138,7 @@ struct StatusBadge: View {
 
     var body: some View {
         Label(config.2, systemImage: config.0)
-            .font(.system(size: 11, weight: .medium))
+            .font(.skCaption)
             .foregroundStyle(config.1)
     }
 }

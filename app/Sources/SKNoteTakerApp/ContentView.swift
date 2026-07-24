@@ -133,7 +133,7 @@ struct SidebarView: View {
                 }
                 if clients.isEmpty {
                     Text("No projects yet. Drag a meeting here or click +.")
-                        .font(.system(size: 10)).foregroundStyle(.tertiary)
+                        .font(.skFootnote).foregroundStyle(.tertiary)
                 }
             } header: {
                 HStack {
@@ -165,8 +165,8 @@ struct SidebarView: View {
                     Circle().fill(Theme.accentGradient).frame(width: 30, height: 30)
                         .overlay(Text(initials).font(.system(size: 12, weight: .bold)).foregroundStyle(.white))
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(app.userDisplayName).font(.system(size: 12, weight: .semibold)).lineLimit(1)
-                        Text("Local workspace").font(.system(size: 10)).foregroundStyle(.secondary)
+                        Text(app.userDisplayName).font(.skLabel).lineLimit(1)
+                        Text("Local workspace").font(.skFootnote).foregroundStyle(.secondary)
                     }
                     Spacer()
                     SettingsLink {
@@ -183,9 +183,9 @@ struct SidebarView: View {
     private func rowLabel(icon: AnyView, title: String, count: Int) -> some View {
         HStack(spacing: 9) {
             icon.frame(width: 18)
-            Text(title).font(.system(size: 13))
+            Text(title).font(.skBody)
             Spacer()
-            Text("\(count)").font(.system(size: 11)).foregroundStyle(.secondary)
+            Text("\(count)").font(.skCaption).foregroundStyle(.secondary)
         }
         .contentShape(Rectangle())
     }
@@ -208,7 +208,7 @@ struct SidebarView: View {
         if isOpen {
             if recs.isEmpty {
                 Text("No recordings yet")
-                    .font(.system(size: 11)).foregroundStyle(.tertiary)
+                    .font(.skCaption).foregroundStyle(.tertiary)
                     .padding(.leading, 20)
                     .listRowBackground(Color.clear)
             } else {
@@ -236,9 +236,9 @@ struct SidebarView: View {
                     .rotationEffect(.degrees(isOpen ? 90 : 0))
                     .frame(width: 10)
                 Circle().fill(folderColor(folder)).frame(width: 9, height: 9)
-                Text(folder.name).font(.system(size: 13)).lineLimit(1)
+                Text(folder.name).font(.skBody).lineLimit(1)
                 Spacer()
-                Text("\(count)").font(.system(size: 11)).foregroundStyle(.secondary)
+                Text("\(count)").font(.skCaption).foregroundStyle(.secondary)
             }
             .contentShape(Rectangle())
         }
@@ -271,7 +271,7 @@ struct SidebarView: View {
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
                     .frame(width: 12)
-                Text(meeting.title).font(.system(size: 12)).lineLimit(1)
+                Text(meeting.title).font(.skCallout).lineLimit(1)
                 Spacer(minLength: 0)
             }
             .padding(.leading, 18)
@@ -305,7 +305,7 @@ struct EmptyDetailView: View {
             LogoMark(size: 72)
                 .shadow(color: Theme.indigo.opacity(0.35), radius: 18, y: 6)
             Text("Ready when you are")
-                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .font(.skHero)
             Text("Start a meeting to capture mic and system audio\nwith live, speaker-aware transcription.")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
@@ -340,11 +340,11 @@ struct SetupHint: View {
         HStack(spacing: 10) {
             Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.orange)
             VStack(alignment: .leading, spacing: 1) {
-                Text("Finish setup to record").font(.system(size: 12, weight: .semibold))
-                Text(missing).font(.system(size: 11)).foregroundStyle(.secondary)
+                Text("Finish setup to record").font(.skLabel)
+                Text(missing).font(.skCaption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
-            SettingsLink { Text("Open Settings").font(.system(size: 12, weight: .medium)) }
+            SettingsLink { Text("Open Settings").font(.skCallout) }
                 .buttonStyle(.plain).foregroundStyle(Theme.indigo)
         }
         .padding(12)
@@ -371,10 +371,10 @@ struct UpcomingEventsCard: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Label("Upcoming", systemImage: "calendar")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.skSubtitle)
                 Spacer()
                 Button("See all") { app.libraryFilter = .upcoming }
-                    .buttonStyle(.plain).font(.system(size: 11, weight: .medium))
+                    .buttonStyle(.plain).font(.skCaption)
                     .foregroundStyle(Theme.indigo)
                 Button { Task { await app.refreshUpcoming() } } label: {
                     Image(systemName: "arrow.clockwise").font(.system(size: 11))
@@ -388,8 +388,8 @@ struct UpcomingEventsCard: View {
                         app.selectEvent(ev.id)
                     } label: {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(ev.title).font(.system(size: 12, weight: .medium)).lineLimit(1)
-                            Text(Self.whenLabel(ev)).font(.system(size: 10)).foregroundStyle(.secondary)
+                            Text(ev.title).font(.skCallout).lineLimit(1)
+                            Text(Self.whenLabel(ev)).font(.skFootnote).foregroundStyle(.secondary)
                         }
                         .contentShape(Rectangle())
                     }

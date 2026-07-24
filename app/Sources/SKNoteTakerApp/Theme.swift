@@ -37,6 +37,28 @@ extension Theme {
     static let hairline = Color.primary.opacity(0.06)
 }
 
+/// The SK Note Taker type scale: a small, deliberate ramp used on every screen in place of
+/// ad-hoc `.system(size:)` calls, so headings, titles, body, and captions stay consistent.
+/// The common tiers (body/callout/caption/footnote) keep their existing sizes; only the scattered
+/// outliers are normalized onto the ramp.
+extension Font {
+    static let skHero          = Font.system(size: 22, weight: .bold, design: .rounded)     // empty-state + detail titles
+    static let skTitle         = Font.system(size: 18, weight: .bold)                        // large section / sheet titles
+    static let skHeadline      = Font.system(size: 15, weight: .semibold)                    // prominent headers
+    static let skSection       = Font.system(size: 14, weight: .semibold)                    // card titles
+    static let skSubtitle      = Font.system(size: 13, weight: .semibold)                    // row / event titles
+    static let skBody          = Font.system(size: 13)                                       // body, transcript, summary
+    static let skCallout       = Font.system(size: 12)                                       // secondary body
+    static let skLabel         = Font.system(size: 12, weight: .semibold)                    // small emphasized labels / buttons
+    static let skCaption       = Font.system(size: 11, weight: .medium)                      // metadata, tags
+    static let skCaptionStrong = Font.system(size: 11, weight: .semibold)                    // emphasized captions
+    static let skFootnote      = Font.system(size: 10)                                       // tertiary hints
+    static let skFootnoteStrong = Font.system(size: 10, weight: .semibold)                   // emphasized tertiary
+    static let skBadge         = Font.system(size: 9, weight: .bold)                         // micro badges / chevrons
+    static let skMono          = Font.system(size: 13, weight: .medium, design: .monospaced) // timers
+    static let skMonoSmall     = Font.system(size: 11, design: .monospaced)                  // small mono (paths)
+}
+
 extension View {
     /// The standard card surface used across every screen: a fill appropriate to the context,
     /// continuous corners at the shared radius, a hairline border, and a subtle lift shadow.

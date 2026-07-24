@@ -22,9 +22,9 @@ struct UpcomingListView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("Upcoming").font(.system(size: 15, weight: .bold))
+                Text("Upcoming").font(.skHeadline)
                 if let email = app.calendarEmail {
-                    Text(email).font(.system(size: 10)).foregroundStyle(.tertiary).lineLimit(1)
+                    Text(email).font(.skFootnote).foregroundStyle(.tertiary).lineLimit(1)
                 }
                 Spacer()
                 Button { Task { await app.refreshUpcoming() } } label: {
@@ -79,10 +79,10 @@ struct EventRow: View {
         HStack(spacing: 10) {
             VStack(alignment: .trailing, spacing: 1) {
                 if event.isAllDay {
-                    Text("all-day").font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
+                    Text("all-day").font(.skFootnoteStrong).foregroundStyle(.secondary)
                 } else {
-                    Text(Self.time(event.start)).font(.system(size: 12, weight: .semibold))
-                    Text(Self.time(event.end)).font(.system(size: 10)).foregroundStyle(.secondary)
+                    Text(Self.time(event.start)).font(.skLabel)
+                    Text(Self.time(event.end)).font(.skFootnote).foregroundStyle(.secondary)
                 }
             }
             .frame(width: 54, alignment: .trailing)
@@ -90,7 +90,7 @@ struct EventRow: View {
             Capsule().fill(Theme.accentGradient).frame(width: 3, height: 32)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(event.title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                Text(event.title).font(.skSubtitle).lineLimit(1)
                 HStack(spacing: 6) {
                     if event.meetingURL != nil {
                         Image(systemName: "video.fill").font(.system(size: 9))
@@ -101,7 +101,7 @@ struct EventRow: View {
                         Text("\(event.attendees.count) guest\(event.attendees.count == 1 ? "" : "s")")
                     }
                 }
-                .font(.system(size: 11)).foregroundStyle(.secondary)
+                .font(.skCaption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
         }
@@ -126,20 +126,20 @@ struct EventDetailView: View {
             VStack(alignment: .leading, spacing: 20) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(event.title)
-                        .font(.system(size: 25, weight: .bold, design: .rounded))
+                        .font(.skHero)
                         .fixedSize(horizontal: false, vertical: true)
                     Label(dateRange, systemImage: "clock")
-                        .font(.system(size: 13)).foregroundStyle(.secondary)
+                        .font(.skBody).foregroundStyle(.secondary)
                     if let loc = event.location, !loc.isEmpty {
                         Label(loc, systemImage: "mappin.and.ellipse")
-                            .font(.system(size: 13)).foregroundStyle(.secondary)
+                            .font(.skBody).foregroundStyle(.secondary)
                     }
                 }
 
                 HStack(spacing: 10) {
                     Button { Task { await app.startNotes(for: event) } } label: {
                         Label("Start notes", systemImage: "record.circle.fill")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.skSubtitle)
                             .padding(.horizontal, 16).padding(.vertical, 9)
                             .background(Theme.accentGradient, in: Capsule())
                             .foregroundStyle(.white)
@@ -158,15 +158,15 @@ struct EventDetailView: View {
                 if !event.attendees.isEmpty {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Guests (\(event.attendees.count))")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.skSubtitle)
                         ForEach(event.attendees.prefix(12), id: \.self) { name in
                             HStack(spacing: 9) {
                                 Circle().fill(Theme.indigo.opacity(0.15))
                                     .frame(width: 24, height: 24)
                                     .overlay(Text(String(name.prefix(1)).uppercased())
-                                        .font(.system(size: 11, weight: .bold))
+                                        .font(.skCaptionStrong)
                                         .foregroundStyle(Theme.indigo))
-                                Text(name).font(.system(size: 12))
+                                Text(name).font(.skCallout)
                             }
                         }
                     }
@@ -176,8 +176,8 @@ struct EventDetailView: View {
 
                 if let notes = event.notes, !notes.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Description").font(.system(size: 13, weight: .semibold))
-                        Text(notes).font(.system(size: 13)).foregroundStyle(.secondary)
+                        Text("Description").font(.skSubtitle)
+                        Text(notes).font(.skBody).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -190,7 +190,7 @@ struct EventDetailView: View {
 
     private func pillLabel(_ text: String, _ icon: String) -> some View {
         Label(text, systemImage: icon)
-            .font(.system(size: 13, weight: .medium))
+            .font(.skBody)
             .padding(.horizontal, 14).padding(.vertical, 9)
             .background(.quaternary.opacity(0.5), in: Capsule())
             .foregroundStyle(.primary)

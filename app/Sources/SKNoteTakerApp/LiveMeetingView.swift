@@ -27,7 +27,7 @@ struct LiveMeetingView: View {
         HStack(spacing: 8) {
             Image(systemName: "mic.slash.fill").foregroundStyle(.orange)
             Text("No microphone audio detected — your voice won't be transcribed. If a call started after recording began, stop and start the recording again; otherwise check your input device and mic access.")
-                .font(.system(size: 12))
+                .font(.skCallout)
             Spacer()
             Button("Open Settings") { app.openMicSettings() }
                 .buttonStyle(.link)
@@ -75,14 +75,14 @@ struct LiveMeetingView: View {
                 Text(session.isPaused ? "Paused" :
                      session.phase == .preparing ? "Preparing…" :
                      session.phase == .finishing ? "Finishing…" : "Recording")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.skSubtitle)
                 Text(Theme.timestamp(session.elapsed))
-                    .font(.system(size: 13, weight: .medium, design: .monospaced))
+                    .font(.skMono)
                     .foregroundStyle(.secondary)
                 if session.phase == .recording {
                     // Audio is being saved to recording.m4a alongside the transcript.
                     Label("Saving audio", systemImage: "waveform.circle.fill")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.skFootnoteStrong)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
@@ -200,7 +200,7 @@ struct LiveMeetingView: View {
     private var notesPane: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Jot rough bullets — they become anchors for the AI summary.")
-                .font(.system(size: 11))
+                .font(.skCaption)
                 .foregroundStyle(.tertiary)
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
@@ -243,9 +243,9 @@ struct LiveAssistantPane: View {
                                     .font(.system(size: 24))
                                     .foregroundStyle(Theme.accentGradient)
                                 Text("Ask AI while the meeting runs")
-                                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                                    .font(.skSubtitle)
                                 Text("Catch up, decode what they mean, or get a suggested reply — from the live transcript.")
-                                    .font(.system(size: 11))
+                                    .font(.skCaption)
                                     .foregroundStyle(.secondary)
                                     .multilineTextAlignment(.center)
                             }
@@ -259,7 +259,7 @@ struct LiveAssistantPane: View {
                         if thinking {
                             HStack(spacing: 8) {
                                 ProgressView().controlSize(.small)
-                                Text("Thinking…").font(.system(size: 12)).foregroundStyle(.secondary)
+                                Text("Thinking…").font(.skCallout).foregroundStyle(.secondary)
                             }
                             .padding(.leading, 8)
                         }
@@ -279,7 +279,7 @@ struct LiveAssistantPane: View {
                         ask(action.prompt)
                     } label: {
                         Label(action.label, systemImage: action.icon)
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(.skFootnoteStrong)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 5)
                             .background(Theme.indigo.opacity(0.10), in: Capsule())
@@ -340,9 +340,9 @@ struct EndPromptBanner: View {
                     .foregroundStyle(Theme.indigo)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(prompt.reason)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.skLabel)
                     Text("Ending automatically in \(remaining(at: context.date))s…")
-                        .font(.system(size: 11))
+                        .font(.skCaption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -434,7 +434,7 @@ struct UtteranceBubble: View {
                         .foregroundStyle(Theme.indigo)
                 }
                 Text(name)
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.skCaptionStrong)
                     .foregroundStyle(color)
                 if let time {
                     if let onTimeTap {
@@ -442,7 +442,7 @@ struct UtteranceBubble: View {
                             HStack(spacing: 2) {
                                 Image(systemName: "play.fill").font(.system(size: 7))
                                 Text(Theme.timestamp(time))
-                                    .font(.system(size: 10, design: .monospaced))
+                                    .font(.skMonoSmall)
                             }
                             .foregroundStyle(.tertiary)
                         }
@@ -450,7 +450,7 @@ struct UtteranceBubble: View {
                         .help("Play recording from here")
                     } else {
                         Text(Theme.timestamp(time))
-                            .font(.system(size: 10, design: .monospaced))
+                            .font(.skMonoSmall)
                             .foregroundStyle(.tertiary)
                     }
                 }
@@ -461,7 +461,7 @@ struct UtteranceBubble: View {
                 }
             }
             Text(text)
-                .font(.system(size: 13))
+                .font(.skBody)
                 .foregroundStyle(volatile ? .secondary : .primary)
                 .italic(volatile)
                 .multilineTextAlignment(.leading)
@@ -502,7 +502,7 @@ struct LiveTranscriptList: View {
                                 .foregroundStyle(Theme.accentGradient)
                             Text("Listening… start talking or play meeting audio.")
                                 .foregroundStyle(.secondary)
-                                .font(.system(size: 12))
+                                .font(.skCallout)
                                 .multilineTextAlignment(.center)
                         }
                         .frame(maxWidth: .infinity)
@@ -556,9 +556,9 @@ struct CompactLiveView: View {
                     .frame(width: 8, height: 8)
                     .opacity(session.isPaused ? 0.5 : 1)
                 Text(session.isPaused ? "Paused" : "REC")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.skCaptionStrong)
                 Text(Theme.timestamp(session.elapsed))
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .font(.skMonoSmall)
                     .foregroundStyle(.secondary)
                 Spacer()
                 if session.phase == .recording {

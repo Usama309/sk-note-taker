@@ -138,7 +138,7 @@ struct DetailTopBar: View {
 
             TextField("Meeting title", text: $title)
                 .textFieldStyle(.plain)
-                .font(.system(size: 18, weight: .bold))
+                .font(.skTitle)
                 .onSubmit(onSaveTitle)
                 .frame(maxWidth: 460, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
@@ -159,7 +159,7 @@ struct DetailTopBar: View {
                 } label: { Label("Delete meeting", systemImage: "trash") }
             } label: {
                 Image(systemName: "ellipsis")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.skSection)
                     .frame(width: 26, height: 22)
             }
             .menuStyle(.borderlessButton)
@@ -170,7 +170,7 @@ struct DetailTopBar: View {
 
             Button { Task { await app.startMeeting() } } label: {
                 Label("New recording", systemImage: "record.circle")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.skLabel)
                     .padding(.horizontal, 12).padding(.vertical, 7)
                     .background(Theme.accentGradient, in: RoundedRectangle(cornerRadius: 9))
                     .foregroundStyle(.white)
@@ -244,7 +244,7 @@ struct DetailMetaRow: View {
                     }
                     if !meeting.speakers.isEmpty {
                         Text("Edit")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.skCaption)
                             .foregroundStyle(Theme.indigo)
                             .padding(.leading, 12)
                     }
@@ -260,7 +260,7 @@ struct DetailMetaRow: View {
     private func meta(_ icon: String, _ text: String) -> some View {
         HStack(spacing: 4) {
             Image(systemName: icon).font(.system(size: 11))
-            Text(text).font(.system(size: 12))
+            Text(text).font(.skCallout)
         }
         .foregroundStyle(.secondary)
     }
@@ -280,7 +280,7 @@ struct WaveformPlayer: View {
         HStack(spacing: 12) {
             Button { playback.toggle() } label: {
                 Image(systemName: playback.playing ? "pause.fill" : "play.fill")
-                    .font(.system(size: 14, weight: .bold))
+                    .font(.skSection)
                     .foregroundStyle(.white)
                     .frame(width: 38, height: 38)
                     .background(playback.ready ? AnyShapeStyle(Theme.accentGradient)
@@ -290,7 +290,7 @@ struct WaveformPlayer: View {
             .disabled(!playback.ready)
 
             Text(Theme.timestamp(playback.currentTime))
-                .font(.system(size: 11, design: .monospaced))
+                .font(.skMonoSmall)
                 .foregroundStyle(.secondary)
                 .frame(width: 46, alignment: .leading)
 
@@ -307,7 +307,7 @@ struct WaveformPlayer: View {
             .frame(maxWidth: .infinity)
 
             Text(Theme.timestamp(playback.duration))
-                .font(.system(size: 11, design: .monospaced))
+                .font(.skMonoSmall)
                 .foregroundStyle(.secondary)
                 .frame(width: 46, alignment: .trailing)
 
@@ -324,7 +324,7 @@ struct WaveformPlayer: View {
                 }
             } label: {
                 Text(String(format: "%g×", playback.rate))
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .font(.skLabel)
                     .frame(width: 34, height: 24)
                     .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 7))
             }
@@ -462,14 +462,14 @@ struct ScreenRecordingCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Label("Screen recording", systemImage: "rectangle.on.rectangle")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.skSubtitle)
             if let player {
                 VideoPlayer(player: player)
                     .frame(height: 180)
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             } else if missing {
                 Text("The recording file could not be found.")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .font(.skCaption).foregroundStyle(.secondary)
             } else {
                 ProgressView().frame(maxWidth: .infinity, minHeight: 100)
             }
@@ -494,10 +494,10 @@ struct ActionItemsCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Action items").font(.system(size: 14, weight: .semibold))
+                Text("Action items").font(.skSection)
                 Spacer()
                 Text("\(items.count)")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.skCaptionStrong)
                     .foregroundStyle(.secondary)
                     .frame(minWidth: 20)
                     .padding(.vertical, 2)
@@ -505,7 +505,7 @@ struct ActionItemsCard: View {
             }
             if items.isEmpty {
                 Text("No action items yet. Generate a summary to extract them.")
-                    .font(.system(size: 12)).foregroundStyle(.secondary)
+                    .font(.skCallout).foregroundStyle(.secondary)
             } else {
                 ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                     HStack(alignment: .top, spacing: 9) {
@@ -514,11 +514,11 @@ struct ActionItemsCard: View {
                             .foregroundStyle(.secondary)
                             .padding(.top, 1)
                         VStack(alignment: .leading, spacing: 5) {
-                            Text(item.text).font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
+                            Text(item.text).font(.skCallout).fixedSize(horizontal: false, vertical: true)
                             if let owner = item.owner, !owner.isEmpty {
                                 HStack(spacing: 5) {
                                     OwnerBadge(meeting: meeting, owner: owner)
-                                    Text(owner).font(.system(size: 11)).foregroundStyle(.secondary)
+                                    Text(owner).font(.skCaption).foregroundStyle(.secondary)
                                 }
                             }
                         }
@@ -540,7 +540,7 @@ struct ParticipantsCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Participants").font(.system(size: 14, weight: .semibold))
+                Text("Participants").font(.skSection)
                 Spacer()
                 Button(action: onRename) {
                     Image(systemName: "pencil").font(.system(size: 11)).foregroundStyle(.secondary)
@@ -548,16 +548,16 @@ struct ParticipantsCard: View {
                 .buttonStyle(.plain).help("Rename speakers")
             }
             if meeting.speakers.isEmpty {
-                Text("No speakers detected.").font(.system(size: 12)).foregroundStyle(.secondary)
+                Text("No speakers detected.").font(.skCallout).foregroundStyle(.secondary)
             } else {
                 ForEach(meeting.speakers.keys.sorted(), id: \.self) { key in
                     HStack(spacing: 9) {
                         SpeakerAvatar(meeting: meeting, key: key, size: 26)
-                        Text(participantName(key)).font(.system(size: 12, weight: .medium))
+                        Text(participantName(key)).font(.skCallout)
                         Spacer()
                         if meeting.speakers[key]?.source == .mic {
                             Text("Host")
-                                .font(.system(size: 10, weight: .semibold))
+                                .font(.skFootnoteStrong)
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -617,7 +617,7 @@ struct OwnerBadge: View {
 
     var body: some View {
         Text(String(owner.prefix(1)).uppercased())
-            .font(.system(size: 9, weight: .bold))
+            .font(.skBadge)
             .foregroundStyle(.white)
             .frame(width: 18, height: 18)
             .background(key.map(Theme.speakerColor) ?? Theme.indigo, in: Circle())
@@ -648,7 +648,7 @@ struct FolderMenu: View {
                 Image(systemName: "folder")
                 Text(folderLabel)
             }
-            .font(.system(size: 12))
+            .font(.skCallout)
             .foregroundStyle(.secondary)
         }
         .menuStyle(.borderlessButton)
@@ -717,7 +717,7 @@ struct SummaryTab: View {
 
                     HStack {
                         Text("Generated \(summary.generatedAt.formatted(date: .abbreviated, time: .shortened))")
-                            .font(.system(size: 11)).foregroundStyle(.tertiary)
+                            .font(.skCaption).foregroundStyle(.tertiary)
                         Spacer()
                         CopyButton(label: "Copy summary") { Self.summaryText(summary) }
                         regenerateButton(label: "Regenerate")
@@ -729,10 +729,10 @@ struct SummaryTab: View {
                 VStack(spacing: 14) {
                     Image(systemName: "sparkles").font(.system(size: 34))
                         .foregroundStyle(Theme.accentGradient)
-                    Text("No summary yet").font(.system(size: 18, weight: .bold))
+                    Text("No summary yet").font(.skTitle)
                     Text("Generate an intelligent summary with an overview, decisions,\nand action items — powered by Claude.")
                         .multilineTextAlignment(.center).foregroundStyle(.secondary)
-                        .font(.system(size: 13))
+                        .font(.skBody)
                     regenerateButton(label: "Generate Summary")
                 }
                 .frame(maxWidth: .infinity).padding(.top, 70)
@@ -742,7 +742,7 @@ struct SummaryTab: View {
 
     @ViewBuilder private func section<C: View>(_ title: String, @ViewBuilder _ content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 9) {
-            Text(title).font(.system(size: 15, weight: .semibold))
+            Text(title).font(.skHeadline)
             content()
         }
     }
@@ -750,7 +750,7 @@ struct SummaryTab: View {
     private func bullet(icon: String, tint: Color, text: String) -> some View {
         HStack(alignment: .top, spacing: 9) {
             Image(systemName: icon).font(.system(size: 13)).foregroundStyle(tint).padding(.top, 2)
-            Text(text).font(.system(size: 13)).fixedSize(horizontal: false, vertical: true)
+            Text(text).font(.skBody).fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
         }
     }
@@ -764,7 +764,7 @@ struct SummaryTab: View {
                     Image(systemName: "sparkles"); Text(label).fontWeight(.semibold)
                 }
             }
-            .font(.system(size: 12))
+            .font(.skCallout)
             .padding(.horizontal, 14).padding(.vertical, 7)
             .background(Theme.accentGradient, in: Capsule())
             .foregroundStyle(.white)
@@ -782,14 +782,14 @@ struct MarkdownBlock: View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(Array(text.components(separatedBy: "\n").enumerated()), id: \.offset) { _, line in
                 if line.hasPrefix("# ") {
-                    Text(line.dropFirst(2)).font(.system(size: 19, weight: .bold)).padding(.top, 6)
+                    Text(line.dropFirst(2)).font(.skTitle).padding(.top, 6)
                 } else if line.hasPrefix("## ") {
-                    Text(line.dropFirst(3)).font(.system(size: 15, weight: .semibold)).padding(.top, 4)
+                    Text(line.dropFirst(3)).font(.skHeadline).padding(.top, 4)
                 } else if line.hasPrefix("### ") {
-                    Text(line.dropFirst(4)).font(.system(size: 13, weight: .semibold)).padding(.top, 2)
+                    Text(line.dropFirst(4)).font(.skSubtitle).padding(.top, 2)
                 } else if !line.trimmingCharacters(in: .whitespaces).isEmpty {
                     Text((try? AttributedString(markdown: String(line))) ?? AttributedString(line))
-                        .font(.system(size: 13)).textSelection(.enabled).lineSpacing(2)
+                        .font(.skBody).textSelection(.enabled).lineSpacing(2)
                 }
             }
         }
@@ -811,7 +811,7 @@ struct CopyButton: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { copied = false }
         } label: {
             Label(copied ? "Copied" : label, systemImage: copied ? "checkmark" : "doc.on.doc")
-                .font(.system(size: 11, weight: .medium))
+                .font(.skCaption)
         }
         .buttonStyle(.bordered)
         .controlSize(.small)
@@ -855,7 +855,7 @@ struct TranscriptTab: View {
                                 Button(action: onRenameSpeakers) {
                                     HStack(spacing: 4) {
                                         Circle().fill(Theme.speakerColor(key)).frame(width: 7, height: 7)
-                                        Text(label(forKey: key)).font(.system(size: 11, weight: .semibold))
+                                        Text(label(forKey: key)).font(.skCaptionStrong)
                                     }
                                     .padding(.horizontal, 9).padding(.vertical, 4)
                                     .background(Theme.speakerColor(key).opacity(0.12), in: Capsule())
@@ -889,7 +889,7 @@ struct TranscriptTab: View {
                 }
                 if !selected.isEmpty {
                     HStack(spacing: 10) {
-                        Text("\(selected.count) selected").font(.system(size: 12, weight: .semibold))
+                        Text("\(selected.count) selected").font(.skLabel)
                         CopyButton(label: "Copy selected") { selectedText(transcript) }
                         Button { selected.removeAll() } label: {
                             Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)

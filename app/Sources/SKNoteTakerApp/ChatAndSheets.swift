@@ -20,9 +20,9 @@ struct ChatTab: View {
                                     .font(.system(size: 30))
                                     .foregroundStyle(Theme.accentGradient)
                                 Text("Ask anything about this meeting")
-                                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                                    .font(.skHeadline)
                                 Text("Try: \"What did \(exampleSpeaker) say about the deadline?\"")
-                                    .font(.system(size: 12))
+                                    .font(.skCallout)
                                     .foregroundStyle(.secondary)
                             }
                             .frame(maxWidth: .infinity)
@@ -35,7 +35,7 @@ struct ChatTab: View {
                         if app.busy.contains("chat") {
                             HStack(spacing: 8) {
                                 ProgressView().controlSize(.small)
-                                Text("Thinking…").font(.system(size: 12)).foregroundStyle(.secondary)
+                                Text("Thinking…").font(.skCallout).foregroundStyle(.secondary)
                             }
                             .padding(.leading, 8)
                         }
@@ -99,7 +99,7 @@ struct ChatBubble: View {
                 Text((try? AttributedString(markdown: message.text,
                     options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
                     ?? AttributedString(message.text))
-                    .font(.system(size: 13))
+                    .font(.skBody)
                     .textSelection(.enabled)
             }
             .padding(.horizontal, 12)
@@ -130,9 +130,9 @@ struct SpeakersSheet: View {
                 LogoMark(size: 26)
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Name the Speakers")
-                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .font(.skHeadline)
                     Text("Transcripts, summaries, and chat use these names.")
-                        .font(.system(size: 11))
+                        .font(.skCaption)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -151,9 +151,9 @@ struct SpeakersSheet: View {
                         .frame(width: 10, height: 10)
                     VStack(alignment: .leading, spacing: 0) {
                         Text(speakers[key]?.label ?? key)
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.skLabel)
                         Text(speakers[key]?.source == .mic ? "Your microphone" : "System audio")
-                            .font(.system(size: 10))
+                            .font(.skFootnote)
                             .foregroundStyle(.tertiary)
                     }
                     .frame(width: 110, alignment: .leading)
@@ -169,9 +169,9 @@ struct SpeakersSheet: View {
                         .foregroundStyle(Theme.indigo)
                     VStack(alignment: .leading, spacing: 1) {
                         Text("Speakers merged together?")
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.skLabel)
                         Text("Re-run detection on the recording to separate remote voices.")
-                            .font(.system(size: 10))
+                            .font(.skFootnote)
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -255,7 +255,7 @@ struct GeneralSettingsView: View {
                     .textFieldStyle(.roundedBorder)
                 Text("Used to label everything captured from your microphone, in the live "
                      + "transcript and in saved meetings. Leave blank to just show \"Me\".")
-                    .font(.system(size: 10))
+                    .font(.skFootnote)
                     .foregroundStyle(.tertiary)
             }
             Section("Permissions") {
@@ -282,7 +282,7 @@ struct GeneralSettingsView: View {
                     }
                 }
                 Text("Both are required to record. If a prompt never appeared, use the buttons above or reset with: tccutil reset Microphone com.saqibkamran.sknotetaker")
-                    .font(.system(size: 10))
+                    .font(.skFootnote)
                     .foregroundStyle(.tertiary)
                     .textSelection(.enabled)
             }
@@ -292,7 +292,7 @@ struct GeneralSettingsView: View {
                         if app.accessibilityStatus == .granted {
                             Label(app.speakerTagsActive ? "Connected" : "Ready",
                                   systemImage: "checkmark.circle.fill")
-                                .font(.system(size: 11, weight: .medium)).foregroundStyle(.green)
+                                .font(.skCaption).foregroundStyle(.green)
                         } else {
                             Button("Set up") { app.setUpSpeakerTags() }.controlSize(.small)
                         }
@@ -300,7 +300,7 @@ struct GeneralSettingsView: View {
                     .onAppear { app.refreshAccessibility() }
                 }
                 Text("Reads participant names and the active speaker from the Zoom desktop app via macOS Accessibility, so the transcript shows real names instead of Speaker 1/2/3. SK Note Taker only reads Zoom's window; it never controls it. Names apply to Zoom calls recorded after this is set up.")
-                    .font(.system(size: 10)).foregroundStyle(.tertiary)
+                    .font(.skFootnote).foregroundStyle(.tertiary)
                 if app.accessibilityStatus == .granted {
                     Button("Dump Zoom accessibility tree (debug)") { app.dumpZoomTree() }
                         .controlSize(.small)
@@ -309,7 +309,7 @@ struct GeneralSettingsView: View {
                     Button("Get extension") { app.revealMeetExtension() }.controlSize(.small)
                 }
                 Text("For Google Meet, install the SK Note Taker browser extension (Load unpacked in Chrome from the revealed folder). It reads the active speaker from your Meet tab and sends names to the app while you record.")
-                    .font(.system(size: 10)).foregroundStyle(.tertiary)
+                    .font(.skFootnote).foregroundStyle(.tertiary)
             }
             Section("AI (Claude Code CLI)") {
                 Picker("Model", selection: $app.settings.claudeModel) {
@@ -330,7 +330,7 @@ struct GeneralSettingsView: View {
                 if LoginItem.needsApproval {
                     HStack {
                         Text("Approve in System Settings → Login Items")
-                            .font(.system(size: 10)).foregroundStyle(.orange)
+                            .font(.skFootnote).foregroundStyle(.orange)
                         Button("Open") { LoginItem.openLoginItemsSettings() }
                             .controlSize(.small)
                     }
@@ -345,7 +345,7 @@ struct GeneralSettingsView: View {
                         Label(app.notificationStatus == "authorized" ? "On" : app.notificationStatus,
                               systemImage: app.notificationStatus == "authorized"
                                 ? "checkmark.circle.fill" : "bell.slash")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.skCaption)
                             .foregroundStyle(app.notificationStatus == "authorized" ? .green : .orange)
                         if app.notificationStatus != "authorized" {
                             Button("Open Settings") {
@@ -357,7 +357,7 @@ struct GeneralSettingsView: View {
                     }
                 }
                 Text("Pops up a native macOS notification when a Zoom, Teams, WhatsApp, or browser (Google Meet) call starts — click it to start taking notes.")
-                    .font(.system(size: 10))
+                    .font(.skFootnote)
                     .foregroundStyle(.tertiary)
                 Toggle("Detect when the meeting ends", isOn: $app.settings.autoEndDetection)
                 if app.settings.autoEndDetection {
@@ -370,13 +370,13 @@ struct GeneralSettingsView: View {
                     }
                 }
                 Text("When the call goes quiet (or everyone says goodbye), SK Note Taker asks if the meeting has ended and stops recording a minute later unless you keep it going.")
-                    .font(.system(size: 10))
+                    .font(.skFootnote)
                     .foregroundStyle(.tertiary)
             }
             Section("After the meeting") {
                 Toggle("Generate summary automatically", isOn: $app.settings.autoSummarize)
                 Text("The AI summary (action items, decisions, things to remember) is created right after each meeting ends.")
-                    .font(.system(size: 10))
+                    .font(.skFootnote)
                     .foregroundStyle(.tertiary)
             }
             Section("Speakers") {
@@ -387,7 +387,7 @@ struct GeneralSettingsView: View {
             Section("Storage") {
                 LabeledContent("Data folder") {
                     Text(MeetingStore.defaultDataDir().path)
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(.skMonoSmall)
                         .textSelection(.enabled)
                 }
             }
@@ -415,16 +415,16 @@ struct CalendarSettingsView: View {
                         get: { app.settings.showUpcomingInMenuBar },
                         set: { app.setShowUpcomingInMenuBar($0) }))
                     Text("Display your next meeting and time until it starts in the macOS menu bar.")
-                        .font(.system(size: 10)).foregroundStyle(.tertiary)
+                        .font(.skFootnote).foregroundStyle(.tertiary)
                     Toggle("Show events with no participants", isOn: Binding(
                         get: { app.settings.showEventsWithoutParticipants },
                         set: { app.setShowEventsWithoutParticipants($0) }))
                     Text("Include events without participants or a video link in the Upcoming list.")
-                        .font(.system(size: 10)).foregroundStyle(.tertiary)
+                        .font(.skFootnote).foregroundStyle(.tertiary)
                 }
                 Section {
                     if app.calendarList.isEmpty {
-                        Text("Loading calendars…").font(.system(size: 11)).foregroundStyle(.tertiary)
+                        Text("Loading calendars…").font(.skCaption).foregroundStyle(.tertiary)
                     }
                     ForEach(app.calendarList) { cal in
                         HStack(spacing: 10) {
@@ -439,7 +439,7 @@ struct CalendarSettingsView: View {
                         }
                     }
                     Text("Don't see the calendar you want? Add it in Google Calendar first, then Refresh.")
-                        .font(.system(size: 10)).foregroundStyle(.tertiary)
+                        .font(.skFootnote).foregroundStyle(.tertiary)
                 } header: {
                     HStack {
                         Text("Visible calendars")
@@ -452,7 +452,7 @@ struct CalendarSettingsView: View {
                 Section {
                     LabeledContent("Signed in") {
                         Label(app.calendarEmail ?? "Connected", systemImage: "checkmark.circle.fill")
-                            .font(.system(size: 11, weight: .medium)).foregroundStyle(.green)
+                            .font(.skCaption).foregroundStyle(.green)
                     }
                     HStack {
                         Button("Refresh") { Task { await app.loadCalendarList(); await app.refreshUpcoming() } }
@@ -476,7 +476,7 @@ struct CalendarSettingsView: View {
                         .disabled(gClientID.isEmpty || gClientSecret.isEmpty)
                         if app.googleCredentialsSaved {
                             Label("Saved", systemImage: "lock.fill")
-                                .font(.system(size: 10)).foregroundStyle(.green)
+                                .font(.skFootnote).foregroundStyle(.green)
                         }
                     }
                     Button {
@@ -494,10 +494,10 @@ struct CalendarSettingsView: View {
                             .controlSize(.small)
                     }
                     if let err = app.calendarError {
-                        Text(err).font(.system(size: 10)).foregroundStyle(.red).textSelection(.enabled)
+                        Text(err).font(.skFootnote).foregroundStyle(.red).textSelection(.enabled)
                     }
                     Text("Create a free OAuth client (type: Desktop app) in Google Cloud, enable the Calendar API, then paste its ID and secret above. Your secret and sign-in tokens are stored only in your macOS Keychain, never in the app's files.")
-                        .font(.system(size: 10)).foregroundStyle(.tertiary)
+                        .font(.skFootnote).foregroundStyle(.tertiary)
                     Button("Open Google Cloud Credentials") {
                         NSWorkspace.shared.open(URL(string: "https://console.cloud.google.com/apis/credentials")!)
                     }
