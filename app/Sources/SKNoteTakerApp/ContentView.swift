@@ -311,6 +311,9 @@ struct EmptyDetailView: View {
                 .foregroundStyle(.secondary)
             RecordButton()
                 .padding(.top, 6)
+            if app.micStatus != .granted || app.systemAudioStatus != .granted {
+                SetupHint()
+            }
             if app.calendarConnected && !app.upcomingEvents.isEmpty {
                 UpcomingEventsCard()
                     .padding(.top, 10)
@@ -324,6 +327,39 @@ struct EmptyDetailView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.background)
+        .task { app.refreshPermissions() }
+    }
+}
+
+/// A gentle onboarding nudge on the home screen when the recording permissions aren't ready yet,
+/// so a first meeting doesn't come out silent.
+struct SetupHint: View {
+    @Environment(AppState.self) private var app
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Finish setup to record").font(.system(size: 12, weight: .semibold))
+                Text(missing).font(.system(size: 11)).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            SettingsLink { Text("Open Settings").font(.system(size: 12, weight: .medium)) }
+                .buttonStyle(.plain).foregroundStyle(Theme.indigo)
+        }
+        .padding(12)
+        .frame(width: 380)
+        .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .strokeBorder(Color.orange.opacity(0.25)))
+        .padding(.top, 8)
+    }
+
+    private var missing: String {
+        var parts: [String] = []
+        if app.micStatus != .granted { parts.append("Microphone") }
+        if app.systemAudioStatus != .granted { parts.append("System Audio") }
+        return "Grant " + parts.joined(separator: " and ") + " so your meetings aren't silent."
     }
 }
 

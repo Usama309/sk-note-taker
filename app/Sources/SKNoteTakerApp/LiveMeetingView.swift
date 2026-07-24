@@ -115,15 +115,6 @@ struct LiveMeetingView: View {
                 .help(session.isPaused ? "Resume recording" : "Pause recording — the paused time isn't recorded")
 
                 Button {
-                    app.setCompact(true)
-                } label: {
-                    Label("Compact", systemImage: "arrow.down.right.and.arrow.up.left")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                .help("Shrink to a floating transcript panel docked to the right")
-
-                Button {
                     Task {
                         if session.isRecordingScreen { await session.stopScreenRecording() }
                         else { await session.startScreenRecording() }
@@ -132,20 +123,33 @@ struct LiveMeetingView: View {
                     Label(session.isRecordingScreen ? "Recording screen" : "Record screen",
                           systemImage: session.isRecordingScreen
                             ? "record.circle.fill" : "rectangle.dashed.badge.record")
+                        .labelStyle(.iconOnly)
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.large)
                 .tint(session.isRecordingScreen ? .red : nil)
-                .help("Also record your screen to a video saved with this meeting (macOS screen recorder)")
-            }
+                .help(session.isRecordingScreen ? "Stop recording the screen"
+                      : "Also record your screen to a video saved with this meeting")
 
-            Button {
-                showSpeakers = true
-            } label: {
-                Label("Speakers", systemImage: "person.2")
+                Button {
+                    showSpeakers = true
+                } label: {
+                    Label("Speakers", systemImage: "person.2").labelStyle(.iconOnly)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .help("Rename speakers")
+
+                Button {
+                    app.setCompact(true)
+                } label: {
+                    Label("Compact", systemImage: "arrow.down.right.and.arrow.up.left")
+                        .labelStyle(.iconOnly)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .help("Shrink to a floating transcript panel docked to the right")
             }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
 
             Button {
                 Task { await app.stopMeeting() }
