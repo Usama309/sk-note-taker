@@ -14,11 +14,16 @@ public struct GoogleCalendarEvent: Identifiable, Sendable, Hashable {
     public let isAllDay: Bool
     public let location: String?
     public let meetingURL: URL?
+    public let htmlLink: URL?
+    public let notes: String?
+    public let attendees: [String]
 
     public init(id: String, title: String, start: Date, end: Date,
-                isAllDay: Bool, location: String?, meetingURL: URL?) {
+                isAllDay: Bool, location: String?, meetingURL: URL?,
+                htmlLink: URL? = nil, notes: String? = nil, attendees: [String] = []) {
         self.id = id; self.title = title; self.start = start; self.end = end
         self.isAllDay = isAllDay; self.location = location; self.meetingURL = meetingURL
+        self.htmlLink = htmlLink; self.notes = notes; self.attendees = attendees
     }
 }
 
@@ -391,13 +396,17 @@ private struct EventsResponse: Decodable {
     struct Item: Decodable {
         let id: String?
         let summary: String?
+        let description: String?
         let location: String?
         let hangoutLink: String?
+        let htmlLink: String?
         let status: String?
         let start: When?
         let end: When?
+        let attendees: [Attendee]?
 
         struct When: Decodable { let dateTime: String?; let date: String? }
+        struct Attendee: Decodable { let email: String?; let displayName: String? }
 
         func toEvent() -> GoogleCalendarEvent? {
             guard status != "cancelled", let id, let start, let end else { return nil }
@@ -410,10 +419,14 @@ private struct EventsResponse: Decodable {
                 return nil
             }
             guard let (s, allDay) = parse(start), let (e, _) = parse(end) else { return nil }
+            let names = (attendees ?? []).compactMap { $0.displayName ?? $0.email }
             return GoogleCalendarEvent(
                 id: id, title: summary ?? "(no title)", start: s, end: e,
                 isAllDay: allDay, location: location,
-                meetingURL: hangoutLink.flatMap(URL.init(string:)))
+                meetingURL: hangoutLink.flatMap(URL.init(string:)),
+                htmlLink: htmlLink.flatMap(URL.init(string:)),
+                notes: description,
+                attendees: names)
         }
     }
 }

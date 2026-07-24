@@ -14,11 +14,20 @@ struct ContentView: View {
                     SidebarView()
                         .navigationSplitViewColumnWidth(min: 210, ideal: 240)
                 } content: {
-                    MeetingListView()
-                        .navigationSplitViewColumnWidth(min: 280, ideal: 330)
+                    Group {
+                        if app.libraryFilter == .upcoming {
+                            UpcomingListView()
+                        } else {
+                            MeetingListView()
+                        }
+                    }
+                    .navigationSplitViewColumnWidth(min: 280, ideal: 330)
                 } detail: {
                     if let session = app.session {
                         LiveMeetingView(session: session)
+                    } else if app.libraryFilter == .upcoming, let event = app.selectedEvent {
+                        EventDetailView(event: event)
+                            .id(event.id)
                     } else if let meeting = app.selectedMeeting {
                         MeetingDetailView(meeting: meeting)
                             .id(meeting.id)
@@ -107,6 +116,15 @@ struct SidebarView: View {
                 }
                 .buttonStyle(.plain)
                 .listRowBackground(rowBackground(token: "starred", selected: app.libraryFilter == .starred))
+
+                if app.calendarConnected {
+                    Button { app.libraryFilter = .upcoming } label: {
+                        rowLabel(icon: AnyView(Image(systemName: "calendar").foregroundStyle(Theme.teal)),
+                                 title: "Upcoming", count: app.upcomingEvents.count)
+                    }
+                    .buttonStyle(.plain)
+                    .listRowBackground(rowBackground(token: "upcoming", selected: app.libraryFilter == .upcoming))
+                }
             }
 
             Section {
@@ -319,9 +337,9 @@ struct UpcomingEventsCard: View {
                 Label("Upcoming", systemImage: "calendar")
                     .font(.system(size: 13, weight: .semibold))
                 Spacer()
-                if let email = app.calendarEmail {
-                    Text(email).font(.system(size: 10)).foregroundStyle(.tertiary).lineLimit(1)
-                }
+                Button("See all") { app.libraryFilter = .upcoming }
+                    .buttonStyle(.plain).font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Theme.indigo)
                 Button { Task { await app.refreshUpcoming() } } label: {
                     Image(systemName: "arrow.clockwise").font(.system(size: 11))
                 }
@@ -329,15 +347,22 @@ struct UpcomingEventsCard: View {
             }
             ForEach(app.upcomingEvents.prefix(4)) { ev in
                 HStack(spacing: 10) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(ev.title).font(.system(size: 12, weight: .medium)).lineLimit(1)
-                        Text(Self.whenLabel(ev)).font(.system(size: 10)).foregroundStyle(.secondary)
+                    Button {
+                        app.libraryFilter = .upcoming
+                        app.selectEvent(ev.id)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(ev.title).font(.system(size: 12, weight: .medium)).lineLimit(1)
+                            Text(Self.whenLabel(ev)).font(.system(size: 10)).foregroundStyle(.secondary)
+                        }
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
                     Spacer(minLength: 8)
                     if let url = ev.meetingURL {
                         Link("Join", destination: url).controlSize(.small)
                     }
-                    Button("Start notes") { Task { await app.startMeeting() } }
+                    Button("Start notes") { Task { await app.startNotes(for: ev) } }
                         .controlSize(.small)
                         .disabled(app.session != nil)
                 }

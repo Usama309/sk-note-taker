@@ -107,6 +107,7 @@ struct MenuBarContent: View {
 enum LibraryFilter: Equatable {
     case all
     case starred
+    case upcoming
     case folder(UUID)
 }
 
@@ -123,8 +124,10 @@ final class AppState {
 
     var meetings: [Meeting] = []
     var folders: [Folder] = []
-    var libraryFilter: LibraryFilter = .all   // All Meetings / Starred / a project folder
-    var selectedMeetingId: UUID?
+    var libraryFilter: LibraryFilter = .all   // All Meetings / Starred / Upcoming / a project folder
+    var selectedMeetingId: UUID? {
+        didSet { if selectedMeetingId != nil { selectedEventId = nil } }
+    }
     var searchText = ""
     /// Starred meeting ids (persisted in UserDefaults so no Codable migration on Meeting).
     var starred: Set<UUID> = []
@@ -144,6 +147,11 @@ final class AppState {
     var calendarBusy = false
     var calendarError: String?
     var upcomingEvents: [GoogleCalendarEvent] = []
+    /// Selected calendar event id (drives the event detail pane in the Upcoming view).
+    var selectedEventId: String?
+    var selectedEvent: GoogleCalendarEvent? {
+        upcomingEvents.first { $0.id == selectedEventId }
+    }
 
     /// Compact "floating transcript" mode: the window shrinks to a right-docked strip that
     /// floats over other apps, showing just the live transcript + Ask AI while recording runs.
@@ -278,8 +286,19 @@ final class AppState {
 
     func refreshUpcoming() async {
         guard calendar.isConnected else { return }
-        do { upcomingEvents = try await calendar.upcomingEvents() }
+        do { upcomingEvents = try await calendar.upcomingEvents(days: 30, max: 50) }
         catch { calendarError = (error as? GoogleCalendarError)?.message ?? error.localizedDescription }
+    }
+
+    func selectEvent(_ id: String) {
+        selectedEventId = id
+        selectedMeetingId = nil
+    }
+
+    /// Start a recording pre-titled after a calendar event.
+    func startNotes(for event: GoogleCalendarEvent) async {
+        showMainWindow?()
+        await startMeeting(suggestedTitle: event.title)
     }
 
     // MARK: - Meeting auto-detection
@@ -434,6 +453,8 @@ final class AppState {
             break
         case .starred:
             list = list.filter { starred.contains($0.id) }
+        case .upcoming:
+            list = []   // the Upcoming view renders calendar events, not saved meetings
         case .folder(let folderId):
             // Include meetings in child folders (client folder shows its projects' meetings).
             let childIds = Set(folders.filter { $0.parentId == folderId }.map(\.id))
@@ -453,9 +474,12 @@ final class AppState {
 
     // MARK: - Recording lifecycle
 
-    func startMeeting() async {
+    func startMeeting(suggestedTitle: String? = nil) async {
         guard session == nil else { return }
-        let title = Date().formatted(date: .abbreviated, time: .shortened) + " Meeting"
+        let trimmed = suggestedTitle?.trimmingCharacters(in: .whitespaces) ?? ""
+        let title = trimmed.isEmpty
+            ? Date().formatted(date: .abbreviated, time: .shortened) + " Meeting"
+            : trimmed
         let session = await MeetingSession.live(
             title: title, store: store,
             autoEndSilenceSeconds: settings.autoEndDetection

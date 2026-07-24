@@ -3,6 +3,12 @@
 ## [Unreleased]
 
 ### Added
+- **Upcoming events view.** A new **Upcoming** item appears in the sidebar once Google Calendar
+  is connected. It lists all your upcoming events grouped by day (Today / Tomorrow / date).
+  Clicking an event opens it in the detail pane with its time, location, guests, and description,
+  plus actions to **Start notes** (a recording pre-titled after the event), **Join** the call, or
+  **Open in Google Calendar**. The home-screen card gained a "See all" link, and its rows now open
+  the event too.
 - **Google Calendar sign-in (in-app, browser-based).** A "Connect Google Calendar" button in
   Settings opens the system browser to Google's login using OAuth 2.0 with a loopback redirect and
   PKCE. Once connected, the next few events from your primary calendar appear on the home screen
