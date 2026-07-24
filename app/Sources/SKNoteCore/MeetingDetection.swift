@@ -25,21 +25,38 @@ public enum MeetingAppRegistry {
         "com.brave.Browser": "Brave",
         "org.mozilla.firefox": "Firefox",
         "company.thebrowser.Browser": "Arc",
+        "ai.perplexity.comet": "Comet",
+        "com.vivaldi.Vivaldi": "Vivaldi",
+        "com.operasoftware.Opera": "Opera",
+        "org.chromium.Chromium": "Chromium",
+        "com.kagi.kagimacOS": "Orion",
+        "app.zen-browser.zen": "Zen",
     ]
 
-    /// Browsers only count as a "meeting" when the mic is in use (Meet/Zoom-web in a tab).
+    /// Browsers only count as a "meeting" when the mic is in use (Meet/Zoom-web in a tab). Used both
+    /// for detection and to scope a screen recording to the browser window running Meet, so a
+    /// browser missing here means a Meet call records the whole display instead of the tab.
     public static let browsers: Set<String> = [
         "com.google.Chrome", "com.apple.Safari", "com.microsoft.edgemac",
         "com.brave.Browser", "org.mozilla.firefox", "company.thebrowser.Browser",
+        "ai.perplexity.comet", "com.vivaldi.Vivaldi", "com.operasoftware.Opera",
+        "org.chromium.Chromium", "com.kagi.kagimacOS", "app.zen-browser.zen",
     ]
 
     /// The display name of the highest-priority meeting app among the given running bundle ids.
     /// Dedicated meeting apps win over browsers (a browser is a weaker signal).
     public static func meetingApp(amongRunning bundleIds: [String]) -> String? {
-        let dedicated = bundleIds.first { apps[$0] != nil && !browsers.contains($0) }
-        if let dedicated { return apps[dedicated] }
-        let browser = bundleIds.first { browsers.contains($0) }
-        return browser.flatMap { apps[$0] }
+        meetingAppBundleId(amongRunning: bundleIds).flatMap { apps[$0] }
+    }
+
+    /// The bundle id of the highest-priority meeting app among the given running bundle ids, so a
+    /// screen recording can be scoped to just that app's window (Zoom → Zoom, Teams → Teams, Meet
+    /// → the browser). Dedicated meeting apps win over browsers.
+    public static func meetingAppBundleId(amongRunning bundleIds: [String]) -> String? {
+        if let dedicated = bundleIds.first(where: { apps[$0] != nil && !browsers.contains($0) }) {
+            return dedicated
+        }
+        return bundleIds.first { browsers.contains($0) }
     }
 }
 

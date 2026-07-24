@@ -62,8 +62,10 @@ enum SelfTest {
         }
         if let i = args.firstIndex(of: "--selftest-screenrec") {
             let seconds = (i + 1 < args.count ? Double(args[i + 1]) : nil) ?? 4
+            let appIdx = args.firstIndex(of: "--app")
+            let bundleId = appIdx.flatMap { $0 + 1 < args.count ? args[$0 + 1] : nil }
             let done = Flag()
-            Task { await runScreenRec(seconds: seconds); done.set() }
+            Task { await runScreenRec(seconds: seconds, appBundleId: bundleId); done.set() }
             while !done.get() {
                 RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.1))
             }
@@ -139,26 +141,32 @@ enum SelfTest {
 
     /// Records the screen for `seconds` via ScreenVideoRecorder and reports whether a valid,
     /// non-empty, playable .mov came out. Runs under the app's Screen Recording grant.
-    static func runScreenRec(seconds: Double) async {
-        print("SELFTEST screen recording for \(Int(seconds))s")
+    static func runScreenRec(seconds: Double, appBundleId: String? = nil) async {
+        print("SELFTEST screen recording for \(Int(seconds))s (app: \(appBundleId ?? "full display"))")
         print("screen recording perm: \(Permission.screenRecordingStatus().rawValue)")
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("sk-selftest-screen.mov")
         let rec = ScreenVideoRecorder(outputURL: url)
         var report = ""
         do {
-            try await rec.start()
+            try await rec.start(appBundleId: appBundleId)
             let deadline = Date().addingTimeInterval(seconds)
             while Date() < deadline { try? await Task.sleep(for: .milliseconds(200)) }
             let ok = await rec.stop()
             let bytes = ((try? FileManager.default.attributesOfItem(atPath: url.path))?[.size]
                 as? NSNumber)?.intValue ?? 0
             var dur = 0.0
+            var dims = "?"
             if FileManager.default.fileExists(atPath: url.path) {
-                dur = (try? await AVURLAsset(url: url).load(.duration))?.seconds ?? 0
+                let asset = AVURLAsset(url: url)
+                dur = (try? await asset.load(.duration))?.seconds ?? 0
+                if let track = try? await asset.loadTracks(withMediaType: .video).first,
+                   let size = try? await track.load(.naturalSize) {
+                    dims = "\(Int(size.width))x\(Int(size.height))"
+                }
             }
             let pass = ok && bytes > 10_000 && dur > 0.5
-            report = "screen rec: ok=\(ok) bytes=\(bytes) duration=\(String(format: "%.2f", dur))s\n"
+            report = "screen rec: ok=\(ok) bytes=\(bytes) duration=\(String(format: "%.2f", dur))s dims=\(dims)\n"
                 + (pass ? "✅ screen recording works" : "❌ screen recording FAILED")
         } catch {
             report = "❌ start failed: \(error)"

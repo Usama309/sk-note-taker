@@ -10,6 +10,57 @@ public struct ScreenVideoError: LocalizedError {
     public init(_ message: String) { self.message = message }
 }
 
+/// The subset of an `SCWindow` the window picker needs, so the selection heuristic is pure and
+/// unit-testable without a live ScreenCaptureKit content list.
+public struct CaptureWindow: Sendable, Equatable {
+    public let bundleId: String?
+    public let title: String?
+    public let area: Double
+    public let onScreen: Bool
+    public init(bundleId: String?, title: String?, area: Double, onScreen: Bool) {
+        self.bundleId = bundleId
+        self.title = title
+        self.area = area
+        self.onScreen = onScreen
+    }
+}
+
+/// Picks which of a meeting app's windows to record, so the capture is scoped to the meeting rather
+/// than the whole screen.
+public enum ScreenCaptureScope {
+    /// Distinctive *call*-window title phrases. Deliberately specific ("google meet", not bare
+    /// "meet"/"meeting") so a "Team meeting notes" doc tab or a "Zoom Workplace" home window does
+    /// not masquerade as the call. Apps with no distinctive call title (notably Teams, whose call
+    /// window is titled by subject/participant) fall through to the front-most rule below.
+    static let callTitles = [
+        "zoom meeting", "google meet", "meet.google.com",
+        "webex meeting", "whereby", "gather.town", "around.co", "huddle",
+    ]
+    /// Ignore utility/toolbar windows smaller than this (points²).
+    static let minArea = 40_000.0
+
+    /// Index into `windows` of the best on-screen window owned by `bundleId` to record:
+    /// a window with a distinctive call title if present, otherwise the front-most window (the one
+    /// the user is looking at, which for a just-joined call is the call window). `nil` if the app
+    /// has no suitable window, so the caller falls back to the full display.
+    ///
+    /// Assumes `windows` preserves ScreenCaptureKit's front-to-back z-order (it does), so
+    /// "front-most" is the first surviving candidate.
+    public static func pickWindowIndex(bundleId: String, from windows: [CaptureWindow]) -> Int? {
+        let candidates = windows.indices.filter {
+            windows[$0].bundleId == bundleId && windows[$0].onScreen && windows[$0].area >= minArea
+        }
+        guard !candidates.isEmpty else { return nil }
+        // 1. Front-most window whose title distinctively names a call.
+        if let call = candidates.first(where: { i in
+            let t = (windows[i].title ?? "").lowercased()
+            return callTitles.contains { t.contains($0) }
+        }) { return call }
+        // 2. Otherwise the front-most window of the app.
+        return candidates.first
+    }
+}
+
 /// Records the screen (video only) to a .mov via a DEDICATED ScreenCaptureKit stream, kept fully
 /// separate from the system-audio stream so it can never destabilise the diarization audio path.
 /// Downscaled and frame-rate-capped to keep encoding light on the CPU (VideoToolbox H.264).
@@ -31,18 +82,34 @@ public final class ScreenVideoRecorder: NSObject, SCStreamOutput, SCStreamDelega
 
     public static func permissionGranted() -> Bool { CGPreflightScreenCaptureAccess() }
 
-    /// Start recording the given display (nil = main display) to the output .mov.
-    public func start(displayID: CGDirectDisplayID? = nil) async throws {
+    /// Start recording to the output .mov. When `appBundleId` names the meeting app (Zoom, Teams,
+    /// or the browser running Meet), the capture is scoped to just that app's meeting window; when
+    /// it is nil or the app has no suitable on-screen window, it falls back to the full display so a
+    /// recording is still produced. Returns the resolved scope (for logging).
+    @discardableResult
+    public func start(appBundleId: String? = nil) async throws -> String {
         guard CGPreflightScreenCaptureAccess() else {
             _ = CGRequestScreenCaptureAccess()
             throw ScreenVideoError("Screen Recording permission is required to record the screen.")
         }
-        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
-        let display: SCDisplay
-        if let displayID, let d = content.displays.first(where: { $0.displayID == displayID }) {
-            display = d
-        } else if let d = content.displays.first {
-            display = d
+        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+
+        // Resolve what to capture: the meeting app's window if we can find it, else the full display.
+        let filter: SCContentFilter
+        let srcWidth: Double
+        let srcHeight: Double
+        let scope: String
+        if let appBundleId,
+           let window = Self.meetingWindow(bundleId: appBundleId, in: content.windows) {
+            filter = SCContentFilter(desktopIndependentWindow: window)
+            srcWidth = window.frame.width
+            srcHeight = window.frame.height
+            scope = "window \"\(window.title ?? "")\" of \(appBundleId)"
+        } else if let display = content.displays.first {
+            filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
+            srcWidth = Double(display.width)
+            srcHeight = Double(display.height)
+            scope = appBundleId == nil ? "full display" : "full display (no window for \(appBundleId!))"
         } else {
             throw ScreenVideoError("No display available to record.")
         }
@@ -51,9 +118,9 @@ public final class ScreenVideoRecorder: NSObject, SCStreamOutput, SCStreamDelega
         // meeting screen recording does not need retina or 30fps, and this keeps the encode
         // cheap next to the reliability-critical audio pipeline.
         let cap = 1600.0
-        let scale = min(1.0, cap / Double(display.width))
-        let w = max(2, Int((Double(display.width) * scale).rounded(.down))) & ~1
-        let h = max(2, Int((Double(display.height) * scale).rounded(.down))) & ~1
+        let scale = min(1.0, cap / max(1, srcWidth))
+        let w = max(2, Int((srcWidth * scale).rounded(.down))) & ~1
+        let h = max(2, Int((srcHeight * scale).rounded(.down))) & ~1
 
         try? FileManager.default.removeItem(at: url)
         let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
@@ -72,7 +139,6 @@ public final class ScreenVideoRecorder: NSObject, SCStreamOutput, SCStreamDelega
         writer.add(input)
         lock.withLock { self.writer = writer; self.input = input; self.adaptor = adaptor }
 
-        let filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
         let config = SCStreamConfiguration()
         config.width = w
         config.height = h
@@ -86,7 +152,20 @@ public final class ScreenVideoRecorder: NSObject, SCStreamOutput, SCStreamDelega
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: videoQueue)
         try await stream.startCapture()
         self.stream = stream
-        SKLog.info(.capture, "screen video: recording started (\(w)x\(h) @12fps, display \(display.displayID))")
+        SKLog.info(.capture, "screen video: recording started (\(w)x\(h) @12fps, \(scope))")
+        return scope
+    }
+
+    /// The `SCWindow` to record for the meeting app, or nil to fall back to the full display.
+    private static func meetingWindow(bundleId: String, in windows: [SCWindow]) -> SCWindow? {
+        let infos = windows.map {
+            CaptureWindow(bundleId: $0.owningApplication?.bundleIdentifier,
+                          title: $0.title,
+                          area: Double($0.frame.width * $0.frame.height),
+                          onScreen: $0.isOnScreen)
+        }
+        guard let idx = ScreenCaptureScope.pickWindowIndex(bundleId: bundleId, from: infos) else { return nil }
+        return windows[idx]
     }
 
     /// Stop capture and finalize the .mov. Returns true if a valid movie was written.
