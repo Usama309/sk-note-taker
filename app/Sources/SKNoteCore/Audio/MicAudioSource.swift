@@ -95,15 +95,45 @@ public final class MicAudioSource: AudioSource, @unchecked Sendable {
 
 /// Shared session clock. Each channel advances its own cursor by the audio it has produced,
 /// anchored to a common start — keeps mic and system timelines aligned for diarization merge.
+///
+/// LIVE capture additionally anchors every channel to one shared wall clock (`anchorToWallClock`).
+/// Without it, a gap in one stream (a ScreenCaptureKit restart, a dropped callback) makes that
+/// channel's cursor fall permanently behind the other: once the system channel lagged the mic
+/// by more than `RecordingWriter`'s 2 s holdback, every later system sample was stamped "too
+/// late" and silently dropped, collapsing the whole remote side onto the mic. OFFLINE reprocess
+/// feeds audio far faster than real time, so it must keep pure audio-content timing (the default).
 public final class SessionClock: Sendable {
     private let cursors = Mutex<[AudioChannel: Double]>([:])
+    private let anchorToWallClock: Bool
+    private let now: @Sendable () -> Double
+    private let origin: Double
 
-    public init() {}
+    public init(anchorToWallClock: Bool = false,
+                now: @escaping @Sendable () -> Double = SessionClock.monotonicSeconds) {
+        self.anchorToWallClock = anchorToWallClock
+        self.now = now
+        self.origin = now()
+    }
+
+    /// Monotonic seconds since boot (immune to wall-clock/NTP jumps). Injectable for tests.
+    public static func monotonicSeconds() -> Double {
+        Double(DispatchTime.now().uptimeNanoseconds) / 1_000_000_000
+    }
 
     /// Returns the chunk's start time and advances the channel cursor.
     public func advance(channel: AudioChannel, by duration: Double) -> Double {
         cursors.withLock { c in
-            let start = c[channel] ?? 0
+            let cursor = c[channel] ?? 0
+            var start = cursor
+            if anchorToWallClock {
+                // In steady state the cursor already tracks wall time, so `max` keeps the
+                // smooth accumulation (identical to before). After a capture gap the cursor
+                // has fallen behind; re-anchor the resumed audio to its true wall position so
+                // it lines up with the other channel instead of drifting behind and being
+                // dropped by the recorder as "too late".
+                let wall = max(0, now() - origin)
+                start = max(cursor, wall - duration)
+            }
             c[channel] = start + duration
             return start
         }

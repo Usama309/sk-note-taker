@@ -3,6 +3,36 @@
 ## [Unreleased]
 
 ### Fixed
+- **Remote voices collapsing onto the mic, and the recording running slow / behind real time.**
+  A chain of related capture-pipeline bugs, root-caused across several real calls plus a
+  multi-agent investigation:
+  - *Timeline drift.* `SessionClock` stamped each channel by summing only its own produced
+    audio, so ScreenCaptureKit's ~2 s startup offset (and any gap) left the system channel a
+    permanent step behind the mic; once it exceeded `RecordingWriter`'s 2 s holdback, every
+    later system sample was stamped "too late" and dropped, blanking the remote side of the
+    recording at a hard ~60 s cliff. Live capture now anchors both channels to one wall clock
+    (`SessionClock(anchorToWallClock:)`); offline reprocess keeps pure audio-content timing.
+  - *Mic blanked while the remote played.* `RecordingWriter` advanced a single shared write
+    frontier to the *faster* channel's position (`max` across channels), so a mic chunk that
+    arrived a beat behind the system channel was discarded — your voice was transcribed but
+    silent in the recording. The frontier is now a staleness- and lag-guarded *minimum*, with
+    a contiguous zero-filling flush and a drain-everything `finish()`, so neither channel is
+    dropped and the tail is never lost.
+  - *Recorder ran at ~40 % of real time and fell further behind over the call.* The mic
+    (AUVoiceIO) and ScreenCaptureKit deliver ~10 ms buffers ~100×/s; per-tiny-chunk recorder +
+    ASR + diarizer work on two channels couldn't sustain real time on an older Mac, and the
+    live diarization (which re-analyzes the whole accumulated buffer) got heavier over time.
+    The pump now coalesces buffers into ~80 ms batches, writes the recording before feeding the
+    ASR (durability first), publishes the live meters at 15 Hz, and runs diarization + transcript
+    assembly off the main actor at low priority so they can never starve real-time audio.
+  - *Restart storm and lost tail.* The captured-silence watchdog now only arms after real audio
+    has been heard (45 s window), so it no longer restarts on ordinary opening silence; and
+    `teardownSources()` drains the buffered backlog before cancelling (bounded to 8 s) so the
+    end of the meeting is written instead of discarded.
+  - *Diagnostics.* Every meeting now logs a `Clock check` (audio vs wall + per-channel cursors),
+    a `Pump time` breakdown (recorder / ASR / diarizer), and any dropped-late samples, so a
+    future regression is a number in the log rather than a guess. Covered by new
+    `SessionClockTests` and `RecordingWriterGapTests`.
 - **System audio going silent ~2 minutes into a call while the stream stayed "alive".** In a
   real Zoom call the mic/system split was correct for the first ~134 s, then the system
   channel went permanently empty and the remote participant was captured only via the mic

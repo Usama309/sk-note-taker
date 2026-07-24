@@ -73,6 +73,24 @@ public final class MeetingSession {
     private var assembler = TranscriptAssembler()
     private var recorder: RecordingWriter?
     private var pumpTasks: [Task<Void, Never>] = []
+    /// Live speaker-labelling runs on its own cadence, off the ingestion path.
+    private var diarizationTask: Task<Void, Never>?
+    /// Coalescing state for the off-main transcript rebuild: at most one assemble runs at a
+    /// time, always over the latest data.
+    private var rebuildInFlight = false
+    private var rebuildAgain = false
+    private var latestSpeakerSegments: [SpeakerSegment] = []
+    /// The rapidly-changing meter observables (`elapsed`, `levels`) are published at ~15 Hz from
+    /// these scratch values, so per-chunk SwiftUI invalidation never competes with real-time
+    /// audio ingestion on the main actor.
+    private var scratchElapsed: Double = 0
+    private var scratchLevels: [AudioChannel: Float] = [.mic: 0, .system: 0]
+    private var lastMeterPublishNanos: UInt64 = 0
+    /// Cumulative wall time the pump spends blocked on each stage, so a throughput shortfall can
+    /// be localized (recorder vs ASR vs diarizer) from the end-of-meeting log.
+    private var recorderNanos: UInt64 = 0
+    private var feedNanos: UInt64 = 0
+    private var diarizerNanos: UInt64 = 0
     private let clock: SessionClock
 
     /// When false (offline reprocess from file sources), skip the mic TCC prompt.
@@ -107,7 +125,10 @@ public final class MeetingSession {
     public static func live(title: String, store: MeetingStore,
                             autoEndSilenceSeconds: Double? = nil,
                             userName: String? = nil) async -> MeetingSession {
-        let clock = SessionClock()
+        // Live capture: anchor both channels to one wall clock so a ScreenCaptureKit restart
+        // gap can't shift the system timeline behind the mic and get the whole remote side
+        // discarded by the recorder. Offline reprocess keeps the default audio-content timing.
+        let clock = SessionClock(anchorToWallClock: true)
         let mic = await MicSourcePicker.pick(clock: clock)
         return MeetingSession(
             title: title, store: store,
@@ -159,10 +180,40 @@ public final class MeetingSession {
                     }
                 }
                 let stream = try await source.start()
+                let channel = source.channel
                 pumpTasks.append(Task { [weak self] in
+                    // Coalesce the source's native (often ~10 ms) buffers into ~80 ms batches
+                    // before the per-chunk pump work. VoiceIOMicSource (AUVoiceIO) and
+                    // ScreenCaptureKit both deliver small buffers at ~100/s; doing recorder + ASR
+                    // + diarizer work per tiny chunk on two channels can't sustain real time on an
+                    // older Mac (measured 38% of real time). Batching cuts the iteration and
+                    // allocation count ~8x while keeping the audio contiguous.
+                    var batch: [Float] = []
+                    var batchStart = 0.0
+                    var batchEnd = 0.0
+                    let flushCount = 1280   // ~80 ms at 16 kHz
                     for await chunk in stream {
+                        if Task.isCancelled { break }
                         guard let self else { break }
-                        await self.pump(chunk, into: service)
+                        // A non-contiguous chunk (a capture gap re-anchored the clock) must not be
+                        // concatenated onto the batch — flush first so timestamps stay exact.
+                        if !batch.isEmpty, abs(chunk.startTime - batchEnd) > 0.005 {
+                            await self.pump(AudioChunk(channel: channel, samples: batch,
+                                                       startTime: batchStart), into: service)
+                            batch.removeAll(keepingCapacity: true)
+                        }
+                        if batch.isEmpty { batchStart = chunk.startTime }
+                        batch.append(contentsOf: chunk.samples)
+                        batchEnd = chunk.endTime
+                        if batch.count >= flushCount {
+                            await self.pump(AudioChunk(channel: channel, samples: batch,
+                                                       startTime: batchStart), into: service)
+                            batch.removeAll(keepingCapacity: true)
+                        }
+                    }
+                    if !batch.isEmpty, let self {
+                        await self.pump(AudioChunk(channel: channel, samples: batch,
+                                                   startTime: batchStart), into: service)
                     }
                 })
             }
@@ -173,6 +224,21 @@ public final class MeetingSession {
             SKLog.info(.session, "Recording started — sources: "
                        + sources.map { "\($0.channel.rawValue):\(type(of: $0))" }
                             .joined(separator: ", "))
+
+            // Refine speaker labels on a background cadence, never inline in `pump`. A slow
+            // diarization pass on an older Mac used to back up chunk ingestion until the
+            // recorder dropped the tail of the meeting; here it can lag without starving capture.
+            // Low priority so the growing per-pass diarization cost (it re-analyzes the whole
+            // accumulated buffer) can never starve real-time audio ingestion on a limited-core Mac.
+            diarizationTask = Task(priority: .utility) { [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(3))
+                    guard let self, self.phase == .recording else { break }
+                    if let refreshed = await self.diarizer.incrementalPass() {
+                        self.rebuild(with: refreshed)
+                    }
+                }
+            }
         } catch {
             SKLog.error(.sessionStartFailed, .session,
                         "Meeting failed to start — no audio is being captured", error: error)
@@ -187,6 +253,9 @@ public final class MeetingSession {
         dismissEndPrompt()
 
         await teardownSources()
+        // Publish the final accumulated timeline (the meters are throttled to ~15 Hz during
+        // the meeting, so the last fraction of a second may not have been published yet).
+        elapsed = scratchElapsed
         for service in services.values {
             await service.finish()
         }
@@ -195,9 +264,12 @@ public final class MeetingSession {
         for _ in 0..<5 { await Task.yield() }
         try? await Task.sleep(for: .milliseconds(400))
 
-        // Final full-quality diarization pass, then rebuild the transcript.
+        // Final full-quality diarization pass, then one authoritative synchronous assemble so
+        // the saved transcript below reflects it (the live rebuild is async/coalesced).
         let segments = await diarizer.finalPass()
-        rebuild(with: segments)
+        let (finalSegments, finalSpeakers) = assembler.assemble(
+            finals: finals, speakerSegments: segments)
+        applyRebuild(segments: finalSegments, speakers: finalSpeakers)
 
         await recorder?.finish()
 
@@ -220,10 +292,32 @@ public final class MeetingSession {
         let micSegs = liveSegments.filter { $0.source == .mic }.count
         SKLog.info(.session, "Channels — mic had audio: \(micOK), system had audio: \(sysOK); "
                    + "segments mic=\(micSegs) system=\(sysSegs)")
+        // Clock health: how far each channel's audio timeline advanced vs real wall time. A
+        // channel whose cursor trails wall by a lot underran (dropped callbacks, or the machine
+        // slept); a big mic-vs-system cursor gap is what makes the recorder drop the trailing
+        // channel. This is the line that turns "why did audio go missing" into a number.
+        let wall = Date().timeIntervalSince(meeting.createdAt)
+        SKLog.info(.session, String(format:
+            "Clock check — audio %.0fs over %.0fs wall; cursors mic=%.1fs system=%.1fs (gap %.1fs)",
+            elapsed, wall, clock.position(of: .mic), clock.position(of: .system),
+            abs(clock.position(of: .mic) - clock.position(of: .system))))
+        SKLog.info(.session, String(format:
+            "Pump time — recorder %.1fs, ASR %.1fs, diarizer %.1fs (over %.0fs processed; if these "
+            + "sum near the wall time, per-chunk work is the throughput bottleneck)",
+            Double(recorderNanos) / 1e9, Double(feedNanos) / 1e9, Double(diarizerNanos) / 1e9, elapsed))
         if !sysOK {
-            SKLog.error(.captureStalled, .capture,
-                        "System channel produced NO audio this meeting — remote speakers will "
-                        + "have been attributed to the microphone")
+            // A whole-meeting silent system channel is only a real failure when the meeting
+            // ran long enough that the remote almost certainly spoke. Under ~60s it is
+            // indistinguishable from "the remote side simply stayed quiet", so do not cry wolf.
+            if elapsed >= 60 {
+                SKLog.error(.captureStalled, .capture,
+                            "System channel produced NO audio across a \(Int(elapsed))s meeting — "
+                            + "remote speakers will have been attributed to the microphone")
+            } else {
+                SKLog.info(.capture,
+                           "System channel had no audio, but the meeting was only \(Int(elapsed))s "
+                           + "— too short to conclude capture failed (the remote may just have been silent)")
+            }
         }
         SKLog.endMeeting(title: meeting.title, durationSec: elapsed)
         phase = .idle
@@ -243,18 +337,40 @@ public final class MeetingSession {
         ProcessInfo.processInfo.environment["SKNOTE_DEBUG"] == "1"
 
     private func pump(_ chunk: AudioChunk, into service: TranscriptionService) async {
-        // Elapsed time comes from the audio itself (works for live and file sources alike).
-        elapsed = max(elapsed, chunk.endTime)
+        // Durability first: the raw recording is the core artifact, so write it BEFORE the ASR
+        // (which can be slow or stall) — a wedged transcriber must never be able to blank
+        // recorded audio. Then feed the transcriber, then hand the diarizer its samples (a cheap
+        // append; the heavy pass runs on `diarizationTask`). None block on diarization/assembly.
+        let t0 = DispatchTime.now().uptimeNanoseconds
+        await recorder?.append(chunk)
+        let t1 = DispatchTime.now().uptimeNanoseconds
+        await service.feed(chunk)
+        let t2 = DispatchTime.now().uptimeNanoseconds
+        if chunk.channel == .system {
+            await diarizer.feed(chunk)
+        }
+        let t3 = DispatchTime.now().uptimeNanoseconds
+        recorderNanos &+= t1 &- t0
+        feedNanos &+= t2 &- t1
+        diarizerNanos &+= t3 &- t2
 
-        // Live level + audio-presence tracking (drives the UI meter and the
-        // "no microphone audio" warning).
+        // Elapsed + live level tracking. Accumulate here; publish the @Observable meters at
+        // ~15 Hz below so SwiftUI invalidation never throttles ingestion.
+        scratchElapsed = max(scratchElapsed, chunk.endTime)
         if !chunk.samples.isEmpty {
             let rms = (chunk.samples.reduce(Float(0)) { $0 + $1 * $1 }
                        / Float(chunk.samples.count)).squareRoot()
-            let prior = levels[chunk.channel] ?? 0
-            levels[chunk.channel] = max(rms, prior * 0.8)   // fast attack, slow decay
-            if rms > 0.01 { channelHasAudio[chunk.channel] = true }
+            scratchLevels[chunk.channel] = max(rms, (scratchLevels[chunk.channel] ?? 0) * 0.8)
+            if rms > 0.01, channelHasAudio[chunk.channel] != true {
+                channelHasAudio[chunk.channel] = true
+            }
             feedEndDetection(now: chunk.endTime, rms: rms)
+        }
+        let nowNanos = DispatchTime.now().uptimeNanoseconds
+        if nowNanos &- lastMeterPublishNanos > 66_000_000 {   // ~15 Hz
+            lastMeterPublishNanos = nowNanos
+            elapsed = scratchElapsed
+            levels = scratchLevels
         }
 
         if Self.debugEnabled {
@@ -268,14 +384,6 @@ public final class MeetingSession {
                     "SKNOTE_DEBUG \(chunk.channel.rawValue) chunk#\(count) t=\(String(format: "%.1f", chunk.startTime)) samples=\(chunk.samples.count) rms=\(String(format: "%.5f", rms))\n".utf8))
             }
         }
-        await service.feed(chunk)
-        if chunk.channel == .system {
-            await diarizer.feed(chunk)
-            if let refreshed = await diarizer.incrementalPass() {
-                rebuild(with: refreshed)
-            }
-        }
-        await recorder?.append(chunk)
     }
 
     // MARK: - Meeting-end detection plumbing
@@ -361,9 +469,45 @@ public final class MeetingSession {
         }
     }
 
+    /// Requests a transcript rebuild. The assemble is O(mic×system) and used to run on the main
+    /// actor on every ASR final, saturating it on a busy call until ingestion backed up and the
+    /// recorder dropped the meeting's tail. It now runs OFF the main actor, coalesced to at most
+    /// one in flight over the latest data, so ingestion never blocks on it.
     private func rebuild(with speakerSegments: [SpeakerSegment]) {
-        let (segments, speakers) = assembler.assemble(
-            finals: finals, speakerSegments: speakerSegments)
+        latestSpeakerSegments = speakerSegments
+        guard !rebuildInFlight else { rebuildAgain = true; return }
+        rebuildInFlight = true
+        launchRebuild()
+    }
+
+    private func launchRebuild() {
+        let finalsSnapshot = finals
+        let segs = latestSpeakerSegments
+        let assembler = self.assembler
+        // Low priority: the O(mic×system) assemble grows with the meeting and must yield to
+        // real-time audio ingestion.
+        Task.detached(priority: .utility) { [weak self] in
+            let (segments, speakers) = assembler.assemble(
+                finals: finalsSnapshot, speakerSegments: segs)
+            await MainActor.run {
+                guard let self else { return }
+                // A finishing/failed meeting does its own authoritative final assemble; ignore
+                // a late background result so it can't overwrite the final transcript.
+                if self.phase == .recording {
+                    self.applyRebuild(segments: segments, speakers: speakers)
+                }
+                if self.rebuildAgain {
+                    self.rebuildAgain = false
+                    self.launchRebuild()
+                } else {
+                    self.rebuildInFlight = false
+                }
+            }
+        }
+    }
+
+    /// Applies an assembled transcript to observable state and autosaves. Main-actor, cheap.
+    private func applyRebuild(segments: [TranscriptSegment], speakers: [String: SpeakerInfo]) {
         liveSegments = segments
         // Preserve any names the user already assigned mid-meeting; otherwise stamp the
         // machine owner's configured name onto the mic speaker.
@@ -382,10 +526,31 @@ public final class MeetingSession {
     }
 
     private func teardownSources() async {
-        for task in pumpTasks { task.cancel() }
+        diarizationTask?.cancel()
+        diarizationTask = nil
+        let tasks = pumpTasks
         pumpTasks = []
+
+        // Stop each source on its OWN detached task: finishing a source's AsyncStream lets its
+        // pump loop drain the buffered backlog and exit on its own. Detached and per-source so a
+        // wedged capture API (SCStream.stopCapture can hang mid-call) can't stall the others or
+        // hang finish().
         for source in sources {
-            await source.stop()
+            Task.detached { await source.stop() }
         }
+
+        // Bounded drain: wait for the pump loops to finish draining, but a watchdog cancels them
+        // after 8 s. Cancelling a pump Task makes its `for await` return, so `.value` resolves —
+        // the group returns promptly whether the drain completed or the cap fired.
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { for t in tasks { _ = await t.value } }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(8))
+                for t in tasks { t.cancel() }
+            }
+            _ = await group.next()
+            group.cancelAll()
+        }
+        for task in tasks { task.cancel() }
     }
 }

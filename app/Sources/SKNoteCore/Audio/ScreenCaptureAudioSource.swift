@@ -212,15 +212,18 @@ public final class ScreenCaptureAudioSource: NSObject, AudioSource, SCStreamOutp
                 Task { await self.restart(reason: "no audio callbacks for 3s") }
                 return
             }
-            // 2. Callbacks keep firing but carry only silence for 20 s — the stream is alive
-            //    yet no longer capturing the real system output (the observed mid-call death,
-            //    where the remote kept talking but the system channel went empty). A fresh
-            //    stream re-attaches to the current audio graph. Rate-limited; a restart during
-            //    a genuinely quiet stretch is harmless (there is no audio to lose).
-            if lastAudio != 0, now > lastAudio, (now &- lastAudio) > 20_000_000_000,
-               now &- self.lastSilenceRestartNanos > 20_000_000_000 {
+            // 2. Callbacks keep firing but carry only silence — the stream may be alive yet no
+            //    longer capturing the real system output. Only arm this AFTER real sound has
+            //    been captured at least once: before the remote starts talking a meeting is
+            //    legitimately silent, and restarting then just storms (8 restarts on one real
+            //    call) and drops ~0.5 s of capture each time for nothing. Wait a wide 45 s so an
+            //    ordinary conversational pause never trips it either. A genuine mid-call death
+            //    (audio was working, then went empty) still recovers.
+            let heardSound = self.nonSilentCallbacks.withLock { $0 } > 0
+            if heardSound, lastAudio != 0, now > lastAudio, (now &- lastAudio) > 45_000_000_000,
+               now &- self.lastSilenceRestartNanos > 45_000_000_000 {
                 self.lastSilenceRestartNanos = now
-                Task { await self.restart(reason: "no captured sound for 20s while running") }
+                Task { await self.restart(reason: "no captured sound for 45s after audio was working") }
             }
         }
         timer.resume()
