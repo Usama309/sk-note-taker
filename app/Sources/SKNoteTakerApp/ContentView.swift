@@ -349,8 +349,8 @@ struct SetupHint: View {
         }
         .padding(12)
         .frame(width: 380)
-        .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+        .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
             .strokeBorder(Color.orange.opacity(0.25)))
         .padding(.top, 8)
     }
@@ -404,11 +404,8 @@ struct UpcomingEventsCard: View {
                 }
             }
         }
-        .padding(14)
         .frame(width: 380)
-        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .strokeBorder(Color.primary.opacity(0.06)))
+        .skCard(.quaternary.opacity(0.35))
     }
 
     private static func whenLabel(_ ev: GoogleCalendarEvent) -> String {

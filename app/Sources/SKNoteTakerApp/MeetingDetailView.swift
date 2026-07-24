@@ -474,10 +474,8 @@ struct ScreenRecordingCard: View {
                 ProgressView().frame(maxWidth: .infinity, minHeight: 100)
             }
         }
-        .padding(14)
-        .background(.background, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .strokeBorder(Color.primary.opacity(0.06)))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .skCard()
         .task {
             let url = await app.screenRecordingURL(for: meeting.id)
             if FileManager.default.fileExists(atPath: url.path) {
@@ -529,10 +527,8 @@ struct ActionItemsCard: View {
                 }
             }
         }
-        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.quaternary.opacity(0.6)))
+        .skCard()
     }
 }
 
@@ -568,10 +564,8 @@ struct ParticipantsCard: View {
                 }
             }
         }
-        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.quaternary.opacity(0.6)))
+        .skCard()
     }
 
     private func participantName(_ key: String) -> String {

@@ -31,6 +31,27 @@ enum Theme {
     }
 }
 
+extension Theme {
+    /// One card corner radius across the whole app (was a mix of 12 / 14 / 16).
+    static let cardRadius: CGFloat = 14
+    static let hairline = Color.primary.opacity(0.06)
+}
+
+extension View {
+    /// The standard card surface used across every screen: a fill appropriate to the context,
+    /// continuous corners at the shared radius, a hairline border, and a subtle lift shadow.
+    /// Pass a tinted fill for cards on plain backgrounds; the default suits the detail rail.
+    func skCard<S: ShapeStyle>(_ fill: S, padding: CGFloat = 14) -> some View {
+        self.padding(padding)
+            .background(fill, in: RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
+                .strokeBorder(Theme.hairline))
+            .shadow(color: .black.opacity(0.05), radius: 7, y: 2)
+    }
+
+    func skCard(padding: CGFloat = 14) -> some View { skCard(.background, padding: padding) }
+}
+
 extension Color {
     /// Parse a Google calendar colour like "#a4bdfc". Falls back to grey on a bad string.
     init(hex: String) {

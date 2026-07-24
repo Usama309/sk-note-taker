@@ -170,9 +170,8 @@ struct EventDetailView: View {
                             }
                         }
                     }
-                    .padding(14)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
+                    .skCard(.quaternary.opacity(0.35))
                 }
 
                 if let notes = event.notes, !notes.isEmpty {
