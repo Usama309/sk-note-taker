@@ -37,7 +37,8 @@ public actor ClaudeCLIService {
         - The user's own rough notes (if any) are priority signals: expand each of their \
         points using everything relevant in the transcript.
         - Attribute key statements to speakers by name where it matters.
-        - summary_markdown: start with a one-paragraph TL;DR, then sections with headings \
+        - summary_markdown: start with a one-paragraph plain-language overview under a \
+        "## Quick summary" heading (do NOT use the label "TL;DR"), then sections with headings \
         (use the user's note bullets as section anchors when present).
         - action_items: concrete follow-ups with the responsible person as owner when \
         identifiable from the conversation.
@@ -124,7 +125,8 @@ public actor ClaudeCLIService {
         while people are talking.
 
         Rules:
-        - Answer first, context after. 2–6 short sentences or a tight bullet list. No preamble.
+        - Answer first, context after. 1–3 short sentences or a tight bullet list. No preamble, \
+        no "Sure" / "Here's" / restating the question — just the answer, scannable in a glance.
         - When asked to catch up: recap only what matters — topics, asks, open questions.
         - When asked what someone means: explain their point in plain language.
         - When asked what to respond: give 1–3 concrete things the user could say, in a \
@@ -139,7 +141,8 @@ public actor ClaudeCLIService {
         \(historyText.isEmpty ? "" : "PREVIOUS Q&A:\n\(historyText)\n")
         QUESTION: \(question)
         """
-        let output = try await run(prompt: prompt, jsonSchema: nil)
+        // Mid-call latency matters more than depth here: use the fast model.
+        let output = try await run(prompt: prompt, jsonSchema: nil, modelOverride: "haiku")
         return output.result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
@@ -220,9 +223,10 @@ public actor ClaudeCLIService {
         return path
     }
 
-    private func run(prompt: String, jsonSchema: String?) async throws -> CLIOutput {
+    private func run(prompt: String, jsonSchema: String?,
+                     modelOverride: String? = nil) async throws -> CLIOutput {
         let binary = try await binaryPath()
-        var args = [binary, "-p", "--output-format", "json", "--model", model,
+        var args = [binary, "-p", "--output-format", "json", "--model", modelOverride ?? model,
                     "--setting-sources", "", "--strict-mcp-config"]
         if let jsonSchema {
             args += ["--json-schema", jsonSchema]

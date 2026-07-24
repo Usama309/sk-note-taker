@@ -103,13 +103,22 @@ struct SidebarView: View {
                         .onSubmit { addFolder() }
                         .padding(.horizontal, 10)
                 }
-                Button {
-                    if addingFolder { addFolder() } else { addingFolder = true }
-                } label: {
-                    Label("New Folder", systemImage: "folder.badge.plus")
-                        .frame(maxWidth: .infinity)
+                HStack(spacing: 6) {
+                    Button {
+                        if addingFolder { addFolder() } else { addingFolder = true }
+                    } label: {
+                        Label("New Folder", systemImage: "folder.badge.plus")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+
+                    SettingsLink {
+                        Image(systemName: "gearshape")
+                            .frame(width: 30, height: 20)
+                    }
+                    .buttonStyle(.bordered)
+                    .help("Settings")
                 }
-                .buttonStyle(.bordered)
                 .padding(.horizontal, 10)
                 .padding(.bottom, 10)
             }

@@ -3,6 +3,14 @@
 ## [Unreleased]
 
 ### Added
+- **Meeting-detection popup.** When a Zoom / Meet / Teams / WhatsApp call starts (a call app
+  running with the mic active), a custom floating panel appears top-right, on top of other apps
+  (even a fullscreen call), for ~40s with a draining bar and a "Start Notes" button. Start Notes
+  launches the note directly in compact mode. Hovering the panel pauses the countdown. Replaces
+  the plain system notification, which couldn't control the lifetime, draw the bar, or launch
+  into compact mode. A "Preview meeting popup" menu item (and Cmd-Shift-D) shows it on demand.
+- **In-window Settings button.** A gear next to "New Folder" in the sidebar opens Settings
+  directly; previously only the macOS menu / Cmd-comma did.
 - **Pause / resume during a recording.** A pause button in the meeting header (and in compact
   mode) freezes the timeline stopwatch-style — the paused stretch is neither recorded nor
   transcribed, and resuming continues seamlessly with no silent gap and no jumped timer.
@@ -10,6 +18,11 @@
   the right edge that floats on top of other apps, showing the live transcript and the Ask-AI
   pane, so a meeting can be followed over Zoom/Outlook without the full app in the way.
   Recording keeps running; an expand button restores the previous window.
+
+### Changed
+- **In-meeting AI is faster and terser.** The live assistant now runs on the fast Haiku model
+  with a stricter "answer in 1–3 sentences, no preamble" prompt, so it's usable mid-call.
+- **"TL;DR" renamed to "Quick summary"** in generated summaries (plainer language).
 
 ### Fixed
 - **"All Meetings" and folder rows were not clickable in the sidebar.** They relied on

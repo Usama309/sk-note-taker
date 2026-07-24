@@ -33,6 +33,12 @@ struct SKNoteTakerApp: App {
                 }
         }
         .windowStyle(.hiddenTitleBar)
+        .commands {
+            CommandGroup(after: .appInfo) {
+                Button("Preview meeting popup") { appState.previewMeetingPopup() }
+                    .keyboardShortcut("d", modifiers: [.command, .shift])
+            }
+        }
 
         // Menu bar item — open, start a meeting, or quit from anywhere (Zoom/Willow style).
         MenuBarExtra("SK Note Taker", systemImage: "waveform") {
@@ -77,6 +83,9 @@ struct MenuBarContent: View {
             .keyboardShortcut("n")
         }
         Button("Open SK Note Taker") { app.showMainWindow?() }
+        if app.session == nil {
+            Button("Preview meeting popup") { app.previewMeetingPopup() }
+        }
         Divider()
         if !app.meetings.isEmpty {
             Text("Recent")
@@ -168,6 +177,8 @@ final class AppState {
     /// Set by the main window scene; surfaces/creates the main window (used by the menu bar
     /// and the notification's Start Notes action when the app is backgrounded).
     @ObservationIgnored var showMainWindow: (() -> Void)?
+    /// The custom floating "you're in a meeting" popup (top-right, 40s, Start Notes).
+    @ObservationIgnored private let detectionPanel = MeetingDetectionPanel()
     /// Keeps App Nap from throttling the background detection timer.
     @ObservationIgnored private var backgroundActivity: NSObjectProtocol?
 
@@ -239,7 +250,31 @@ final class AppState {
     private func handleDetectedMeeting(app: String) {
         guard session == nil else { return }
         detector.accepted()          // latch until this call ends / user acts
-        notifier.notifyMeetingDetected(app: app)
+        detectionPanel.show(
+            appName: app,
+            onStartNotes: { [weak self] in
+                Task { @MainActor in await self?.startMeetingCompact() }
+            },
+            onDismiss: { [weak self] in self?.detector.snooze() })
+    }
+
+    /// Start a meeting and drop straight into the compact floating panel — used by the
+    /// meeting-detected popup's Start Notes so the user immediately sees the live transcript.
+    func startMeetingCompact() async {
+        showMainWindow?()
+        await startMeeting()
+        if session != nil { setCompact(true) }
+    }
+
+    /// Show the meeting-detected popup on demand (menu bar → Preview), so its look and behaviour
+    /// can be checked without waiting for a real call.
+    func previewMeetingPopup() {
+        detectionPanel.show(
+            appName: "Zoom",
+            onStartNotes: { [weak self] in
+                Task { @MainActor in await self?.startMeetingCompact() }
+            },
+            onDismiss: {})
     }
 
     // MARK: - Permissions
