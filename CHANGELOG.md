@@ -3,6 +3,13 @@
 ## [Unreleased]
 
 ### Added
+- **Speaker tags (Zoom), scaffolding.** Groundwork for real participant names on the transcript:
+  a name-attribution engine that labels each speaker cluster with the dominant name from the
+  meeting-app UI, a macOS Accessibility permission flow, a Zoom accessibility reader that attaches
+  read-only to the Zoom app and feeds active-speaker names into the transcript, a Settings →
+  Speaker tags row (Zoom "Set up / Ready / Connected") with a debug "dump accessibility tree"
+  action, and lifecycle wiring so the reader runs during Zoom meetings when Accessibility is
+  granted. The live active-speaker extraction is tuned against a real Zoom call.
 - **Upcoming events view.** A new **Upcoming** item appears in the sidebar once Google Calendar
   is connected. It lists all your upcoming events grouped by day (Today / Tomorrow / date).
   Clicking an event opens it in the detail pane with its time, location, guests, and description,

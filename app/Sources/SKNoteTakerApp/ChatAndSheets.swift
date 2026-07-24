@@ -276,6 +276,26 @@ struct SettingsView: View {
                     .foregroundStyle(.tertiary)
                     .textSelection(.enabled)
             }
+            Section("Speaker tags") {
+                LabeledContent("Zoom") {
+                    HStack(spacing: 8) {
+                        if app.accessibilityStatus == .granted {
+                            Label(app.speakerTagsActive ? "Connected" : "Ready",
+                                  systemImage: "checkmark.circle.fill")
+                                .font(.system(size: 11, weight: .medium)).foregroundStyle(.green)
+                        } else {
+                            Button("Set up") { app.setUpSpeakerTags() }.controlSize(.small)
+                        }
+                    }
+                    .onAppear { app.refreshAccessibility() }
+                }
+                Text("Reads participant names and the active speaker from the Zoom desktop app via macOS Accessibility, so the transcript shows real names instead of Speaker 1/2/3. SK Note Taker only reads Zoom's window; it never controls it. Names apply to Zoom calls recorded after this is set up.")
+                    .font(.system(size: 10)).foregroundStyle(.tertiary)
+                if app.accessibilityStatus == .granted {
+                    Button("Dump Zoom accessibility tree (debug)") { app.dumpZoomTree() }
+                        .controlSize(.small)
+                }
+            }
             Section("AI (Claude Code CLI)") {
                 Picker("Model", selection: $app.settings.claudeModel) {
                     Text("Sonnet (recommended)").tag("sonnet")

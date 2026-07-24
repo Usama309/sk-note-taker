@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import CoreAudio
+import ApplicationServices
 
 /// Microphone + system-audio permission status and requests, plus the deep links the UI
 /// uses to send the user to the right System Settings pane.
@@ -59,10 +60,27 @@ public enum Permission: Sendable {
         return .denied
     }
 
+    // MARK: Accessibility (kTCCServiceAccessibility)
+
+    /// Reading another app's UI (Zoom's participant list + active-speaker highlight) for speaker
+    /// tags requires the Accessibility grant. Reported without prompting.
+    public static func accessibilityStatus() -> Status {
+        AXIsProcessTrusted() ? .granted : .denied
+    }
+
+    /// Shows the system Accessibility prompt if not yet trusted; returns current trust.
+    /// The option key is the literal value of kAXTrustedCheckOptionPrompt (a non-Sendable global).
+    @discardableResult
+    public static func requestAccessibility() -> Bool {
+        AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
+    }
+
     // MARK: System Settings deep links
 
     public static let micSettingsURL =
         URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!
     public static let systemAudioSettingsURL =
         URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!
+    public static let accessibilitySettingsURL =
+        URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
 }

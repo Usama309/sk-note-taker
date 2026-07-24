@@ -182,6 +182,11 @@ final class AppState {
     // Permission state (refreshed on launch, after grants, and when the window activates).
     var micStatus: Permission.Status = .notDetermined
     var systemAudioStatus: Permission.Status = .notDetermined
+    var accessibilityStatus: Permission.Status = .denied
+
+    // Zoom speaker tags: read Zoom's active-speaker via Accessibility, feed noteActiveSpeaker.
+    @ObservationIgnored let zoomReader = ZoomSpeakerReader()
+    var speakerTagsActive = false
     var notificationStatus: String = "notDetermined"
     var showOnboarding = false
 
@@ -382,6 +387,48 @@ final class AppState {
         } else {
             systemAudioStatus = Permission.systemAudioStatus()
         }
+        accessibilityStatus = Permission.accessibilityStatus()
+    }
+
+    // MARK: - Zoom speaker tags (Accessibility)
+
+    func refreshAccessibility() { accessibilityStatus = Permission.accessibilityStatus() }
+
+    /// Fires the system Accessibility prompt, then opens the pane so the user can enable us.
+    func setUpSpeakerTags() {
+        Permission.requestAccessibility()
+        accessibilityStatus = Permission.accessibilityStatus()
+        if accessibilityStatus != .granted {
+            NSWorkspace.shared.open(Permission.accessibilitySettingsURL)
+        }
+    }
+
+    /// Start reading Zoom for the active speaker if the meeting is a Zoom call and we're trusted.
+    private func startZoomSpeakerReaderIfPossible() {
+        guard session != nil,
+              ZoomSpeakerReader.zoomIsRunning(),
+              Permission.accessibilityStatus() == .granted else { return }
+        speakerTagsActive = true
+        zoomReader.start { [weak self] name in
+            Task { @MainActor in self?.session?.noteActiveSpeaker(name) }
+        }
+    }
+
+    private func stopZoomSpeakerReader() {
+        zoomReader.stop()
+        speakerTagsActive = false
+    }
+
+    /// Dump Zoom's accessibility tree to the Desktop log so the active-speaker nodes can be
+    /// identified during a live call (used to refine the reader).
+    func dumpZoomTree() {
+        let dump = zoomReader.dumpTree()
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Desktop/SK Note Taker Logs/zoom-ax-tree.txt")
+        try? FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? dump.write(to: url, atomically: true, encoding: .utf8)
+        NSWorkspace.shared.selectFile(url.path, inFileViewerRootedAtPath: "")
     }
 
     func requestMic() async {
@@ -499,10 +546,12 @@ final class AppState {
         } else {
             selectedMeetingId = session.meeting.id
             await refresh()
+            startZoomSpeakerReaderIfPossible()
         }
     }
 
     func stopMeeting() async {
+        stopZoomSpeakerReader()
         guard let session else { return }
         if compactMode { setCompact(false) }   // restore the full window when the meeting ends
         notifier.clearEndPrompts()
