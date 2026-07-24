@@ -231,6 +231,8 @@ struct SpeakersSheet: View {
 
 struct SettingsView: View {
     @Environment(AppState.self) private var app
+    @State private var gClientID = ""
+    @State private var gClientSecret = ""
 
     var body: some View {
         @Bindable var app = app
@@ -335,6 +337,59 @@ struct SettingsView: View {
                 Text("When the call goes quiet (or everyone says goodbye), SK Note Taker asks if the meeting has ended and stops recording a minute later unless you keep it going.")
                     .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
+            }
+            Section("Google Calendar") {
+                if app.calendarConnected {
+                    LabeledContent("Signed in") {
+                        Label(app.calendarEmail ?? "Connected", systemImage: "checkmark.circle.fill")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.green)
+                    }
+                    HStack {
+                        Button("Refresh events") { Task { await app.refreshUpcoming() } }
+                            .controlSize(.small)
+                        Button("Disconnect", role: .destructive) { app.disconnectCalendar() }
+                            .controlSize(.small)
+                    }
+                    Text("\(app.upcomingEvents.count) upcoming event(s) loaded. They appear on the home screen.")
+                        .font(.system(size: 10)).foregroundStyle(.tertiary)
+                } else {
+                    TextField("OAuth Client ID", text: $gClientID, prompt: Text("xxxx.apps.googleusercontent.com"))
+                        .textFieldStyle(.roundedBorder)
+                        .onAppear { if gClientID.isEmpty { gClientID = app.savedGoogleClientID } }
+                    SecureField("OAuth Client Secret", text: $gClientSecret, prompt: Text("GOCSPX-..."))
+                        .textFieldStyle(.roundedBorder)
+                    HStack {
+                        Button("Save credentials") {
+                            app.setGoogleCredentials(clientID: gClientID, clientSecret: gClientSecret)
+                        }
+                        .controlSize(.small)
+                        .disabled(gClientID.isEmpty || gClientSecret.isEmpty)
+                        if app.hasGoogleCredentials {
+                            Label("Saved", systemImage: "lock.fill")
+                                .font(.system(size: 10)).foregroundStyle(.green)
+                        }
+                    }
+                    Button {
+                        Task { await app.connectCalendar() }
+                    } label: {
+                        if app.calendarBusy {
+                            HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Waiting for browser…") }
+                        } else {
+                            Label("Connect Google Calendar", systemImage: "globe")
+                        }
+                    }
+                    .disabled(!app.hasGoogleCredentials || app.calendarBusy)
+                    if let err = app.calendarError {
+                        Text(err).font(.system(size: 10)).foregroundStyle(.red).textSelection(.enabled)
+                    }
+                    Text("Create a free OAuth client (type: Desktop app) in Google Cloud, enable the Calendar API, then paste its ID and secret above. Your secret and sign-in tokens are stored only in your macOS Keychain, never in the app's files.")
+                        .font(.system(size: 10)).foregroundStyle(.tertiary)
+                    Button("Open Google Cloud Credentials") {
+                        NSWorkspace.shared.open(URL(string: "https://console.cloud.google.com/apis/credentials")!)
+                    }
+                    .controlSize(.small)
+                }
             }
             Section("After the meeting") {
                 Toggle("Generate summary automatically", isOn: $app.settings.autoSummarize)

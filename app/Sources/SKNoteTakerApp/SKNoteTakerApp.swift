@@ -133,6 +133,15 @@ final class AppState {
     var settings = AppSettings()
     var claudeAvailable = true
 
+    // Google Calendar (in-app browser sign-in). The service holds the Keychain-backed tokens;
+    // these mirror its state for the UI to observe.
+    @ObservationIgnored let calendar = GoogleCalendarService()
+    var calendarConnected = false
+    var calendarEmail: String?
+    var calendarBusy = false
+    var calendarError: String?
+    var upcomingEvents: [GoogleCalendarEvent] = []
+
     /// Compact "floating transcript" mode: the window shrinks to a right-docked strip that
     /// floats over other apps, showing just the live transcript + Ask AI while recording runs.
     var compactMode = false
@@ -224,8 +233,47 @@ final class AppState {
         await recoverOrphanedMeetings()
         await refresh()
         await startAutoDetectIfEnabled()
+        calendarConnected = calendar.isConnected
+        calendarEmail = calendar.connectedEmail
+        if calendarConnected { await refreshUpcoming() }
         // Catch-up cloud sync in the background (local-first: never blocks the UI).
         Task { await sync.syncAll() }
+    }
+
+    // MARK: - Google Calendar
+
+    var hasGoogleCredentials: Bool { calendar.hasCredentials }
+    var savedGoogleClientID: String { calendar.savedClientID ?? "" }
+
+    func setGoogleCredentials(clientID: String, clientSecret: String) {
+        calendar.setCredentials(clientID: clientID, clientSecret: clientSecret)
+    }
+
+    func connectCalendar() async {
+        calendarError = nil
+        calendarBusy = true
+        defer { calendarBusy = false }
+        do {
+            try await calendar.connect { NSWorkspace.shared.open($0) }
+            calendarConnected = calendar.isConnected
+            calendarEmail = calendar.connectedEmail
+            await refreshUpcoming()
+        } catch {
+            calendarError = (error as? GoogleCalendarError)?.message ?? error.localizedDescription
+        }
+    }
+
+    func disconnectCalendar() {
+        calendar.disconnect()
+        calendarConnected = false
+        calendarEmail = nil
+        upcomingEvents = []
+    }
+
+    func refreshUpcoming() async {
+        guard calendar.isConnected else { return }
+        do { upcomingEvents = try await calendar.upcomingEvents() }
+        catch { calendarError = (error as? GoogleCalendarError)?.message ?? error.localizedDescription }
     }
 
     // MARK: - Meeting auto-detection

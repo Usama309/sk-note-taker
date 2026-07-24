@@ -3,6 +3,12 @@
 ## [Unreleased]
 
 ### Added
+- **Google Calendar sign-in (in-app, browser-based).** A "Connect Google Calendar" button in
+  Settings opens the system browser to Google's login using OAuth 2.0 with a loopback redirect and
+  PKCE. Once connected, the next few events from your primary calendar appear on the home screen
+  (each with Join and "Start notes" actions). The client secret and sign-in tokens live only in
+  the macOS Keychain, never in the app's files. One-time setup: paste an OAuth client ID/secret
+  (type "Desktop app") created in Google Cloud with the Calendar API enabled.
 - **Expandable project folders.** Each folder now has a disclosure arrow; clicking a folder
   rotates the arrow and expands it inline to list every recording inside it (indented in the
   sidebar) while also filtering the middle column to that folder. Clicking a nested recording

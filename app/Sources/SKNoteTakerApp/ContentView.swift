@@ -293,8 +293,12 @@ struct EmptyDetailView: View {
                 .foregroundStyle(.secondary)
             RecordButton()
                 .padding(.top, 6)
+            if app.calendarConnected && !app.upcomingEvents.isEmpty {
+                UpcomingEventsCard()
+                    .padding(.top, 10)
+            }
             if !app.claudeAvailable {
-                Label("Claude Code CLI not detected — AI features disabled",
+                Label("Claude Code CLI not detected. AI features disabled.",
                       systemImage: "exclamationmark.triangle")
                     .font(.callout)
                     .foregroundStyle(.orange)
@@ -302,6 +306,54 @@ struct EmptyDetailView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.background)
+    }
+}
+
+/// The next few Google Calendar events, shown on the home screen once the calendar is connected.
+struct UpcomingEventsCard: View {
+    @Environment(AppState.self) private var app
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Label("Upcoming", systemImage: "calendar")
+                    .font(.system(size: 13, weight: .semibold))
+                Spacer()
+                if let email = app.calendarEmail {
+                    Text(email).font(.system(size: 10)).foregroundStyle(.tertiary).lineLimit(1)
+                }
+                Button { Task { await app.refreshUpcoming() } } label: {
+                    Image(systemName: "arrow.clockwise").font(.system(size: 11))
+                }
+                .buttonStyle(.plain).foregroundStyle(.secondary).help("Refresh")
+            }
+            ForEach(app.upcomingEvents.prefix(4)) { ev in
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(ev.title).font(.system(size: 12, weight: .medium)).lineLimit(1)
+                        Text(Self.whenLabel(ev)).font(.system(size: 10)).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 8)
+                    if let url = ev.meetingURL {
+                        Link("Join", destination: url).controlSize(.small)
+                    }
+                    Button("Start notes") { Task { await app.startMeeting() } }
+                        .controlSize(.small)
+                        .disabled(app.session != nil)
+                }
+            }
+        }
+        .padding(14)
+        .frame(width: 380)
+        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .strokeBorder(Color.primary.opacity(0.06)))
+    }
+
+    private static func whenLabel(_ ev: GoogleCalendarEvent) -> String {
+        let df = DateFormatter()
+        df.dateFormat = ev.isAllDay ? "EEE, MMM d" : "EEE h:mm a"
+        return df.string(from: ev.start)
     }
 }
 
