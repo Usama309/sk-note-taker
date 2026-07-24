@@ -36,7 +36,8 @@ struct MeetingDetailView: View {
             if meeting.hasRecording {
                 WaveformPlayer(playback: playback)
                     .padding(.horizontal, 20)
-                    .padding(.bottom, 6)
+                    .padding(.top, 6)
+                    .padding(.bottom, 12)
             }
             Divider()
 
@@ -198,8 +199,8 @@ struct DetailTopBar: View {
             .fixedSize()
         }
         .padding(.horizontal, 20)
-        .padding(.top, 14)
-        .padding(.bottom, 4)
+        .padding(.top, 16)
+        .padding(.bottom, 6)
     }
 
     private func navButton(_ icon: String, to target: Meeting?) -> some View {
@@ -282,9 +283,10 @@ struct WaveformPlayer: View {
                 Image(systemName: playback.playing ? "pause.fill" : "play.fill")
                     .font(.skSection)
                     .foregroundStyle(.white)
-                    .frame(width: 38, height: 38)
+                    .frame(width: 40, height: 40)
                     .background(playback.ready ? AnyShapeStyle(Theme.accentGradient)
                                 : AnyShapeStyle(Color.secondary), in: Circle())
+                    .shadow(color: Theme.indigo.opacity(playback.ready ? 0.35 : 0), radius: 6, y: 2)
             }
             .buttonStyle(.plain)
             .disabled(!playback.ready)
@@ -352,6 +354,11 @@ struct WaveformPlayer: View {
             }
             .help("Volume")
         }
+        .padding(.leading, 10)
+        .padding(.trailing, 14)
+        .padding(.vertical, 9)
+        .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous).strokeBorder(Theme.hairline))
     }
 }
 
@@ -406,16 +413,16 @@ struct DetailTabBar: View {
     @Binding var tab: MeetingDetailView.Tab
 
     var body: some View {
-        HStack(spacing: 22) {
+        HStack(spacing: 24) {
             ForEach(MeetingDetailView.Tab.allCases, id: \.self) { t in
                 Button { tab = t } label: {
-                    VStack(spacing: 6) {
+                    VStack(spacing: 7) {
                         Text(t.rawValue)
                             .font(.system(size: 13, weight: tab == t ? .semibold : .regular))
                             .foregroundStyle(tab == t ? AnyShapeStyle(Theme.indigo) : AnyShapeStyle(.secondary))
-                        Rectangle()
+                        Capsule()
                             .fill(tab == t ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(Color.clear))
-                            .frame(height: 2)
+                            .frame(height: 2.5)
                     }
                     .contentShape(Rectangle())
                 }
@@ -424,7 +431,9 @@ struct DetailTabBar: View {
             Spacer()
         }
         .padding(.horizontal, 22)
-        .padding(.top, 12)
+        .padding(.top, 14)
+        .padding(.bottom, 2)
+        .animation(.easeInOut(duration: 0.15), value: tab)
     }
 }
 
