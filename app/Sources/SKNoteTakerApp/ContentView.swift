@@ -50,15 +50,23 @@ struct SidebarView: View {
     @Environment(AppState.self) private var app
     @State private var newFolderName = ""
     @State private var addingFolder = false
-    /// "all" or a folder uuid string while a meeting is dragged over that row (for highlight).
+    /// "all" / "starred" / a folder uuid string while a meeting is dragged over (for highlight).
     @State private var dropTarget: String?
 
     private var clients: [Folder] { app.folders.filter { $0.parentId == nil } }
+    private var starredCount: Int {
+        app.meetings.reduce(0) { $0 + (app.starred.contains($1.id) ? 1 : 0) }
+    }
+    private var initials: String { String(app.userDisplayName.prefix(1)).uppercased() }
 
     /// Row background reflecting both the current filter selection and an active drag-over.
     private func rowBackground(token: String, selected: Bool) -> Color {
         if dropTarget == token { return Theme.teal.opacity(0.30) }
         return selected ? Theme.indigo.opacity(0.14) : .clear
+    }
+
+    private func setDrop(_ token: String, _ over: Bool) {
+        if over { dropTarget = token } else if dropTarget == token { dropTarget = nil }
     }
 
     /// A meeting (or several) was dropped onto a folder (nil = unfile to All Meetings).
@@ -69,32 +77,37 @@ struct SidebarView: View {
         return true
     }
 
+    /// Stable colour per project (UUID hashValue is per-run, so seed from the string).
+    private func folderColor(_ folder: Folder) -> Color {
+        let palette: [Color] = [Theme.indigo, Theme.teal, .orange, .pink, .blue, .green, .purple]
+        let seed = folder.id.uuidString.unicodeScalars.reduce(0) { $0 + Int($1.value) }
+        return palette[seed % palette.count]
+    }
+
     var body: some View {
-        // Rows are Buttons, not `List(selection:)` — a selection-driven sidebar row would not
-        // register clicks reliably (the "All Meetings not clickable" report). A Button always
-        // fires; the current filter is shown with a row-background highlight.
+        // Rows are Buttons, not `List(selection:)` — selection-driven sidebar rows don't register
+        // clicks reliably. A Button always fires; the current filter shows as a row highlight.
         List {
-            Section {
-                Button { app.selectedFolderId = nil } label: {
-                    HStack {
-                        Label { Text("All Meetings") } icon: {
-                            Image(systemName: "tray.full").foregroundStyle(Theme.accentGradient)
-                        }
-                        Spacer()
-                        Text("\(app.meetings.count)").font(.callout).foregroundStyle(.secondary)
-                    }
-                    .contentShape(Rectangle())
+            Section("Library") {
+                Button { app.libraryFilter = .all } label: {
+                    rowLabel(icon: AnyView(Image(systemName: "tray.full")
+                        .foregroundStyle(Theme.accentGradient)),
+                        title: "All Meetings", count: app.meetings.count)
                 }
                 .buttonStyle(.plain)
-                .listRowBackground(rowBackground(token: "all", selected: app.selectedFolderId == nil))
-                .dropDestination(for: String.self, action: { items, _ in
-                    dropMeetings(items, to: nil)
-                }, isTargeted: { over in
-                    if over { dropTarget = "all" } else if dropTarget == "all" { dropTarget = nil }
-                })
+                .listRowBackground(rowBackground(token: "all", selected: app.libraryFilter == .all))
+                .dropDestination(for: String.self, action: { items, _ in dropMeetings(items, to: nil) },
+                                 isTargeted: { setDrop("all", $0) })
+
+                Button { app.libraryFilter = .starred } label: {
+                    rowLabel(icon: AnyView(Image(systemName: "star.fill").foregroundStyle(Color.yellow)),
+                             title: "Starred", count: starredCount)
+                }
+                .buttonStyle(.plain)
+                .listRowBackground(rowBackground(token: "starred", selected: app.libraryFilter == .starred))
             }
 
-            Section("Projects & Clients") {
+            Section {
                 ForEach(clients) { client in
                     let children = app.folders.filter { $0.parentId == client.id }
                     if children.isEmpty {
@@ -107,6 +120,19 @@ struct SidebarView: View {
                         }
                     }
                 }
+                if clients.isEmpty {
+                    Text("No projects yet — drag a meeting here or tap +")
+                        .font(.system(size: 10)).foregroundStyle(.tertiary)
+                }
+            } header: {
+                HStack {
+                    Text("Projects")
+                    Spacer()
+                    Button { addingFolder = true } label: {
+                        Image(systemName: "plus").font(.system(size: 11, weight: .bold))
+                    }
+                    .buttonStyle(.plain).foregroundStyle(.secondary).help("New project")
+                }
             }
         }
         .safeAreaInset(edge: .top) {
@@ -116,57 +142,59 @@ struct SidebarView: View {
                 .padding(.top, 4)
         }
         .safeAreaInset(edge: .bottom) {
-            VStack(spacing: 6) {
+            VStack(spacing: 8) {
                 if addingFolder {
-                    TextField("Client or project name", text: $newFolderName)
+                    TextField("Project name", text: $newFolderName)
                         .textFieldStyle(.roundedBorder)
                         .onSubmit { addFolder() }
                         .padding(.horizontal, 10)
                 }
-                HStack(spacing: 6) {
-                    Button {
-                        if addingFolder { addFolder() } else { addingFolder = true }
-                    } label: {
-                        Label("New Folder", systemImage: "folder.badge.plus")
-                            .frame(maxWidth: .infinity)
+                Divider()
+                HStack(spacing: 9) {
+                    Circle().fill(Theme.accentGradient).frame(width: 30, height: 30)
+                        .overlay(Text(initials).font(.system(size: 12, weight: .bold)).foregroundStyle(.white))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(app.userDisplayName).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                        Text("Local workspace").font(.system(size: 10)).foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.bordered)
-
+                    Spacer()
                     SettingsLink {
-                        Image(systemName: "gearshape")
-                            .frame(width: 30, height: 20)
+                        Image(systemName: "gearshape").foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.bordered)
-                    .help("Settings")
+                    .buttonStyle(.plain).help("Settings")
                 }
-                .padding(.horizontal, 10)
+                .padding(.horizontal, 12)
                 .padding(.bottom, 10)
             }
         }
     }
 
+    private func rowLabel(icon: AnyView, title: String, count: Int) -> some View {
+        HStack(spacing: 9) {
+            icon.frame(width: 18)
+            Text(title).font(.system(size: 13))
+            Spacer()
+            Text("\(count)").font(.system(size: 11)).foregroundStyle(.secondary)
+        }
+        .contentShape(Rectangle())
+    }
+
     private func folderRow(_ folder: Folder) -> some View {
-        Button { app.selectedFolderId = folder.id } label: {
-            HStack {
-                Label { Text(folder.name) } icon: {
-                    Image(systemName: folder.kind == .client ? "building.2" : "folder")
-                        .foregroundStyle(folder.kind == .client ? Theme.indigo : Theme.teal)
-                }
+        Button { app.libraryFilter = .folder(folder.id) } label: {
+            HStack(spacing: 9) {
+                Circle().fill(folderColor(folder)).frame(width: 9, height: 9)
+                Text(folder.name).font(.system(size: 13)).lineLimit(1)
                 Spacer()
                 Text("\(app.meetings.filter { $0.folderId == folder.id }.count)")
-                    .font(.callout).foregroundStyle(.secondary)
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .listRowBackground(rowBackground(token: folder.id.uuidString,
-                                         selected: app.selectedFolderId == folder.id))
-        .dropDestination(for: String.self, action: { items, _ in
-            dropMeetings(items, to: folder.id)
-        }, isTargeted: { over in
-            if over { dropTarget = folder.id.uuidString }
-            else if dropTarget == folder.id.uuidString { dropTarget = nil }
-        })
+                                         selected: app.libraryFilter == .folder(folder.id)))
+        .dropDestination(for: String.self, action: { items, _ in dropMeetings(items, to: folder.id) },
+                         isTargeted: { setDrop(folder.id.uuidString, $0) })
         .contextMenu {
             Button("Delete Folder", role: .destructive) {
                 Task {

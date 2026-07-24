@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### Added
+- **Redesigned sidebar.** A sectioned layout: a **Library** section (All Meetings + a **Starred**
+  filter, each with live counts) and a **Projects** section (folders shown with a stable colour
+  dot and count, a "+" to add one inline). A profile card pinned to the bottom shows the user
+  avatar, name, "Local workspace", and a settings gear. Drag-and-drop filing and the drag-over
+  highlight carry over to every row.
 - **Redesigned meeting detail view.** A cleaner header (editable title, star/favourite, overflow
   menu, "New recording", share) with a metadata row and participant avatars; an underline tab
   bar (Summary / Transcript / Notes / Chat); and a right rail with an Action items card (owner

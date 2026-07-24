@@ -103,6 +103,13 @@ struct MenuBarContent: View {
     }
 }
 
+/// What the meeting list is currently filtered to (drives the sidebar selection).
+enum LibraryFilter: Equatable {
+    case all
+    case starred
+    case folder(UUID)
+}
+
 /// Root observable state: stores, lists, selection, live session.
 @Observable
 @MainActor
@@ -116,7 +123,7 @@ final class AppState {
 
     var meetings: [Meeting] = []
     var folders: [Folder] = []
-    var selectedFolderId: UUID?      // nil = All Meetings
+    var libraryFilter: LibraryFilter = .all   // All Meetings / Starred / a project folder
     var selectedMeetingId: UUID?
     var searchText = ""
     /// Starred meeting ids (persisted in UserDefaults so no Codable migration on Meeting).
@@ -368,7 +375,12 @@ final class AppState {
 
     var visibleMeetings: [Meeting] {
         var list = meetings
-        if let folderId = selectedFolderId {
+        switch libraryFilter {
+        case .all:
+            break
+        case .starred:
+            list = list.filter { starred.contains($0.id) }
+        case .folder(let folderId):
             // Include meetings in child folders (client folder shows its projects' meetings).
             let childIds = Set(folders.filter { $0.parentId == folderId }.map(\.id))
             list = list.filter { m in
