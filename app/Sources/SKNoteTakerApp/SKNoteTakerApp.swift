@@ -76,7 +76,9 @@ struct MenuBarContent: View {
     @Environment(AppState.self) private var app
 
     var body: some View {
-        if app.session != nil {
+        if let session = app.session {
+            Text("Recording  \(Theme.timestamp(session.elapsed))"
+                 + (session.isPaused ? "  (paused)" : ""))
             Button("End Meeting") { Task { await app.stopMeeting() } }
             Divider()
         } else {
@@ -92,6 +94,9 @@ struct MenuBarContent: View {
         }
         if app.settings.showUpcomingInMenuBar, app.calendarConnected, !app.upcomingEvents.isEmpty {
             Divider()
+            if let next = app.nextMenuBarEvent {
+                Text("Next: \(MenuBarLabel.shortTitle(next)) \(MenuBarLabel.countdown(next, now: Date()))")
+            }
             Text("Upcoming")
             ForEach(app.upcomingEvents.prefix(4)) { event in
                 Button(MenuBarLabel.rowTitle(event)) {
@@ -118,42 +123,39 @@ struct MenuBarContent: View {
     }
 }
 
-/// The menu-bar item's label: a recording badge while recording, otherwise the next meeting and
-/// a live countdown (when enabled), otherwise the app glyph.
+/// The menu-bar item's label. ICON ONLY, and stable per state.
+///
+/// A live-updating label here (a TimelineView, or any continuously-changing text) drives
+/// NSStatusItem into an infinite update/relayout loop (MenuBarExtraController.updateButton ->
+/// _adjustLength -> requestUpdate), pinning the whole app at ~100% CPU. So the elapsed timer and
+/// the next-meeting countdown live in the dropdown (MenuBarContent), not here.
 struct MenuBarLabel: View {
     @Environment(AppState.self) private var app
 
     var body: some View {
+        Image(systemName: symbol)
+    }
+
+    private var symbol: String {
         if let session = app.session {
-            HStack(spacing: 4) {
-                Image(systemName: session.isPaused ? "pause.circle.fill" : "record.circle.fill")
-                TimelineView(.periodic(from: .now, by: 1)) { _ in
-                    Text(Theme.timestamp(session.elapsed)).monospacedDigit()
-                }
-            }
-        } else if app.settings.showUpcomingInMenuBar, app.calendarConnected,
-                  let event = app.nextMenuBarEvent {
-            TimelineView(.periodic(from: .now, by: 30)) { ctx in
-                HStack(spacing: 4) {
-                    Image(systemName: "calendar")
-                    Text("\(Self.shortTitle(event)) · \(Self.countdown(event, now: ctx.date))")
-                }
-            }
-        } else {
-            Image(systemName: "waveform")
+            return session.isPaused ? "pause.circle.fill" : "record.circle.fill"
         }
+        if app.settings.showUpcomingInMenuBar, app.calendarConnected, app.nextMenuBarEvent != nil {
+            return "calendar"
+        }
+        return "waveform"
     }
 
     static func shortTitle(_ event: GoogleCalendarEvent) -> String {
-        event.title.count > 18 ? String(event.title.prefix(17)) + "…" : event.title
+        event.title.count > 24 ? String(event.title.prefix(23)) + "…" : event.title
     }
 
     static func countdown(_ event: GoogleCalendarEvent, now: Date) -> String {
         let mins = Int(event.start.timeIntervalSince(now) / 60)
         if mins <= 0 { return "now" }
-        if mins < 60 { return "\(mins)m" }
+        if mins < 60 { return "in \(mins)m" }
         let h = mins / 60, m = mins % 60
-        return m == 0 ? "\(h)h" : "\(h)h \(m)m"
+        return m == 0 ? "in \(h)h" : "in \(h)h \(m)m"
     }
 
     static func rowTitle(_ event: GoogleCalendarEvent) -> String {
