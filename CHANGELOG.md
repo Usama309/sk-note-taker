@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### Added
+- **Optional per-meeting screen recording.** During a meeting you can toggle **Record screen** in
+  the header; it records your screen to a video via the macOS screen recorder (ScreenCaptureKit,
+  H.264, downscaled and frame-capped to stay light), saved as `screen.mov` with the meeting and
+  finalized when the meeting ends. The meeting detail view shows a player for it. Kept on a
+  separate capture stream so it can never destabilise the audio/transcription path.
 - **Calendar settings page (multi-calendar).** Settings is now tabbed (General / Calendar). The
   Calendar tab matches the reference: a Display section (Show upcoming meetings in menu bar, Show
   events with no participants) and a Visible calendars list showing every Google calendar with its

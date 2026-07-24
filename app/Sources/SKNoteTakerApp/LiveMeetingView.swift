@@ -122,6 +122,21 @@ struct LiveMeetingView: View {
                 .buttonStyle(.bordered)
                 .controlSize(.large)
                 .help("Shrink to a floating transcript panel docked to the right")
+
+                Button {
+                    Task {
+                        if session.isRecordingScreen { await session.stopScreenRecording() }
+                        else { await session.startScreenRecording() }
+                    }
+                } label: {
+                    Label(session.isRecordingScreen ? "Recording screen" : "Record screen",
+                          systemImage: session.isRecordingScreen
+                            ? "record.circle.fill" : "rectangle.dashed.badge.record")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .tint(session.isRecordingScreen ? .red : nil)
+                .help("Also record your screen to a video saved with this meeting (macOS screen recorder)")
             }
 
             Button {

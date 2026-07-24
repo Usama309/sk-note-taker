@@ -1,5 +1,6 @@
 import Foundation
 import CoreAudio
+import AVFoundation
 import SKNoteCore
 
 /// Hidden diagnostic entry points, run from the signed app bundle so they inherit the app's
@@ -42,6 +43,15 @@ enum SelfTest {
             print("Wrote 3 sample errors. Check:")
             print("  \(SKLog.fullLogURL.path)")
             print("  \(SKLog.errorLogURL.path)")
+            return true
+        }
+        if let i = args.firstIndex(of: "--selftest-screenrec") {
+            let seconds = (i + 1 < args.count ? Double(args[i + 1]) : nil) ?? 4
+            let done = Flag()
+            Task { await runScreenRec(seconds: seconds); done.set() }
+            while !done.get() {
+                RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.1))
+            }
             return true
         }
         if let i = args.firstIndex(of: "--selftest-meeting") {
@@ -104,6 +114,39 @@ enum SelfTest {
             report += "\nsystem channel ALIVE: \(live)/\(total)s\n"
         } else {
             report += "(could not load recording channels)\n"
+        }
+        print(report)
+        let out = FileManager.default.urls(for: .applicationSupportDirectory,
+                                           in: .userDomainMask)[0]
+            .appendingPathComponent("SKNoteTaker/selftest.log")
+        try? report.write(to: out, atomically: true, encoding: .utf8)
+    }
+
+    /// Records the screen for `seconds` via ScreenVideoRecorder and reports whether a valid,
+    /// non-empty, playable .mov came out. Runs under the app's Screen Recording grant.
+    static func runScreenRec(seconds: Double) async {
+        print("SELFTEST screen recording for \(Int(seconds))s")
+        print("screen recording perm: \(Permission.screenRecordingStatus().rawValue)")
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sk-selftest-screen.mov")
+        let rec = ScreenVideoRecorder(outputURL: url)
+        var report = ""
+        do {
+            try await rec.start()
+            let deadline = Date().addingTimeInterval(seconds)
+            while Date() < deadline { try? await Task.sleep(for: .milliseconds(200)) }
+            let ok = await rec.stop()
+            let bytes = ((try? FileManager.default.attributesOfItem(atPath: url.path))?[.size]
+                as? NSNumber)?.intValue ?? 0
+            var dur = 0.0
+            if FileManager.default.fileExists(atPath: url.path) {
+                dur = (try? await AVURLAsset(url: url).load(.duration))?.seconds ?? 0
+            }
+            let pass = ok && bytes > 10_000 && dur > 0.5
+            report = "screen rec: ok=\(ok) bytes=\(bytes) duration=\(String(format: "%.2f", dur))s\n"
+                + (pass ? "✅ screen recording works" : "❌ screen recording FAILED")
+        } catch {
+            report = "❌ start failed: \(error)"
         }
         print(report)
         let out = FileManager.default.urls(for: .applicationSupportDirectory,

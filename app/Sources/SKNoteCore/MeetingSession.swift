@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import CoreGraphics
 
 /// Maps an RMS level (0…1) to a 0…`maxBars` meter-bar count on a perceptual dB scale. Normal
 /// speech is only RMS ~0.02–0.15; a linear scale barely moves, so we map roughly −50 dBFS
@@ -79,6 +80,9 @@ public final class MeetingSession {
     public let nameTrack = SpeakerNameTrack()
     /// Speaker keys the user renamed by hand — these always win over auto-detected names.
     private var userNamedKeys: Set<String> = []
+    /// Optional per-meeting screen (video) recording, started on demand after the meeting begins.
+    public private(set) var isRecordingScreen = false
+    private var screenRecorder: ScreenVideoRecorder?
     private var recorder: RecordingWriter?
     private var pumpTasks: [Task<Void, Never>] = []
     /// Live speaker-labelling runs on its own cadence, off the ingestion path.
@@ -290,6 +294,7 @@ public final class MeetingSession {
         applyRebuild(segments: finalSegments, speakers: finalSpeakers)
 
         await recorder?.finish()
+        await stopScreenRecording()   // finalize the .mov before the meeting is saved
 
         meeting.state = .complete
         meeting.endedAt = Date()
@@ -354,6 +359,33 @@ public final class MeetingSession {
     public func noteActiveSpeaker(_ name: String) {
         guard phase == .recording, !isPaused else { return }
         nameTrack.record(name: name, at: clock.sessionTime())
+    }
+
+    // MARK: - Screen recording (optional, on demand)
+
+    public func startScreenRecording(displayID: CGDirectDisplayID? = nil) async {
+        guard phase == .recording, screenRecorder == nil else { return }
+        let recorder = ScreenVideoRecorder(outputURL: await store.screenRecordingURL(for: meeting.id))
+        do {
+            try await recorder.start(displayID: displayID)
+            screenRecorder = recorder
+            isRecordingScreen = true
+            SKLog.info(.session, "Screen recording started")
+        } catch {
+            SKLog.error(.captureStartFailed, .capture, "Screen recording failed to start", error: error)
+        }
+    }
+
+    public func stopScreenRecording() async {
+        guard let recorder = screenRecorder else { return }
+        screenRecorder = nil
+        isRecordingScreen = false
+        let ok = await recorder.stop()
+        if ok {
+            meeting.hasScreenRecording = true
+            try? await store.save(meeting)
+        }
+        SKLog.info(.session, "Screen recording stopped (saved: \(ok))")
     }
 
     // MARK: - Pause / resume

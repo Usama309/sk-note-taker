@@ -53,6 +53,8 @@ public struct Meeting: Codable, Sendable, Identifiable, Equatable {
     public var hasRecording: Bool
     public var durationSec: Double
     public var autoCategory: AutoCategory?
+    /// Optional so old meeting.json files (which lack the key) still decode: absent -> nil.
+    public var hasScreenRecording: Bool?
 
     public init(
         id: UUID = UUID(),
@@ -64,7 +66,8 @@ public struct Meeting: Codable, Sendable, Identifiable, Equatable {
         speakers: [String: SpeakerInfo] = [:],
         hasRecording: Bool = false,
         durationSec: Double = 0,
-        autoCategory: AutoCategory? = nil
+        autoCategory: AutoCategory? = nil,
+        hasScreenRecording: Bool? = nil
     ) {
         self.id = id
         self.title = title
@@ -76,11 +79,15 @@ public struct Meeting: Codable, Sendable, Identifiable, Equatable {
         self.hasRecording = hasRecording
         self.durationSec = durationSec
         self.autoCategory = autoCategory
+        self.hasScreenRecording = hasScreenRecording
     }
 
     public func displayName(forSpeakerKey key: String) -> String {
         speakers[key]?.displayName ?? key
     }
+
+    /// Whether a screen recording was saved for this meeting.
+    public var recordedScreen: Bool { hasScreenRecording == true }
 }
 
 // MARK: - Transcript

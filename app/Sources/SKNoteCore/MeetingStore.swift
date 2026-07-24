@@ -127,6 +127,10 @@ public actor MeetingStore {
         dir(for: id).appendingPathComponent("recording.m4a")
     }
 
+    public func screenRecordingURL(for id: UUID) -> URL {
+        dir(for: id).appendingPathComponent("screen.mov")
+    }
+
     // MARK: - Settings
 
     public func loadSettings() -> AppSettings {

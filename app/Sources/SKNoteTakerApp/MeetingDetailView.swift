@@ -1,5 +1,6 @@
 import SwiftUI
 import AVFoundation
+import AVKit
 import SKNoteCore
 
 /// A finished meeting, redesigned: a header with title/star/actions and participant avatars, a
@@ -438,6 +439,9 @@ struct DetailRightRail: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
+                if meeting.recordedScreen {
+                    ScreenRecordingCard(meeting: meeting)
+                }
                 ActionItemsCard(meeting: meeting, items: summary?.actionItems ?? [])
                 ParticipantsCard(meeting: meeting, onRename: onRenameSpeakers)
                 Spacer(minLength: 0)
@@ -445,6 +449,43 @@ struct DetailRightRail: View {
             .padding(16)
         }
         .background(.background.secondary.opacity(0.35))
+    }
+}
+
+/// The meeting's screen recording, if one was captured.
+struct ScreenRecordingCard: View {
+    @Environment(AppState.self) private var app
+    let meeting: Meeting
+    @State private var player: AVPlayer?
+    @State private var missing = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Screen recording", systemImage: "rectangle.on.rectangle")
+                .font(.system(size: 13, weight: .semibold))
+            if let player {
+                VideoPlayer(player: player)
+                    .frame(height: 180)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            } else if missing {
+                Text("The recording file could not be found.")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+            } else {
+                ProgressView().frame(maxWidth: .infinity, minHeight: 100)
+            }
+        }
+        .padding(14)
+        .background(.background, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .strokeBorder(Color.primary.opacity(0.06)))
+        .task {
+            let url = await app.screenRecordingURL(for: meeting.id)
+            if FileManager.default.fileExists(atPath: url.path) {
+                player = AVPlayer(url: url)
+            } else {
+                missing = true
+            }
+        }
     }
 }
 

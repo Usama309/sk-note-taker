@@ -447,6 +447,10 @@ final class AppState {
         await startMeeting(suggestedTitle: event.title)
     }
 
+    func screenRecordingURL(for id: UUID) async -> URL {
+        await store.screenRecordingURL(for: id)
+    }
+
     // MARK: - Meeting auto-detection
 
     func startAutoDetectIfEnabled() async {
