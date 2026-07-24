@@ -274,6 +274,8 @@ final class AppState {
         upcomingEvents = []
     }
 
+    func cancelCalendarConnect() { calendar.cancelConnect() }
+
     func refreshUpcoming() async {
         guard calendar.isConnected else { return }
         do { upcomingEvents = try await calendar.upcomingEvents() }

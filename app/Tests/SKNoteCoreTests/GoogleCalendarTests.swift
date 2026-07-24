@@ -59,4 +59,27 @@ struct GoogleCalendarTests {
         #expect(threw)
         server.stop()
     }
+
+    @Test("waitForCode times out when no redirect arrives")
+    func loopbackTimesOut() async throws {
+        let server = try LoopbackServer()
+        _ = try await server.start()
+        var threw = false
+        do { _ = try await server.waitForCode(timeout: 0.2) } catch { threw = true }
+        #expect(threw)
+        server.stop()
+    }
+
+    @Test("stop() cancels a pending wait so the sign-in doesn't hang")
+    func loopbackCancels() async throws {
+        let server = try LoopbackServer()
+        _ = try await server.start()
+        async let captured = server.waitForCode(timeout: 30)
+        // Give waitForCode a beat to register its continuation on the queue, then cancel.
+        try await Task.sleep(for: .milliseconds(100))
+        server.stop()
+        var threw = false
+        do { _ = try await captured } catch { threw = true }
+        #expect(threw)
+    }
 }

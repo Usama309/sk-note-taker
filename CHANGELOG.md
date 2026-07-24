@@ -8,7 +8,8 @@
   PKCE. Once connected, the next few events from your primary calendar appear on the home screen
   (each with Join and "Start notes" actions). The client secret and sign-in tokens live only in
   the macOS Keychain, never in the app's files. One-time setup: paste an OAuth client ID/secret
-  (type "Desktop app") created in Google Cloud with the Calendar API enabled.
+  (type "Desktop app") created in Google Cloud with the Calendar API enabled. A blocked or
+  abandoned sign-in can be cancelled and times out after 3 minutes rather than hanging.
 - **Expandable project folders.** Each folder now has a disclosure arrow; clicking a folder
   rotates the arrow and expands it inline to list every recording inside it (indented in the
   sidebar) while also filtering the middle column to that folder. Clicking a nested recording

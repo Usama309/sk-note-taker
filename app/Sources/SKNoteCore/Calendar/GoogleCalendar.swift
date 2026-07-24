@@ -39,6 +39,7 @@ public struct GoogleCalendarError: LocalizedError {
 public final class GoogleCalendarService {
     private let scope = "https://www.googleapis.com/auth/calendar.readonly openid email"
     private var state = KeychainStore.load()
+    private var activeServer: LoopbackServer?
 
     public init() {}
 
@@ -62,6 +63,9 @@ public final class GoogleCalendarService {
         KeychainStore.save(state)
     }
 
+    /// Abandon an in-progress browser sign-in (user closed the Google tab or hit a block page).
+    public func cancelConnect() { activeServer?.stop() }
+
     /// Full browser sign-in. `openURL` is passed in so this stays free of AppKit.
     public func connect(openURL: @escaping (URL) -> Void) async throws {
         guard hasCredentials else {
@@ -71,8 +75,9 @@ public final class GoogleCalendarService {
         let challenge = Self.pkceChallenge(verifier)
 
         let server = try LoopbackServer()
+        activeServer = server
         let port = try await server.start()
-        defer { server.stop() }
+        defer { activeServer = nil; server.stop() }
         let redirect = "http://127.0.0.1:\(port)"
 
         var comps = URLComponents(string: "https://accounts.google.com/o/oauth2/v2/auth")!
@@ -254,12 +259,29 @@ final class LoopbackServer: @unchecked Sendable {
         }
     }
 
-    /// Await the authorization code delivered to the redirect URI.
-    func waitForCode() async throws -> String {
-        try await withCheckedThrowingContinuation { cont in self.codeContinuation = cont }
+    /// Await the authorization code delivered to the redirect URI. All access to `codeContinuation`
+    /// stays on `queue`, so the one-shot resume (redirect, timeout, or cancel) is race-free.
+    func waitForCode(timeout: TimeInterval = 180) async throws -> String {
+        try await withCheckedThrowingContinuation { cont in
+            queue.async {
+                self.codeContinuation = cont
+                self.queue.asyncAfter(deadline: .now() + timeout) {
+                    if let c = self.codeContinuation {
+                        self.codeContinuation = nil
+                        c.resume(throwing: GoogleCalendarError("Sign-in timed out. Click Connect to try again."))
+                    }
+                }
+            }
+        }
     }
 
     func stop() {
+        queue.async {
+            if let c = self.codeContinuation {
+                self.codeContinuation = nil
+                c.resume(throwing: GoogleCalendarError("Sign-in cancelled."))
+            }
+        }
         connection?.cancel(); connection = nil
         listener.cancel()
     }

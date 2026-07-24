@@ -380,6 +380,10 @@ struct SettingsView: View {
                         }
                     }
                     .disabled(!app.googleCredentialsSaved || app.calendarBusy)
+                    if app.calendarBusy {
+                        Button("Cancel", role: .cancel) { app.cancelCalendarConnect() }
+                            .controlSize(.small)
+                    }
                     if let err = app.calendarError {
                         Text(err).font(.system(size: 10)).foregroundStyle(.red).textSelection(.enabled)
                     }
