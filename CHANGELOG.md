@@ -22,10 +22,13 @@
   A right-click "Move to Folder" submenu does the same precisely.
 - **Meeting-detection popup.** When a Zoom / Meet / Teams / WhatsApp call starts (a call app
   running with the mic active), a custom floating panel appears top-right, on top of other apps
-  (even a fullscreen call), for ~40s with a draining bar and a "Start Notes" button. Start Notes
-  launches the note directly in compact mode. Hovering the panel pauses the countdown. Replaces
-  the plain system notification, which couldn't control the lifetime, draw the bar, or launch
-  into compact mode. A "Preview meeting popup" menu item (and Cmd-Shift-D) shows it on demand.
+  (even a fullscreen call). Styled like a native macOS notification: the SK logo, a "<App>
+  meeting started" title, a "Take notes with SK Note Taker" subtitle, and a single **Start**
+  button that launches the note directly in compact mode. A thin bar fills left→right over the
+  ~40s window, then the popup auto-dismisses. Hovering pauses the countdown and reveals a
+  macOS-style close (x) chip at the top-left corner to dismiss it. Replaces the plain system
+  notification, which couldn't control the lifetime, draw the bar, or launch into compact mode.
+  A "Preview meeting popup" menu item (and Cmd-Shift-D) shows it on demand.
 - **In-window Settings button.** A gear next to "New Folder" in the sidebar opens Settings
   directly; previously only the macOS menu / Cmd-comma did.
 - **Pause / resume during a recording.** A pause button in the meeting header (and in compact

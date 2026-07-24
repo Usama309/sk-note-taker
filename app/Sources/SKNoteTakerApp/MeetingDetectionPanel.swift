@@ -5,14 +5,14 @@ import SKNoteCore
 @Observable @MainActor
 final class DetectionPanelModel {
     var appName = ""
-    var progress: Double = 1      // 1 → 0 as the bar drains
+    var progress: Double = 0      // 0 → 1 as the bar fills left→right over the 40s window
     var paused = false
 }
 
 /// Custom floating "you're in a meeting" popup: top-right of the screen, above all apps (even a
-/// fullscreen call), stays ~40s with a draining bar, and a Start Notes CTA that launches straight
-/// into compact mode. A system notification can't control its lifetime, draw a bar, or choose the
-/// launch target — this can.
+/// fullscreen call), stays ~40s with a bar that fills left→right, and a Start CTA that launches
+/// straight into compact mode. A system notification can't control its lifetime, draw the bar, or
+/// choose the launch target — this can.
 @MainActor
 final class MeetingDetectionPanel {
     private var panel: NSPanel?
@@ -29,10 +29,10 @@ final class MeetingDetectionPanel {
         self.onStart = onStartNotes
         self.onDismiss = onDismiss
         model.appName = appName
-        model.progress = 1
+        model.progress = 0
         model.paused = false
 
-        let width: CGFloat = 384, height: CGFloat = 132
+        let width: CGFloat = 384, height: CGFloat = 118
         let hosting = NSHostingView(rootView: DetectionPanelView(
             model: model,
             onStart: { [weak self] in self?.fire(start: true) },
@@ -64,7 +64,7 @@ final class MeetingDetectionPanel {
                 guard let self else { return }
                 if self.model.paused { continue }        // hover freezes the countdown
                 elapsed += 0.05
-                self.model.progress = max(0, 1 - elapsed / self.duration)
+                self.model.progress = min(1, elapsed / self.duration)
                 if elapsed >= self.duration { self.fire(start: false); return }
             }
         }
@@ -87,42 +87,32 @@ struct DetectionPanelView: View {
     @Bindable var model: DetectionPanelModel
     let onStart: () -> Void
     let onDismiss: () -> Void
+    @State private var hovering = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "waveform.badge.mic")
-                    .font(.system(size: 22))
-                    .foregroundStyle(Theme.accentGradient)
-                    .frame(width: 28)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("You're in a \(model.appName) meeting")
-                        .font(.system(size: 13, weight: .semibold))
-                    Text("Take live notes with SK Note Taker?")
+        VStack(spacing: 12) {
+            HStack(spacing: 12) {
+                LogoMark(size: 34)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(model.appName) meeting started")
+                        .font(.system(size: 13.5, weight: .semibold))
+                        .foregroundStyle(.primary)
+                    Text("Take notes with SK Note Taker")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
-                    HStack(spacing: 8) {
-                        Button(action: onStart) {
-                            Text("Start Notes")
-                                .font(.system(size: 12, weight: .semibold))
-                                .padding(.horizontal, 12).padding(.vertical, 5)
-                                .background(Theme.accentGradient, in: Capsule())
-                                .foregroundStyle(.white)
-                        }
-                        .buttonStyle(.plain)
-                        Button(action: onDismiss) {
-                            Text("Not now")
-                                .font(.system(size: 12))
-                                .foregroundStyle(.secondary)
-                                .padding(.vertical, 5)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(.top, 4)
                 }
-                Spacer(minLength: 0)
+                Spacer(minLength: 8)
+                Button(action: onStart) {
+                    Text("Start")
+                        .font(.system(size: 13, weight: .semibold))
+                        .padding(.horizontal, 18).padding(.vertical, 7)
+                        .background(Theme.accentGradient,
+                                    in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                        .foregroundStyle(.white)
+                }
+                .buttonStyle(.plain)
             }
-            .padding(14)
+            // Countdown bar: fills from the left edge to the right over the full 40s window.
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule().fill(.quaternary)
@@ -131,16 +121,50 @@ struct DetectionPanelView: View {
                 }
             }
             .frame(height: 4)
-            .padding(.horizontal, 14)
-            .padding(.bottom, 12)
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
         .frame(width: 360)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(Color.primary.opacity(0.08)))
+        // macOS-style close chip, top-left corner, revealed on hover.
+        .overlay(alignment: .topLeading) {
+            CloseChip(action: onDismiss)
+                .opacity(hovering ? 1 : 0)
+                .allowsHitTesting(hovering)
+                .offset(x: -7, y: -7)
+        }
         .shadow(color: .black.opacity(0.22), radius: 14, y: 5)
         .padding(12)
-        .onHover { model.paused = $0 }
+        .onHover { h in
+            hovering = h
+            model.paused = h
+        }
+        .animation(.easeInOut(duration: 0.15), value: hovering)
+    }
+}
+
+/// The small grey circle-with-x that macOS shows at the top-left of a notification.
+private struct CloseChip: View {
+    let action: () -> Void
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "xmark")
+                .font(.system(size: 8, weight: .bold))
+                .foregroundStyle(hover ? .primary : .secondary)
+                .frame(width: 20, height: 20)
+                .background(
+                    Circle()
+                        .fill(.regularMaterial)
+                        .overlay(Circle().strokeBorder(Color.primary.opacity(0.12))))
+                .shadow(color: .black.opacity(0.2), radius: 3, y: 1)
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+        .help("Dismiss")
     }
 }
