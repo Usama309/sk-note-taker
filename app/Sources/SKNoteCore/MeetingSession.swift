@@ -354,11 +354,17 @@ public final class MeetingSession {
     }
 
     /// Fed by the meeting-app speaker reader (Zoom Accessibility / Meet extension): "this named
-    /// participant is the active speaker right now". Stamped onto the transcript timeline and
-    /// picked up by the next rebuild, so remote speakers show their real name instead of "Speaker N".
-    public func noteActiveSpeaker(_ name: String) {
+    /// participant is the active speaker right now", or `nil` when nobody is (so the open span is
+    /// closed and one speaker's name does not bleed onto the next). Stamped onto the transcript
+    /// timeline and picked up by the next rebuild, so remote speakers show their real name.
+    public func noteActiveSpeaker(_ name: String?) {
         guard phase == .recording, !isPaused else { return }
-        nameTrack.record(name: name, at: clock.sessionTime())
+        let t = clock.sessionTime()
+        if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            nameTrack.record(name: name, at: t)
+        } else {
+            nameTrack.clearActive(at: t)
+        }
     }
 
     // MARK: - Screen recording (optional, on demand)

@@ -6,11 +6,17 @@ import SKNoteCore
 /// Reads the Zoom desktop app's UI over the macOS Accessibility API to learn who the active
 /// speaker is, so their real name can be attached to the transcript (Granola-style speaker tags).
 ///
-/// Zoom exposes no API for this, so the active-speaker extraction is UI-shape dependent and must
-/// be tuned against a live call. `dumpTree()` prints Zoom's accessibility hierarchy so the exact
-/// name/active-speaker nodes can be identified; `currentActiveSpeaker()` is the extractor refined
-/// from that. The reader attaches read-only (it never clicks or types), polls at ~1.4 Hz, and
-/// degrades to nothing when Accessibility is not granted or Zoom is not the meeting app.
+/// Zoom exposes no API for this. The reader walks Zoom's accessibility hierarchy into a plain
+/// `AXNode` tree and hands it to the pure `ZoomAX` interpreters (in SKNoteCore, unit-tested) to
+/// extract the participant roster and the active speaker. It attaches read-only (never clicks or
+/// types), polls at ~1.4 Hz, and degrades to nothing when Accessibility is not granted or Zoom is
+/// not the meeting app.
+///
+/// Because the exact "who is talking" signal is UI-shape dependent and can differ per Zoom build,
+/// every poll also appends a compact diagnostic (roster, mute states, spotlight, speaking markers,
+/// and what CHANGED since the last poll) to `zoom-speaker-debug.log`. That auto-captures the real
+/// signal from a live call under whatever conditions the user is in, so tuning never needs a manual
+/// tree dump.
 final class ZoomSpeakerReader: @unchecked Sendable {
     static let zoomBundleId = "us.zoom.xos"
 
@@ -32,19 +38,39 @@ final class ZoomSpeakerReader: @unchecked Sendable {
         !NSRunningApplication.runningApplications(withBundleIdentifier: zoomBundleId).isEmpty
     }
 
-    /// Begin polling Zoom for the active speaker. `onActiveSpeaker` fires only when the name
-    /// changes, on the main actor.
-    func start(onActiveSpeaker: @escaping @Sendable (String) -> Void) {
+    /// Begin polling Zoom for the active speaker. `onActiveSpeaker` fires when the active speaker
+    /// changes: a name when someone is talking, `nil` when nobody is (so the open span is closed
+    /// and one speaker's name does not bleed onto the next). Called on a background task.
+    func start(onActiveSpeaker: @escaping @Sendable (String?) -> Void) {
         stop()
         SKLog.info(.session, "Zoom speaker reader: starting (accessibility=\(Permission.accessibilityStatus().rawValue))")
         task = Task.detached(priority: .utility) { [weak self] in
             guard let self else { return }
-            var last: String?
+            var last: String??            // nil = never reported; .some(nil) = reported "no speaker"
+            var previousTree: AXNode?
+            var lastDiag = Date.distantPast
             while !Task.isCancelled {
-                if let name = self.currentActiveSpeaker(), name != last {
-                    last = name
-                    onActiveSpeaker(name)
+                let tree = self.readTree()
+                let roster = tree.map { ZoomAX.roster(in: $0) } ?? []
+                let active = tree.flatMap { ZoomAX.activeSpeaker(in: $0, roster: roster) }
+
+                let value: String? = active?.name
+                if last == nil || last! != value {
+                    last = .some(value)
+                    onActiveSpeaker(value)
                 }
+
+                // Auto-capture: append a diagnostic at most every ~2s, but only while there is a
+                // meeting worth logging (a known roster or an active speaker) so an idle Zoom does
+                // not spam the log.
+                if let tree, active != nil || !roster.isEmpty,
+                   Date().timeIntervalSince(lastDiag) >= 2.0 {
+                    lastDiag = Date()
+                    let diag = ZoomAX.diagnostics(in: tree, previous: previousTree, roster: roster)
+                    self.appendDebug(diag, activeStrategy: active?.strategy)
+                    previousTree = tree
+                }
+
                 try? await Task.sleep(for: .milliseconds(700))
             }
         }
@@ -55,72 +81,51 @@ final class ZoomSpeakerReader: @unchecked Sendable {
         task = nil
     }
 
-    // MARK: - Extraction (refined against a live Zoom call)
+    // MARK: - Debug: manual full dump (Settings → Speaker tags → Dump Zoom accessibility tree)
 
-    /// The current active speaker's display name, or nil if it can't be determined.
-    ///
-    /// PROVISIONAL: this heuristic is a starting point. Run `dumpTree()` during a live Zoom call
-    /// to see the real hierarchy, then tighten the match. Today it looks for a static-text node
-    /// whose accessibility description/parent marks it as the active or talking participant.
-    func currentActiveSpeaker() -> String? {
-        guard let app = zoomAppElement() else { return nil }
-        var found: String?
-        walk(app, depth: 0, maxDepth: 40) { el, _ in
-            let role = self.string(el, Self.axRole) ?? ""
-            let desc = self.string(el, Self.axDescription) ?? ""
-            let value = self.string(el, Self.axValue) ?? ""
-            let title = self.string(el, Self.axTitle) ?? ""
-            let hay = (desc + " " + value + " " + title).lowercased()
-            // Zoom tends to describe the active tile with words like "active speaker" / "talking".
-            if role == "AXStaticText" || role == "AXImage" {
-                if hay.contains("active speaker") || hay.contains("is talking") || hay.contains("speaking") {
-                    let name = Self.nameFrom(description: desc) ?? (value.isEmpty ? title : value)
-                    if !name.isEmpty { found = name; return false }
-                }
-            }
-            return true   // keep walking
-        }
-        return found
-    }
-
-    /// Pull a name out of a Zoom accessibility description like "Alice Smith, active speaker".
-    static func nameFrom(description: String) -> String? {
-        let first = description
-            .components(separatedBy: CharacterSet(charactersIn: ",("))
-            .first?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return first.isEmpty ? nil : first
-    }
-
-    // MARK: - Debug: dump the whole tree so we can find the real nodes live
-
-    /// Walks Zoom's accessibility tree and returns an indented dump of roles + text, for
-    /// identifying the exact active-speaker / participant nodes during a live call.
-    func dumpTree(maxDepth: Int = 25, maxNodes: Int = 1500) -> String {
-        guard let app = zoomAppElement() else { return "Zoom is not running (or no AX element)." }
+    /// An indented dump of Zoom's whole accessibility tree, for identifying nodes during a live
+    /// call. Still available as a manual escape hatch; routine tuning uses `zoom-speaker-debug.log`.
+    func dumpTree(maxDepth: Int = 25) -> String {
+        guard let tree = readTree(maxDepth: maxDepth) else { return "Zoom is not running (or no AX element)." }
         var out = "Zoom AX tree (accessibility=\(Permission.accessibilityStatus().rawValue)):\n"
         var nodes = 0
-        walk(app, depth: 0, maxDepth: maxDepth) { el, depth in
+        func render(_ node: AXNode, depth: Int) {
             nodes += 1
-            if nodes > maxNodes { return false }
-            let role = self.string(el, Self.axRole) ?? "?"
-            let sub = self.string(el, Self.axSubrole)
-            let title = self.string(el, Self.axTitle)
-            let value = self.string(el, Self.axValue)
-            let desc = self.string(el, Self.axDescription)
-            var line = String(repeating: "  ", count: max(0, depth)) + role
-            if let sub, !sub.isEmpty { line += " [\(sub)]" }
-            if let title, !title.isEmpty { line += " title=\"\(title)\"" }
-            if let value, !value.isEmpty { line += " value=\"\(value)\"" }
-            if let desc, !desc.isEmpty { line += " desc=\"\(desc)\"" }
+            var line = String(repeating: "  ", count: max(0, depth)) + node.role
+            if let s = node.subrole, !s.isEmpty { line += " [\(s)]" }
+            if let t = node.title, !t.isEmpty { line += " title=\"\(t)\"" }
+            if let v = node.value, !v.isEmpty { line += " value=\"\(v)\"" }
+            if let d = node.desc, !d.isEmpty { line += " desc=\"\(d)\"" }
             out += line + "\n"
-            return true
+            for c in node.children { render(c, depth: depth + 1) }
         }
+        render(tree, depth: 0)
         out += "(\(nodes) nodes)\n"
+        // Also surface the interpreters' current read, so the dump is self-checking.
+        let roster = ZoomAX.roster(in: tree)
+        out += "roster: \(roster.joined(separator: ", "))\n"
+        out += "activeSpeaker: \(ZoomAX.activeSpeaker(in: tree, roster: roster).map { "\($0.name) [\($0.strategy)]" } ?? "(none)")\n"
         return out
     }
 
-    // MARK: - AX plumbing
+    // MARK: - AX → AXNode
+
+    private func readTree(maxDepth: Int = 40) -> AXNode? {
+        guard let app = zoomAppElement() else { return nil }
+        return buildNode(app, depth: 0, maxDepth: maxDepth)
+    }
+
+    private func buildNode(_ el: AXUIElement, depth: Int, maxDepth: Int) -> AXNode {
+        let kids = depth < maxDepth ? children(el).map { buildNode($0, depth: depth + 1, maxDepth: maxDepth) } : []
+        return AXNode(
+            role: string(el, Self.axRole) ?? "?",
+            subrole: string(el, Self.axSubrole),
+            title: string(el, Self.axTitle),
+            value: string(el, Self.axValue),
+            desc: string(el, Self.axDescription),
+            children: kids
+        )
+    }
 
     private func zoomAppElement() -> AXUIElement? {
         guard let app = NSRunningApplication
@@ -144,15 +149,22 @@ final class ZoomSpeakerReader: @unchecked Sendable {
         return []
     }
 
-    /// Depth-first walk; `visit(element, depth)` returns false to stop the whole walk early.
-    @discardableResult
-    private func walk(_ el: AXUIElement, depth: Int, maxDepth: Int,
-                      _ visit: (AXUIElement, Int) -> Bool) -> Bool {
-        guard depth <= maxDepth else { return true }
-        if !visit(el, depth) { return false }
-        for child in children(el) {
-            if !walk(child, depth: depth + 1, maxDepth: maxDepth, visit) { return false }
+    // MARK: - Auto-capture log
+
+    private func appendDebug(_ body: String, activeStrategy: String?) {
+        let url = SKLog.directory.appendingPathComponent("zoom-speaker-debug.log")
+        let stamp = ISO8601DateFormatter().string(from: Date())
+        let header = activeStrategy.map { "active=\($0)" } ?? "active=(none)"
+        let block = "── \(stamp)  \(header)\n\(body)\n"
+        try? FileManager.default.createDirectory(at: SKLog.directory, withIntermediateDirectories: true)
+        if let data = block.data(using: .utf8) {
+            if let handle = try? FileHandle(forWritingTo: url) {
+                defer { try? handle.close() }
+                _ = try? handle.seekToEnd()
+                try? handle.write(contentsOf: data)
+            } else {
+                try? data.write(to: url)
+            }
         }
-        return true
     }
 }

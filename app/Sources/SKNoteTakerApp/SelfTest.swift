@@ -45,6 +45,21 @@ enum SelfTest {
             print("  \(SKLog.errorLogURL.path)")
             return true
         }
+        // Runs the Zoom reader against the currently-running Zoom under the app's Accessibility
+        // grant and prints the interpreter's roster + active-speaker read (plus the full tree to
+        // the Desktop log). Lets us confirm roster extraction against the REAL live Zoom AX tree.
+        if args.contains("--selftest-zoomdump") {
+            let reader = ZoomSpeakerReader()
+            let dump = reader.dumpTree()
+            let url = SKLog.directory.appendingPathComponent("zoom-ax-tree.txt")
+            try? FileManager.default.createDirectory(at: SKLog.directory, withIntermediateDirectories: true)
+            try? dump.write(to: url, atomically: true, encoding: .utf8)
+            let tail = dump.split(separator: "\n").suffix(3).joined(separator: "\n")
+            print("Zoom running: \(ZoomSpeakerReader.zoomIsRunning())")
+            print(tail)
+            print("Full tree: \(url.path)")
+            return true
+        }
         if let i = args.firstIndex(of: "--selftest-screenrec") {
             let seconds = (i + 1 < args.count ? Double(args[i + 1]) : nil) ?? 4
             let done = Flag()
