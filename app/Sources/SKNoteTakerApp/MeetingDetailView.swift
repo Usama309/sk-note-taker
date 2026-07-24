@@ -1,6 +1,7 @@
 import SwiftUI
 import AVFoundation
 import AVKit
+import AppKit
 import SKNoteCore
 
 /// A finished meeting, redesigned: a header with title/star/actions and participant avatars, a
@@ -461,19 +462,55 @@ struct DetailRightRail: View {
     }
 }
 
+/// AVKit's AppKit player view, wrapped for SwiftUI.
+///
+/// We deliberately avoid SwiftUI's `VideoPlayer`: its `_AVKit_SwiftUI` backing aborts with a
+/// Swift metadata fatal error (`getSuperclassMetadata`) when instantiated on this macOS build,
+/// which crashed the whole app whenever a meeting with a recording was opened. `AVPlayerView`
+/// is a plain `NSView` and never touches that framework.
+private struct RecordingPlayerView: NSViewRepresentable {
+    let player: AVPlayer
+
+    func makeNSView(context: Context) -> AVPlayerView {
+        let view = AVPlayerView()
+        view.player = player
+        view.controlsStyle = .inline
+        view.videoGravity = .resizeAspect
+        return view
+    }
+
+    func updateNSView(_ nsView: AVPlayerView, context: Context) {
+        if nsView.player !== player { nsView.player = player }
+    }
+}
+
 /// The meeting's screen recording, if one was captured.
 struct ScreenRecordingCard: View {
     @Environment(AppState.self) private var app
     let meeting: Meeting
     @State private var player: AVPlayer?
+    @State private var fileURL: URL?
     @State private var missing = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label("Screen recording", systemImage: "rectangle.on.rectangle")
-                .font(.skSubtitle)
+            HStack {
+                Label("Screen recording", systemImage: "rectangle.on.rectangle")
+                    .font(.skSubtitle)
+                Spacer()
+                if let fileURL {
+                    Button {
+                        NSWorkspace.shared.activateFileViewerSelecting([fileURL])
+                    } label: {
+                        Label("Show in Finder", systemImage: "folder")
+                            .font(.skCaption)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Theme.indigo)
+                }
+            }
             if let player {
-                VideoPlayer(player: player)
+                RecordingPlayerView(player: player)
                     .frame(height: 180)
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             } else if missing {
@@ -488,6 +525,7 @@ struct ScreenRecordingCard: View {
         .task {
             let url = await app.screenRecordingURL(for: meeting.id)
             if FileManager.default.fileExists(atPath: url.path) {
+                fileURL = url
                 player = AVPlayer(url: url)
             } else {
                 missing = true
