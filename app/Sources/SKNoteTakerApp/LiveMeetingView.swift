@@ -115,21 +115,21 @@ struct LiveMeetingView: View {
                 .help(session.isPaused ? "Resume recording" : "Pause recording — the paused time isn't recorded")
 
                 Button {
-                    Task {
-                        if session.isRecordingScreen { await session.stopScreenRecording() }
-                        else { await session.startScreenRecording() }
+                    if session.isRecordingScreen {
+                        Task { await session.stopScreenRecording() }
+                    } else {
+                        app.pickScreenSourceAndRecord()   // native picker: window / app / whole screen
                     }
                 } label: {
-                    Label(session.isRecordingScreen ? "Recording screen" : "Record screen",
+                    Label(session.isRecordingScreen ? "Stop screen" : "Record screen",
                           systemImage: session.isRecordingScreen
-                            ? "record.circle.fill" : "rectangle.dashed.badge.record")
-                        .labelStyle(.iconOnly)
+                            ? "stop.circle.fill" : "rectangle.dashed.badge.record")
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.large)
                 .tint(session.isRecordingScreen ? .red : nil)
                 .help(session.isRecordingScreen ? "Stop recording the screen"
-                      : "Also record your screen to a video saved with this meeting")
+                      : "Pick a window, an app, or the whole screen to record with this meeting")
 
                 Button {
                     showSpeakers = true

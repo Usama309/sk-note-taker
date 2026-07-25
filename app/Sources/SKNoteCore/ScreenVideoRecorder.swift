@@ -82,37 +82,52 @@ public final class ScreenVideoRecorder: NSObject, SCStreamOutput, SCStreamDelega
 
     public static func permissionGranted() -> Bool { CGPreflightScreenCaptureAccess() }
 
-    /// Start recording to the output .mov. When `appBundleId` names the meeting app (Zoom, Teams,
-    /// or the browser running Meet), the capture is scoped to just that app's meeting window; when
-    /// it is nil or the app has no suitable on-screen window, it falls back to the full display so a
-    /// recording is still produced. Returns the resolved scope (for logging).
+    /// Start recording to the output .mov.
+    ///
+    /// - `explicitFilter`: a source the user chose in the native macOS picker (a window, an app, or
+    ///   a display). Used as-is when provided.
+    /// - Otherwise, when `appBundleId` names the meeting app (Zoom, Teams, or the browser running
+    ///   Meet), the capture is scoped to just that app's meeting window; failing that, it falls back
+    ///   to the full display so a recording is still produced.
+    ///
+    /// Returns the resolved scope (for logging).
     @discardableResult
-    public func start(appBundleId: String? = nil) async throws -> String {
+    public func start(filter explicitFilter: sending SCContentFilter? = nil,
+                      appBundleId: String? = nil) async throws -> String {
         guard CGPreflightScreenCaptureAccess() else {
             _ = CGRequestScreenCaptureAccess()
             throw ScreenVideoError("Screen Recording permission is required to record the screen.")
         }
-        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
 
-        // Resolve what to capture: the meeting app's window if we can find it, else the full display.
+        // Resolve what to capture: the user's picked source, else the meeting app's window, else the
+        // full display.
         let filter: SCContentFilter
-        let srcWidth: Double
-        let srcHeight: Double
+        var srcWidth: Double
+        var srcHeight: Double
         let scope: String
-        if let appBundleId,
-           let window = Self.meetingWindow(bundleId: appBundleId, in: content.windows) {
-            filter = SCContentFilter(desktopIndependentWindow: window)
-            srcWidth = window.frame.width
-            srcHeight = window.frame.height
-            scope = "window \"\(window.title ?? "")\" of \(appBundleId)"
-        } else if let display = content.displays.first {
-            filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
-            srcWidth = Double(display.width)
-            srcHeight = Double(display.height)
-            scope = appBundleId == nil ? "full display" : "full display (no window for \(appBundleId!))"
+        if let explicitFilter {
+            filter = explicitFilter
+            srcWidth = explicitFilter.contentRect.width * Double(explicitFilter.pointPixelScale)
+            srcHeight = explicitFilter.contentRect.height * Double(explicitFilter.pointPixelScale)
+            scope = "picked source"
         } else {
-            throw ScreenVideoError("No display available to record.")
+            let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+            if let appBundleId,
+               let window = Self.meetingWindow(bundleId: appBundleId, in: content.windows) {
+                filter = SCContentFilter(desktopIndependentWindow: window)
+                srcWidth = window.frame.width
+                srcHeight = window.frame.height
+                scope = "window \"\(window.title ?? "")\" of \(appBundleId)"
+            } else if let display = content.displays.first {
+                filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
+                srcWidth = Double(display.width)
+                srcHeight = Double(display.height)
+                scope = appBundleId == nil ? "full display" : "full display (no window for \(appBundleId!))"
+            } else {
+                throw ScreenVideoError("No display available to record.")
+            }
         }
+        if srcWidth < 2 || srcHeight < 2 { srcWidth = 1280; srcHeight = 720 }   // sane fallback
 
         // Downscale to at most 1600px wide (even dims for H.264) and cap the frame rate — a
         // meeting screen recording does not need retina or 30fps, and this keeps the encode

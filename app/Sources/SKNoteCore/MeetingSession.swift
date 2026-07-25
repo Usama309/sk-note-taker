@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import ScreenCaptureKit
 
 /// Maps an RMS level (0…1) to a 0…`maxBars` meter-bar count on a perceptual dB scale. Normal
 /// speech is only RMS ~0.02–0.15; a linear scale barely moves, so we map roughly −50 dBFS
@@ -368,15 +369,17 @@ public final class MeetingSession {
 
     // MARK: - Screen recording (optional, on demand)
 
-    public func startScreenRecording() async {
+    public func startScreenRecording(filter: sending SCContentFilter? = nil) async {
         guard phase == .recording, screenRecorder == nil else { return }
-        // Scope the capture to the meeting app's window (Zoom → Zoom, Teams → Teams, Meet → the
-        // browser), resolved from whichever registered app is using the mic right now. Falls back
-        // to the full display inside the recorder when no app window is found.
-        let appBundleId = MeetingAppRegistry.meetingAppBundleId(amongRunning: MicActivity.bundleIdsUsingMic())
+        // Use the source the user picked, else scope the capture to the meeting app's window (Zoom →
+        // Zoom, Teams → Teams, Meet → the browser), resolved from whichever registered app is using
+        // the mic right now. Falls back to the full display inside the recorder when neither applies.
+        let appBundleId = filter == nil
+            ? MeetingAppRegistry.meetingAppBundleId(amongRunning: MicActivity.bundleIdsUsingMic())
+            : nil
         let recorder = ScreenVideoRecorder(outputURL: await store.screenRecordingURL(for: meeting.id))
         do {
-            let scope = try await recorder.start(appBundleId: appBundleId)
+            let scope = try await recorder.start(filter: filter, appBundleId: appBundleId)
             screenRecorder = recorder
             isRecordingScreen = true
             SKLog.info(.session, "Screen recording started (\(scope))")

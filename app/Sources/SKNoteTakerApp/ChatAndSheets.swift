@@ -379,6 +379,12 @@ struct GeneralSettingsView: View {
                     .font(.skFootnote)
                     .foregroundStyle(.tertiary)
             }
+            Section("Screen recording") {
+                Toggle("Ask to record my screen when a meeting starts", isOn: $app.settings.askToRecordScreen)
+                Text("When on, a prompt lets you record a window, an app, or the whole screen with the meeting. You can always start it later with the Record screen button.")
+                    .font(.skFootnote)
+                    .foregroundStyle(.tertiary)
+            }
             Section("Speakers") {
                 TextField("Your name (used for Speaker 1)", text: Binding(
                     get: { app.settings.defaultSpeakerName ?? "" },

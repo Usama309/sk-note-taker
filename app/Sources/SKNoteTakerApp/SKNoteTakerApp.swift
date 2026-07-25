@@ -270,6 +270,19 @@ final class AppState {
     var notificationStatus: String = "notDetermined"
     var showOnboarding = false
 
+    // Screen recording: native source picker + the "record your screen?" prompt shown at start.
+    @ObservationIgnored let screenSourcePicker = ScreenSourcePicker()
+    var pendingScreenRecordPrompt = false
+
+    /// Open the native macOS screen-share picker; if the user chooses a source, start recording it.
+    func pickScreenSourceAndRecord() {
+        pendingScreenRecordPrompt = false
+        screenSourcePicker.present { [weak self] filter in
+            guard let self, let session = self.session, let filter else { return }
+            Task { await session.startScreenRecording(filter: filter) }
+        }
+    }
+
     // Meeting auto-detection (Zoom/Teams/WhatsApp/Meet → notification → start notes).
     @ObservationIgnored private lazy var detector: MeetingDetector = {
         let d = MeetingDetector()
@@ -725,6 +738,7 @@ final class AppState {
             selectedMeetingId = session.meeting.id
             await refresh()
             startSpeakerSources()
+            if settings.askToRecordScreen { pendingScreenRecordPrompt = true }
         }
     }
 
