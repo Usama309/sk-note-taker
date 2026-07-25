@@ -369,12 +369,12 @@ public final class MeetingSession {
 
     // MARK: - Screen recording (optional, on demand)
 
-    public func startScreenRecording(filter: sending SCContentFilter? = nil) async {
+    public func startScreenRecording(filter: sending SCContentFilter? = nil, appScoped: Bool = true) async {
         guard phase == .recording, screenRecorder == nil else { return }
-        // Use the source the user picked, else scope the capture to the meeting app's window (Zoom →
-        // Zoom, Teams → Teams, Meet → the browser), resolved from whichever registered app is using
-        // the mic right now. Falls back to the full display inside the recorder when neither applies.
-        let appBundleId = filter == nil
+        // Use the source the user picked; else, when `appScoped`, scope to the meeting app's window
+        // (Zoom → Zoom, Teams → Teams, Meet → the browser) from whichever registered app holds the
+        // mic; else record the full display. The recorder falls back to full display if no window.
+        let appBundleId = (filter == nil && appScoped)
             ? MeetingAppRegistry.meetingAppBundleId(amongRunning: MicActivity.bundleIdsUsingMic())
             : nil
         let recorder = ScreenVideoRecorder(outputURL: await store.screenRecordingURL(for: meeting.id))

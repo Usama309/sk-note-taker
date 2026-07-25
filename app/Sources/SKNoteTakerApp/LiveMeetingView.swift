@@ -118,7 +118,7 @@ struct LiveMeetingView: View {
                     if session.isRecordingScreen {
                         Task { await session.stopScreenRecording() }
                     } else {
-                        app.pickScreenSourceAndRecord()   // native picker: window / app / whole screen
+                        app.openScreenSourcePicker()   // in-app picker: window or whole screen
                     }
                 } label: {
                     Label(session.isRecordingScreen ? "Stop screen" : "Record screen",

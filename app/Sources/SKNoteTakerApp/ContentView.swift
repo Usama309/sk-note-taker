@@ -50,11 +50,8 @@ struct ContentView: View {
         .sheet(isPresented: $app.showOnboarding) {
             OnboardingView()
         }
-        .alert("Record your screen?", isPresented: $app.pendingScreenRecordPrompt) {
-            Button("Choose & Record") { app.pickScreenSourceAndRecord() }
-            Button("Not now", role: .cancel) { app.pendingScreenRecordPrompt = false }
-        } message: {
-            Text("Capture a window, an app, or the whole screen alongside this meeting. You can turn this prompt off in Settings.")
+        .sheet(isPresented: $app.showScreenSourcePicker) {
+            ScreenSourceSheet { filter in app.startScreenRecording(filter: filter) }
         }
     }
 }

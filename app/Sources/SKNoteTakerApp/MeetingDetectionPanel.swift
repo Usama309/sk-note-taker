@@ -147,7 +147,7 @@ struct DetectionPanelView: View {
 }
 
 /// The small grey circle-with-x that macOS shows at the top-left of a notification.
-private struct CloseChip: View {
+struct CloseChip: View {
     let action: () -> Void
     @State private var hover = false
 

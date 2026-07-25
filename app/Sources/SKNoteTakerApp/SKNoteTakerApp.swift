@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import ScreenCaptureKit
 import SKNoteCore
 
 /// Entry point. Intercepts hidden `--selftest-*` diagnostics (which run under the app's real
@@ -270,17 +271,28 @@ final class AppState {
     var notificationStatus: String = "notDetermined"
     var showOnboarding = false
 
-    // Screen recording: native source picker + the "record your screen?" prompt shown at start.
-    @ObservationIgnored let screenSourcePicker = ScreenSourcePicker()
-    var pendingScreenRecordPrompt = false
+    // Screen recording: a top-right prompt at meeting start + an in-app source picker sheet.
+    @ObservationIgnored private let screenRecordPrompt = ScreenRecordPromptPanel()
+    var showScreenSourcePicker = false
 
-    /// Open the native macOS screen-share picker; if the user chooses a source, start recording it.
-    func pickScreenSourceAndRecord() {
-        pendingScreenRecordPrompt = false
-        screenSourcePicker.present { [weak self] filter in
-            guard let self, let session = self.session, let filter else { return }
-            Task { await session.startScreenRecording(filter: filter) }
-        }
+    /// Top-right "record your screen?" popup (same style as the note-taking popup).
+    private func promptScreenRecording() {
+        screenRecordPrompt.show(
+            onWholeScreen: { [weak self] in
+                Task { await self?.session?.startScreenRecording(appScoped: false) }
+            },
+            onChoose: { [weak self] in self?.showScreenSourcePicker = true },
+            onDismiss: {})
+    }
+
+    /// Open the in-app picker sheet (choose a window or a whole screen).
+    func openScreenSourcePicker() { showScreenSourcePicker = true }
+
+    /// Start recording the source the user picked in the sheet.
+    func startScreenRecording(filter: sending SCContentFilter) {
+        guard let session else { return }
+        let box = SendableSCFilter(filter)
+        Task { await session.startScreenRecording(filter: box.value) }
     }
 
     // Meeting auto-detection (Zoom/Teams/WhatsApp/Meet → notification → start notes).
@@ -738,7 +750,7 @@ final class AppState {
             selectedMeetingId = session.meeting.id
             await refresh()
             startSpeakerSources()
-            if settings.askToRecordScreen { pendingScreenRecordPrompt = true }
+            if settings.askToRecordScreen { promptScreenRecording() }
         }
     }
 
