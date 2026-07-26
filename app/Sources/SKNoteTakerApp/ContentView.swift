@@ -54,6 +54,7 @@ struct ContentView: View {
             ScreenSourceSheet { filter in app.startScreenRecording(filter: filter) }
         }
         .sheet(item: $app.projectMemoryTarget) { ProjectMemorySheet(project: $0) }
+        .sheet(isPresented: $app.showAppAssistant) { AppAssistantSheet() }
     }
 }
 
@@ -105,6 +106,13 @@ struct SidebarView: View {
         // clicks reliably. A Button always fires; the current filter shows as a row highlight.
         List {
             Section("Library") {
+                Button { app.showAppAssistant = true } label: {
+                    rowLabel(icon: AnyView(Image(systemName: "sparkles").foregroundStyle(Theme.indigo)),
+                             title: "Assistant", count: 0)
+                }
+                .buttonStyle(.plain)
+                .listRowBackground(Color.clear)
+
                 Button { app.libraryFilter = .all } label: {
                     rowLabel(icon: AnyView(Image(systemName: "tray.full")
                         .foregroundStyle(Theme.accentGradient)),

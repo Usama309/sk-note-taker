@@ -212,6 +212,20 @@ public actor MeetingStore {
         try saveProjectMemory(memory, for: folderId)
     }
 
+    // MARK: - App assistant chat
+
+    public func appChat() -> ChatLog {
+        let url = dataDir.appendingPathComponent("app-assistant-chat.json")
+        guard let data = try? Data(contentsOf: url),
+              let chat = try? SKJSON.decoder.decode(ChatLog.self, from: data) else { return ChatLog() }
+        return chat
+    }
+
+    public func saveAppChat(_ chat: ChatLog) throws {
+        try FileManager.default.createDirectory(at: dataDir, withIntermediateDirectories: true)
+        try atomicWrite(SKJSON.encoder.encode(chat), to: dataDir.appendingPathComponent("app-assistant-chat.json"))
+    }
+
     // MARK: - Settings
 
     public func loadSettings() -> AppSettings {

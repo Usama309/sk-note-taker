@@ -988,6 +988,82 @@ final class AppState {
 
     func dismissLiveSuggestion() { liveSuggestion = nil }
 
+    // MARK: - Whole-app assistant (read + confirmed actions)
+
+    var showAppAssistant = false
+    var appAssistantChat = ChatLog()
+    var pendingAppAction: ClaudeCLIService.AppAction?
+
+    func loadAppChat() async { appAssistantChat = await store.appChat() }
+
+    /// A compact digest of everything the app knows, for the app assistant.
+    private func appDigest(maxMeetings: Int = 30) async -> String {
+        func projectName(_ id: UUID?) -> String {
+            id.flatMap { fid in folders.first { $0.id == fid }?.name } ?? "Unfiled"
+        }
+        var lines: [String] = []
+        lines.append("PROJECTS: " + (folders.isEmpty ? "(none)" : folders.map(\.name).joined(separator: ", ")))
+        lines.append("\nMEETINGS (most recent first, with your tasks):")
+        for m in meetings.prefix(maxMeetings) {
+            let date = m.createdAt.formatted(date: .abbreviated, time: .shortened)
+            lines.append("- [\(m.id.uuidString)] \(m.title) — \(date) — project: \(projectName(m.folderId))")
+            if let summary = await store.summary(for: m.id) {
+                for item in summary.actionItems {
+                    lines.append("    • task: \(item.text)" + (item.owner.map { " (owner: \($0))" } ?? ""))
+                }
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// Ask the whole-app assistant a question.
+    func askApp(_ question: String) async {
+        busy.insert("appAssistant"); defer { busy.remove("appAssistant") }
+        appAssistantChat.messages.append(ChatMessage(role: "user", text: question))
+        try? await store.saveAppChat(appAssistantChat)
+        let digest = await appDigest()
+        do {
+            let reply = try await ai.appAssistant(
+                question: question, appDigest: digest, history: appAssistantChat, allowActions: true)
+            appAssistantChat.messages.append(ChatMessage(role: "assistant", text: reply.answer))
+            pendingAppAction = reply.action
+        } catch {
+            appAssistantChat.messages.append(ChatMessage(
+                role: "assistant", text: "Something went wrong: \(error.localizedDescription)"))
+            pendingAppAction = nil
+        }
+        try? await store.saveAppChat(appAssistantChat)
+    }
+
+    /// Run the action the assistant proposed (after the user confirmed).
+    func runPendingAppAction() async {
+        guard let action = pendingAppAction else { return }
+        pendingAppAction = nil
+        func folder(_ name: String?) -> Folder? {
+            guard let name else { return nil }
+            return folders.first { $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame }
+                ?? folders.first { $0.name.localizedCaseInsensitiveContains(name) }
+        }
+        switch action.type {
+        case "start_meeting":
+            showAppAssistant = false
+            await startMeetingCompact()
+        case "open_project_memory":
+            if let f = folder(action.project) { projectMemoryTarget = ProjectRef(id: f.id, name: f.name) }
+        case "open_project_folder":
+            if let f = folder(action.project) { openProjectFolder(f.id) }
+        case "export_project":
+            if let f = folder(action.project) { exportProject(ProjectRef(id: f.id, name: f.name)) }
+        case "rebuild_project_memory":
+            if let f = folder(action.project) { await rebuildProjectMemory(folderId: f.id) }
+        case "resummarize_meeting":
+            if let idStr = action.meetingId, let id = UUID(uuidString: idStr) {
+                await generateSummary(for: id, notes: await store.notes(for: id))
+            }
+        default: break
+        }
+    }
+
     // MARK: - Project chat, folder, export
 
     func projectChatLog(_ folderId: UUID) async -> ChatLog { await store.projectChat(for: folderId) }

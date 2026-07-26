@@ -276,6 +276,88 @@ public actor ClaudeCLIService {
                             notes: p.notes ?? [], source: p.source ?? "memory")
     }
 
+    /// An action the app assistant proposes for the app to perform (after the user confirms).
+    public struct AppAction: Codable, Sendable, Equatable {
+        public var type: String   // start_meeting | open_project_memory | open_project_folder | export_project | rebuild_project_memory | resummarize_meeting | none
+        public var project: String?
+        public var meetingId: String?
+        public var label: String?
+        public init(type: String, project: String? = nil, meetingId: String? = nil, label: String? = nil) {
+            self.type = type; self.project = project; self.meetingId = meetingId; self.label = label
+        }
+    }
+
+    public struct AppAssistReply: Codable, Sendable, Equatable {
+        public var answer: String
+        public var action: AppAction?
+        public init(answer: String, action: AppAction? = nil) { self.answer = answer; self.action = action }
+    }
+
+    /// The whole-app assistant: answers questions across every meeting and project ("what's
+    /// happening", "what are my open tasks"), and may propose ONE action for the app to run after
+    /// the user confirms.
+    public func appAssistant(question: String, appDigest: String, history: ChatLog,
+                             allowActions: Bool) async throws -> AppAssistReply {
+        let historyText = history.messages.suffix(8).map {
+            "\($0.role == "user" ? "Q" : "A"): \($0.text)"
+        }.joined(separator: "\n")
+
+        let actionsDoc = allowActions ? """
+
+        You may propose ONE action for the app to perform. Set "action" ONLY when the user is clearly \
+        asking to DO something (not just to know something). The user confirms before it runs. \
+        Available action types:
+        - start_meeting: begin recording a new meeting.
+        - open_project_memory: open a project's memory (set "project" to its name).
+        - open_project_folder: reveal a project's folder in Finder (set "project").
+        - export_project: export a copyable project bundle (set "project").
+        - rebuild_project_memory: regenerate a project's working memory (set "project").
+        - resummarize_meeting: regenerate a meeting's summary (set "meetingId" to its id from the digest).
+        Always set "label" to a short description of what will happen. Omit "action" (or use type \
+        "none") when the user only wants information.
+        """ : ""
+
+        let schema = """
+        {"type":"object","properties":{
+          "answer":{"type":"string"},
+          "action":{"type":["object","null"],"properties":{
+            "type":{"type":"string","enum":["start_meeting","open_project_memory","open_project_folder","export_project","rebuild_project_memory","resummarize_meeting","none"]},
+            "project":{"type":["string","null"]},
+            "meetingId":{"type":["string","null"]},
+            "label":{"type":["string","null"]}
+          },"required":["type"]}
+        },"required":["answer"]}
+        """
+
+        let prompt = """
+        You are the SK Note Taker app assistant. You can see everything in the app (below). Answer \
+        the user's question specifically, referencing meeting titles and dates. For "what are my \
+        tasks" gather the task lines across meetings. Be concise.
+        \(actionsDoc)
+
+        APP CONTENTS:
+        \(appDigest)
+
+        \(historyText.isEmpty ? "" : "PREVIOUS:\n\(historyText)\n")
+        QUESTION: \(question)
+        """
+        let output = try await run(prompt: prompt, jsonSchema: schema,
+                                   modelOverride: allowActions ? nil : "haiku")
+        guard let structured = output.structured else {
+            throw ClaudeCLIError.badOutput("no structured output")
+        }
+        struct ActionPayload: Decodable {
+            let type: String; let project: String?; let meetingId: String?; let label: String?
+        }
+        struct Payload: Decodable { let answer: String; let action: ActionPayload? }
+        let p = try JSONDecoder().decode(Payload.self, from: structured)
+        let action: AppAction? = {
+            guard let a = p.action, a.type != "none" else { return nil }
+            return AppAction(type: a.type, project: a.project, meetingId: a.meetingId, label: a.label)
+        }()
+        return AppAssistReply(answer: p.answer.trimmingCharacters(in: .whitespacesAndNewlines), action: action)
+    }
+
     /// Chat with a whole project's memory (not a single meeting): answers using the living
     /// project.md, the details, and imported material, with optional web lookup.
     public func chatWithProject(question: String, projectName: String, projectMarkdown: String,
