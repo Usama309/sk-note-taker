@@ -55,6 +55,17 @@ struct ContentView: View {
         }
         .sheet(item: $app.projectMemoryTarget) { ProjectMemorySheet(project: $0) }
         .sheet(isPresented: $app.showAppAssistant) { AppAssistantSheet() }
+        .dropDestination(for: URL.self) { urls, _ in
+            let files = urls.filter { $0.isFileURL }
+            guard !files.isEmpty else { return false }
+            app.pendingDropFiles = files
+            return true
+        }
+        .sheet(isPresented: Binding(
+            get: { app.pendingDropFiles != nil },
+            set: { if !$0 { app.pendingDropFiles = nil } })) {
+            DropRouteSheet(files: app.pendingDropFiles ?? [])
+        }
     }
 }
 

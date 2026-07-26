@@ -276,6 +276,44 @@ public actor ClaudeCLIService {
                             notes: p.notes ?? [], source: p.source ?? "memory")
     }
 
+    /// Where an imported file should go, decided from the user's plain-language instruction.
+    public struct ImportRoute: Codable, Sendable, Equatable {
+        public var project: String   // target project name (an existing one, or a new one to create)
+        public var title: String     // a short title for the imported material
+        public var note: String      // 1-2 sentences on what the file is / what it's for
+        public init(project: String, title: String, note: String) {
+            self.project = project; self.title = title; self.note = note
+        }
+    }
+
+    /// Decide which project a dropped file belongs to and a note about it, from the user's
+    /// instruction ("this is the Acme SOW, put it in the Acme project as the signed contract").
+    public func routeImport(instruction: String, fileNames: [String],
+                            projects: [String]) async throws -> ImportRoute {
+        let schema = """
+        {"type":"object","properties":{
+          "project":{"type":"string","description":"Target project name — an EXISTING one (exact name) if it fits, else a concise new project name"},
+          "title":{"type":"string","description":"Short title for the imported material"},
+          "note":{"type":"string","description":"1-2 sentences: what this file is and what it's for"}
+        },"required":["project","title","note"]}
+        """
+        let prompt = """
+        A file is being imported into a PROJECT's memory. From the user's instruction, decide which \
+        project it belongs to and write a short note about the file.
+
+        "project" MUST be one of the existing projects below (use the exact name) when the \
+        instruction fits one; otherwise a concise NEW project name taken from the instruction. Never \
+        answer with an app name — only a project.
+
+        Existing projects: \(projects.isEmpty ? "(none yet)" : projects.joined(separator: ", "))
+        File(s): \(fileNames.joined(separator: ", "))
+        User's instruction: \(instruction.isEmpty ? "(none — infer the project from the file name)" : "\"\(instruction)\"")
+        """
+        let output = try await run(prompt: prompt, jsonSchema: schema, modelOverride: "haiku")
+        guard let structured = output.structured else { throw ClaudeCLIError.badOutput("no structured output") }
+        return try JSONDecoder().decode(ImportRoute.self, from: structured)
+    }
+
     /// An action the app assistant proposes for the app to perform (after the user confirms).
     public struct AppAction: Codable, Sendable, Equatable {
         public var type: String   // start_meeting | open_project_memory | open_project_folder | export_project | rebuild_project_memory | resummarize_meeting | none

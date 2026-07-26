@@ -996,14 +996,39 @@ final class AppState {
 
     func loadAppChat() async { appAssistantChat = await store.appChat() }
 
-    /// A compact digest of everything the app knows, for the app assistant.
+    /// A compact digest of everything the app knows, for the app assistant: today's date, upcoming
+    /// calendar meetings, each project's working memory, and recorded meetings with their tasks.
     private func appDigest(maxMeetings: Int = 30) async -> String {
         func projectName(_ id: UUID?) -> String {
             id.flatMap { fid in folders.first { $0.id == fid }?.name } ?? "Unfiled"
         }
         var lines: [String] = []
-        lines.append("PROJECTS: " + (folders.isEmpty ? "(none)" : folders.map(\.name).joined(separator: ", ")))
-        lines.append("\nMEETINGS (most recent first, with your tasks):")
+        lines.append("Today is \(Date().formatted(date: .complete, time: .shortened)).")
+
+        lines.append("\nUPCOMING MEETINGS (from the connected calendar):")
+        if !calendar.isConnected {
+            lines.append("(calendar not connected)")
+        } else if upcomingEvents.isEmpty {
+            lines.append("(none scheduled in the next 30 days)")
+        } else {
+            for e in upcomingEvents.prefix(25) {
+                let when = e.isAllDay
+                    ? e.start.formatted(date: .abbreviated, time: .omitted)
+                    : e.start.formatted(date: .abbreviated, time: .shortened)
+                let who = e.attendees.isEmpty ? "" : " — with \(e.attendees.prefix(5).joined(separator: ", "))"
+                let loc = (e.location?.isEmpty == false) ? " @ \(e.location!)" : ""
+                lines.append("- \(e.title) — \(when)\(who)\(loc)")
+            }
+        }
+
+        lines.append("\nPROJECTS (with their working memory):")
+        if folders.isEmpty { lines.append("(none)") }
+        for f in folders {
+            let md = await store.projectMarkdown(for: f.id)
+            lines.append("### \(f.name)\n\(md.isEmpty ? "(no memory built yet)" : String(md.prefix(600)))")
+        }
+
+        lines.append("\nRECORDED MEETINGS (most recent first, with your tasks):")
         for m in meetings.prefix(maxMeetings) {
             let date = m.createdAt.formatted(date: .abbreviated, time: .shortened)
             lines.append("- [\(m.id.uuidString)] \(m.title) — \(date) — project: \(projectName(m.folderId))")
@@ -1021,6 +1046,7 @@ final class AppState {
         busy.insert("appAssistant"); defer { busy.remove("appAssistant") }
         appAssistantChat.messages.append(ChatMessage(role: "user", text: question))
         try? await store.saveAppChat(appAssistantChat)
+        await refreshUpcoming()   // so the assistant sees the latest calendar
         let digest = await appDigest()
         do {
             let reply = try await ai.appAssistant(
@@ -1097,6 +1123,48 @@ final class AppState {
         await importIntoProject(title: url.deletingPathExtension().lastPathComponent,
                                 text: text, folderId: folderId)
         return true
+    }
+
+    // Drag-and-drop: files dropped onto the app, routed to a project by a plain-language instruction.
+    var pendingDropFiles: [URL]?
+    var dropImportStatus: String?
+
+    /// Route dropped files into a project from the user's instruction ("this is the Acme SOW, put it
+    /// in the Acme project as the signed contract"), creating the project if it doesn't exist.
+    func routeAndImport(instruction: String) async {
+        guard let files = pendingDropFiles, !files.isEmpty else { return }
+        busy.insert("dropImport"); defer { busy.remove("dropImport") }
+        dropImportStatus = nil
+        let route = (try? await ai.routeImport(
+            instruction: instruction, fileNames: files.map(\.lastPathComponent),
+            projects: folders.map(\.name)))
+            ?? ClaudeCLIService.ImportRoute(project: "Imported",
+                                            title: files.first?.lastPathComponent ?? "Import",
+                                            note: instruction)
+
+        let folderId: UUID?
+        if let existing = folders.first(where: {
+            $0.name.localizedCaseInsensitiveCompare(route.project) == .orderedSame
+        }) {
+            folderId = existing.id
+        } else {
+            folderId = try? await folderStore.resolveOrCreate(client: nil, project: route.project)
+            await refresh()
+        }
+        guard let fid = folderId else { dropImportStatus = "Could not create the project."; return }
+
+        if !route.note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            var memory = await store.projectMemory(for: fid)
+            memory.context = memory.context.isEmpty ? route.note : memory.context + "\n" + route.note
+            try? await store.saveProjectMemory(memory, for: fid)
+        }
+
+        var added = 0
+        for file in files where await importFileIntoProject(file, folderId: fid) { added += 1 }
+        dropImportStatus = added > 0
+            ? "Added \(added) file\(added == 1 ? "" : "s") to “\(route.project)”."
+            : "Couldn't read those files as text."
+        pendingDropFiles = nil
     }
 
     /// Reveal a project's on-disk folder in Finder (memory, imports, project.md).
