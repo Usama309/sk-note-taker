@@ -62,7 +62,7 @@ Projects are the existing sidebar folders (`Folder`, `FolderKind`). Each project
   - `context: String` (free-form notes about the project/company)
   - `imports: [{ id, title, addedAt }]` (metadata; text lives in `imports/<id>.txt`)
 - `project.md` — the living knowledge file (see 1.2), regenerated after each meeting.
-- `imports/<id>.txt` — imported transcripts, notes, and docs as plain text.
+- `imports/<id>.txt` — imported material as plain text. Text/transcripts/notes are imported directly; an imported audio/video file is first run through the existing offline transcription pipeline, and its transcript is stored here.
 
 A meeting belongs to a project via its existing `folderId`. Every meeting filed under the folder contributes to the memory, with no extra step.
 
@@ -164,8 +164,10 @@ A small assistant avatar in the live pane with a few states: idle, thinking (ani
 5. Auto-suggest detector + card.
 6. Assistant presence indicator.
 
-## Open questions for review
+Import of audio/video files (transcribed first, per the resolved decision below) lands alongside step 1's memory panel.
 
-- `project.md` regeneration: after every meeting is simplest and keeps it coherent. If a project has many meetings this feeds summaries (not full transcripts) to stay cheap. Acceptable?
-- Importing a previous *recording* (audio/video file) would run it through the existing offline transcription first. Include in Phase 1, or keep Phase 1 to importing text/transcripts and add audio-file import right after?
+## Resolved decisions
+
+- `project.md` is rebuilt after each meeting in the project ends, from the project's meeting summaries (compact, not full transcripts), so it stays coherent and cheap.
+- Phase 1 includes importing an audio/video recording: it is transcribed through the existing offline pipeline, then added to memory, alongside text/transcript/note import.
 ```
