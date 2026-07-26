@@ -191,6 +191,19 @@ public actor MeetingStore {
         return (try? String(contentsOf: url, encoding: .utf8)) ?? ""
     }
 
+    public func projectChat(for folderId: UUID) -> ChatLog {
+        let url = folderDir(for: folderId).appendingPathComponent("chat.json")
+        guard let data = try? Data(contentsOf: url),
+              let chat = try? SKJSON.decoder.decode(ChatLog.self, from: data) else { return ChatLog() }
+        return chat
+    }
+
+    public func saveProjectChat(_ chat: ChatLog, for folderId: UUID) throws {
+        let dir = folderDir(for: folderId)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try atomicWrite(SKJSON.encoder.encode(chat), to: dir.appendingPathComponent("chat.json"))
+    }
+
     public func removeImport(_ docId: UUID, for folderId: UUID) throws {
         try? FileManager.default.removeItem(
             at: importsDir(for: folderId).appendingPathComponent("\(docId.uuidString).txt"))

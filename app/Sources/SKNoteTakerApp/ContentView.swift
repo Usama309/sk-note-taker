@@ -65,6 +65,7 @@ struct SidebarView: View {
     @State private var addingFolder = false
     /// "all" / "starred" / a folder uuid string while a meeting is dragged over (for highlight).
     @State private var dropTarget: String?
+    @State private var hoveredFolder: UUID?
     /// Folders currently expanded to reveal their recordings inline.
     @State private var expandedFolders: Set<UUID> = []
 
@@ -260,6 +261,30 @@ struct SidebarView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .overlay(alignment: .trailing) {
+            if hoveredFolder == folder.id {
+                HStack(spacing: 10) {
+                    Button {
+                        app.projectMemoryTarget = ProjectRef(id: folder.id, name: folder.name)
+                    } label: { Image(systemName: "brain") }
+                        .help("Project memory")
+                    Button {
+                        app.openProjectFolder(folder.id)
+                    } label: { Image(systemName: "folder") }
+                        .help("Open the project folder in Finder")
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+                .background(rowBackground(token: folder.id.uuidString,
+                                          selected: app.libraryFilter == .folder(folder.id)))
+            }
+        }
+        .onHover { hovering in
+            if hovering { hoveredFolder = folder.id }
+            else if hoveredFolder == folder.id { hoveredFolder = nil }
+        }
         .listRowBackground(rowBackground(token: folder.id.uuidString,
                                          selected: app.libraryFilter == .folder(folder.id)))
         .dropDestination(for: String.self, action: { items, _ in dropMeetings(items, to: folder.id) },
@@ -268,6 +293,13 @@ struct SidebarView: View {
             Button("Project memory…", systemImage: "brain") {
                 app.projectMemoryTarget = ProjectRef(id: folder.id, name: folder.name)
             }
+            Button("Open Project Folder", systemImage: "folder") {
+                app.openProjectFolder(folder.id)
+            }
+            Button("Export Project…", systemImage: "square.and.arrow.up") {
+                app.exportProject(ProjectRef(id: folder.id, name: folder.name))
+            }
+            Divider()
             Button(isOpen ? "Collapse" : "Expand") {
                 withAnimation(.easeInOut(duration: 0.18)) {
                     if isOpen { expandedFolders.remove(folder.id) } else { expandedFolders.insert(folder.id) }

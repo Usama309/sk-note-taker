@@ -988,6 +988,90 @@ final class AppState {
 
     func dismissLiveSuggestion() { liveSuggestion = nil }
 
+    // MARK: - Project chat, folder, export
+
+    func projectChatLog(_ folderId: UUID) async -> ChatLog { await store.projectChat(for: folderId) }
+
+    /// Chat with a whole project's memory.
+    func askProject(_ folderId: UUID, question: String) async {
+        let name = folders.first(where: { $0.id == folderId })?.name ?? "Project"
+        busy.insert("projectChat"); defer { busy.remove("projectChat") }
+        var chat = await store.projectChat(for: folderId)
+        chat.messages.append(ChatMessage(role: "user", text: question))
+        try? await store.saveProjectChat(chat, for: folderId)
+        let ctx = await projectContext(for: folderId)
+        do {
+            let answer = try await ai.chatWithProject(
+                question: question, projectName: name, projectMarkdown: ctx.markdown,
+                details: ctx.details, history: chat, allowWeb: settings.assistantWebSearch)
+            chat.messages.append(ChatMessage(role: "assistant", text: answer))
+        } catch {
+            chat.messages.append(ChatMessage(
+                role: "assistant", text: "Something went wrong: \(error.localizedDescription)"))
+        }
+        try? await store.saveProjectChat(chat, for: folderId)
+    }
+
+    /// Import any file (audio/video transcribed, PDF/Word extracted, text/CSV read) into a project's
+    /// memory. Returns false if the file could not be turned into text.
+    @discardableResult
+    func importFileIntoProject(_ url: URL, folderId: UUID) async -> Bool {
+        guard let text = await FileImporter.extractText(from: url),
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        await importIntoProject(title: url.deletingPathExtension().lastPathComponent,
+                                text: text, folderId: folderId)
+        return true
+    }
+
+    /// Reveal a project's on-disk folder in Finder (memory, imports, project.md).
+    func openProjectFolder(_ folderId: UUID) {
+        Task {
+            let dir = await store.folderDir(for: folderId)
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            NSWorkspace.shared.activateFileViewerSelecting([dir])
+        }
+    }
+
+    /// Export a copyable bundle of a project: its memory plus every meeting's recording, transcript,
+    /// and summary, gathered into one folder that can be moved to another computer.
+    func exportProject(_ ref: ProjectRef) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.prompt = "Export Here"
+        panel.message = "Choose where to save the “\(ref.name)” project bundle"
+        guard panel.runModal() == .OK, let dest = panel.url else { return }
+        busy.insert("exportProject")
+        Task {
+            defer { busy.remove("exportProject") }
+            let fm = FileManager.default
+            let safe = ref.name.replacingOccurrences(of: "/", with: "-")
+            let bundle = dest.appendingPathComponent("\(safe) (SK project)", isDirectory: true)
+            try? fm.removeItem(at: bundle)
+            try? fm.createDirectory(at: bundle, withIntermediateDirectories: true)
+            let memSrc = await store.folderDir(for: ref.id)
+            if fm.fileExists(atPath: memSrc.path) {
+                try? fm.copyItem(at: memSrc, to: bundle.appendingPathComponent("memory"))
+            }
+            let childIds = Set(folders.filter { $0.parentId == ref.id }.map(\.id))
+            let projectMeetings = meetings.filter {
+                $0.folderId == ref.id || ($0.folderId.map { childIds.contains($0) } ?? false)
+            }
+            if !projectMeetings.isEmpty {
+                let mdir = bundle.appendingPathComponent("meetings")
+                try? fm.createDirectory(at: mdir, withIntermediateDirectories: true)
+                let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd"
+                for m in projectMeetings {
+                    let src = await store.dir(for: m.id)
+                    guard fm.fileExists(atPath: src.path) else { continue }
+                    let title = m.title.replacingOccurrences(of: "/", with: "-")
+                    try? fm.copyItem(at: src, to: mdir.appendingPathComponent("\(df.string(from: m.createdAt)) - \(title)"))
+                }
+            }
+            NSWorkspace.shared.activateFileViewerSelecting([bundle])
+        }
+    }
+
     func autoCategorize(meetingId: UUID) async {
         guard var meeting = meetings.first(where: { $0.id == meetingId }),
               meeting.folderId == nil,

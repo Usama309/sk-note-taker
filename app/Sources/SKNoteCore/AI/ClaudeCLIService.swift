@@ -276,6 +276,36 @@ public actor ClaudeCLIService {
                             notes: p.notes ?? [], source: p.source ?? "memory")
     }
 
+    /// Chat with a whole project's memory (not a single meeting): answers using the living
+    /// project.md, the details, and imported material, with optional web lookup.
+    public func chatWithProject(question: String, projectName: String, projectMarkdown: String,
+                                details: String, history: ChatLog, allowWeb: Bool) async throws -> String {
+        let historyText = history.messages.suffix(10).map {
+            "\($0.role == "user" ? "Q" : "A"): \($0.text)"
+        }.joined(separator: "\n")
+        let prompt = """
+        You are the project assistant for "\(projectName)" inside SK Note Taker. Answer the user's \
+        question using the project's memory and imported material below. Be concise and direct; give \
+        exact wording when that helps. \
+        \(allowWeb ? "If the answer needs external facts not in the memory, use web search." : "If the answer isn't in the memory, say so plainly.")
+
+        \(CommunicationPlaybook.text)
+
+        PROJECT MEMORY (project.md):
+        \(projectMarkdown.isEmpty ? "(none yet)" : projectMarkdown)
+
+        DETAILS & IMPORTED MATERIAL:
+        \(details.isEmpty ? "(none)" : details)
+
+        \(historyText.isEmpty ? "" : "PREVIOUS:\n\(historyText)\n")
+        QUESTION: \(question)
+        """
+        let output = try await run(prompt: prompt, jsonSchema: nil,
+                                   modelOverride: allowWeb ? nil : "haiku",
+                                   allowTools: allowWeb ? ["WebSearch", "WebFetch"] : [])
+        return output.result.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// Rebuild a project's living `project.md` from its details, imported material, and the digests
     /// of its meetings. Returns the markdown file content.
     public func buildProjectMarkdown(projectName: String, details: String,

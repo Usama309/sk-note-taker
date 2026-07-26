@@ -1,4 +1,6 @@
 import Foundation
+import AVFoundation
+import CoreMedia
 
 /// Rebuilds a finished meeting's transcript from its recording — the correct "redo speaker
 /// detection": re-transcribe (fresh word timings) + re-diarize + re-assemble.
@@ -52,6 +54,52 @@ public enum MeetingReprocessor {
         let (segments, speakers) = assembler.assemble(
             finals: finals, speakerSegments: speakerSegments)
         return (Transcript(segments: segments), speakers)
+    }
+
+    /// Transcribe an arbitrary audio OR video file to plain text, for importing a recording into a
+    /// project's memory. Extracts the audio track (works for m4a/mp3/wav/mov/mp4/…), downmixes to
+    /// 16 kHz mono, and runs it through the on-device transcriber. No diarization.
+    public static func transcribeText(fileURL: URL, chunkSeconds: Double = 0.5) async throws -> String {
+        let samples = try await readAudioMono16k(fileURL)
+        guard samples.count > 8_000 else { return "" }
+        try await TranscriptionService.ensureModel()
+        let finals = try await transcribe(samples, channel: .system, chunkSeconds: chunkSeconds, diarizer: nil)
+        return finals.map(\.text).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Decode any file's audio track to 16 kHz mono float samples via AVAssetReader.
+    private static func readAudioMono16k(_ url: URL) async throws -> [Float] {
+        let asset = AVURLAsset(url: url)
+        guard let track = try await asset.loadTracks(withMediaType: .audio).first else { return [] }
+        let reader = try AVAssetReader(asset: asset)
+        let settings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVSampleRateKey: 16_000,
+            AVNumberOfChannelsKey: 1,
+            AVLinearPCMBitDepthKey: 32,
+            AVLinearPCMIsFloatKey: true,
+            AVLinearPCMIsNonInterleaved: false,
+            AVLinearPCMIsBigEndianKey: false,
+        ]
+        let output = AVAssetReaderTrackOutput(track: track, outputSettings: settings)
+        guard reader.canAdd(output) else { return [] }
+        reader.add(output)
+        guard reader.startReading() else { return [] }
+
+        var samples: [Float] = []
+        while let buf = output.copyNextSampleBuffer() {
+            guard let block = CMSampleBufferGetDataBuffer(buf) else { continue }
+            let len = CMBlockBufferGetDataLength(block)
+            if len > 0 {
+                var bytes = [UInt8](repeating: 0, count: len)
+                CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: len, destination: &bytes)
+                bytes.withUnsafeBytes { raw in
+                    samples.append(contentsOf: raw.bindMemory(to: Float.self))
+                }
+            }
+            CMSampleBufferInvalidate(buf)
+        }
+        return samples
     }
 
     /// Feed one channel's samples through a TranscriptionService (and optionally the diarizer),
