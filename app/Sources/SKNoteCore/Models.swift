@@ -229,13 +229,18 @@ public struct AppSettings: Codable, Sendable, Equatable {
     public var visibleCalendarIds: [String]
     /// When a meeting starts, ask whether to also record the screen. On by default.
     public var askToRecordScreen: Bool
+    /// Let the live copilot search the web when an answer is not in project memory. On by default.
+    public var assistantWebSearch: Bool
+    /// Proactively suggest an answer when someone asks the user a question mid-meeting. On by default.
+    public var assistantAutoSuggest: Bool
 
     public init(claudeModel: String = "sonnet", defaultSpeakerName: String? = nil,
                 locale: String = "en-US", autoDetectMeetings: Bool = true,
                 launchAtLogin: Bool = true, autoEndDetection: Bool = true,
                 autoEndSilenceMinutes: Double = 2, autoSummarize: Bool = true,
                 showUpcomingInMenuBar: Bool = true, showEventsWithoutParticipants: Bool = true,
-                visibleCalendarIds: [String] = [], askToRecordScreen: Bool = true) {
+                visibleCalendarIds: [String] = [], askToRecordScreen: Bool = true,
+                assistantWebSearch: Bool = true, assistantAutoSuggest: Bool = true) {
         self.claudeModel = claudeModel
         self.defaultSpeakerName = defaultSpeakerName
         self.locale = locale
@@ -248,6 +253,8 @@ public struct AppSettings: Codable, Sendable, Equatable {
         self.showEventsWithoutParticipants = showEventsWithoutParticipants
         self.visibleCalendarIds = visibleCalendarIds
         self.askToRecordScreen = askToRecordScreen
+        self.assistantWebSearch = assistantWebSearch
+        self.assistantAutoSuggest = assistantAutoSuggest
     }
 
     // Tolerant decode: older settings.json without new fields default to on.
@@ -255,7 +262,7 @@ public struct AppSettings: Codable, Sendable, Equatable {
         case claudeModel, defaultSpeakerName, locale, autoDetectMeetings, launchAtLogin
         case autoEndDetection, autoEndSilenceMinutes, autoSummarize
         case showUpcomingInMenuBar, showEventsWithoutParticipants, visibleCalendarIds
-        case askToRecordScreen
+        case askToRecordScreen, assistantWebSearch, assistantAutoSuggest
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -273,6 +280,8 @@ public struct AppSettings: Codable, Sendable, Equatable {
             try c.decodeIfPresent(Bool.self, forKey: .showEventsWithoutParticipants) ?? true
         visibleCalendarIds = try c.decodeIfPresent([String].self, forKey: .visibleCalendarIds) ?? []
         askToRecordScreen = try c.decodeIfPresent(Bool.self, forKey: .askToRecordScreen) ?? true
+        assistantWebSearch = try c.decodeIfPresent(Bool.self, forKey: .assistantWebSearch) ?? true
+        assistantAutoSuggest = try c.decodeIfPresent(Bool.self, forKey: .assistantAutoSuggest) ?? true
     }
 }
 

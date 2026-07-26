@@ -64,6 +64,10 @@ public final class MeetingSession {
     /// meeting (falls back to `finish()` directly when unset).
     public var onAutoEnd: (() -> Void)?
 
+    /// Fired on each final utterance so the copilot can proactively offer an answer.
+    /// `speakerIsMe` is true for the mic channel (the machine owner).
+    public var onFinalUtterance: ((_ speakerIsMe: Bool, _ text: String) -> Void)?
+
     private var endEngine: MeetingEndEngine?
     private var autoEndTask: Task<Void, Never>?
     private let autoEndGraceSeconds: Double = 60
@@ -357,6 +361,11 @@ public final class MeetingSession {
     /// participant is the active speaker right now", or `nil` when nobody is (so the open span is
     /// closed and one speaker's name does not bleed onto the next). Stamped onto the transcript
     /// timeline and picked up by the next rebuild, so remote speakers show their real name.
+    /// Assign the live meeting to a project folder so the copilot uses that project's memory.
+    public func setFolder(_ folderId: UUID?) {
+        meeting.folderId = folderId
+    }
+
     public func noteActiveSpeaker(_ name: String?) {
         guard phase == .recording, !isPaused else { return }
         let t = clock.sessionTime()
@@ -536,6 +545,7 @@ public final class MeetingSession {
             endEngine?.noteUtterance(now: elapsed, text: result.text)
             finals.append(result)
             volatileText[result.channel] = nil
+            onFinalUtterance?(result.channel == .mic, result.text)
             Task { [diarizer] in
                 let segments = await diarizer.segments
                 await MainActor.run { self.rebuild(with: segments) }

@@ -385,6 +385,13 @@ struct GeneralSettingsView: View {
                     .font(.skFootnote)
                     .foregroundStyle(.tertiary)
             }
+            Section("Live assistant") {
+                Toggle("Suggest an answer when someone asks me a question", isOn: $app.settings.assistantAutoSuggest)
+                Toggle("Let the assistant search the web for answers", isOn: $app.settings.assistantWebSearch)
+                Text("The assistant draws on the meeting's project memory (right-click a project → Project memory) and the live transcript to give you the exact wording to say.")
+                    .font(.skFootnote)
+                    .foregroundStyle(.tertiary)
+            }
             Section("Speakers") {
                 TextField("Your name (used for Speaker 1)", text: Binding(
                     get: { app.settings.defaultSpeakerName ?? "" },

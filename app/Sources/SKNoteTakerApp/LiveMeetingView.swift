@@ -231,9 +231,44 @@ struct LiveAssistantPane: View {
     ]
 
     private var thinking: Bool { app.busy.contains("liveChat") }
+    private var suggesting: Bool { app.busy.contains("autoSuggest") }
+    private var projectName: String {
+        guard let id = session.meeting.folderId,
+              let f = app.folders.first(where: { $0.id == id }) else { return "No project" }
+        return f.name
+    }
 
     var body: some View {
         VStack(spacing: 0) {
+            // Which project's memory the copilot is drawing on.
+            HStack(spacing: 6) {
+                Image(systemName: "brain")
+                    .font(.system(size: 11))
+                    .foregroundStyle(suggesting || thinking ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(Theme.indigo))
+                    .symbolEffect(.pulse, isActive: suggesting || thinking)
+                Menu {
+                    Button("No project") { app.setLiveProject(nil) }
+                    Divider()
+                    ForEach(app.folders) { folder in
+                        Button(folder.name) { app.setLiveProject(folder.id) }
+                    }
+                } label: {
+                    Text(projectName).font(.skCaptionStrong).lineLimit(1)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                Spacer(minLength: 0)
+                if let id = session.meeting.folderId {
+                    Button {
+                        app.projectMemoryTarget = ProjectRef(id: id, name: projectName)
+                    } label: { Image(systemName: "square.and.pencil").font(.system(size: 11)) }
+                    .buttonStyle(.plain)
+                    .help("Edit this project's memory")
+                }
+            }
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            Divider()
+
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
@@ -270,6 +305,31 @@ struct LiveAssistantPane: View {
                 .onChange(of: chat.messages.count) {
                     withAnimation { proxy.scrollTo("live-chat-bottom") }
                 }
+            }
+
+            // Proactive suggestion when someone asks the user a question.
+            if let suggestion = app.liveSuggestion {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "lightbulb.fill").font(.system(size: 11)).foregroundStyle(.yellow)
+                        Text("Suggested answer").font(.skCaptionStrong)
+                        Spacer()
+                        Button { app.dismissLiveSuggestion() } label: {
+                            Image(systemName: "xmark").font(.system(size: 9, weight: .bold))
+                        }
+                        .buttonStyle(.plain).foregroundStyle(.secondary)
+                    }
+                    Text(suggestion.say).font(.skBody).textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                    ForEach(suggestion.notes, id: \.self) { note in
+                        Text("• \(note)").font(.skCaption).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(10)
+                .background(Theme.indigo.opacity(0.09), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.indigo.opacity(0.25)))
+                .padding(.horizontal, 10).padding(.bottom, 6)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
             // Quick actions — the three questions that matter mid-call.

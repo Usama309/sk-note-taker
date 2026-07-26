@@ -275,6 +275,9 @@ final class AppState {
     @ObservationIgnored private let screenRecordPrompt = ScreenRecordPromptPanel()
     var showScreenSourcePicker = false
 
+    // The project whose memory editor is open, if any (drives a sheet).
+    var projectMemoryTarget: ProjectRef?
+
     /// Top-right "record your screen?" popup (same style as the note-taking popup).
     private func promptScreenRecording() {
         screenRecordPrompt.show(
@@ -740,6 +743,9 @@ final class AppState {
         }
         session.onEndPromptCleared = { [weak self] in self?.notifier.clearEndPrompts() }
         session.onAutoEnd = { [weak self] in Task { await self?.stopMeeting() } }
+        session.onFinalUtterance = { [weak self] isMe, text in
+            self?.considerAutoSuggest(speakerIsMe: isMe, text: text)
+        }
         self.session = session
         await session.start()
         refreshPermissions()
@@ -771,6 +777,10 @@ final class AppState {
                await store.summary(for: finishedId) == nil {
                 let notes = await store.notes(for: finishedId)
                 await generateSummary(for: finishedId, notes: notes)
+            }
+            // Fold this meeting into its project's living memory.
+            if let m = try? await store.meeting(id: finishedId), let folderId = m.folderId {
+                await rebuildProjectMemory(folderId: folderId)
             }
             await sync.syncMeeting(finishedId)
             await sync.uploadRecording(finishedId)
@@ -828,10 +838,13 @@ final class AppState {
         chat.messages.append(ChatMessage(role: "user", text: question))
         try? await store.saveChat(chat, for: meeting.id)
         do {
-            let answer = try await ai.liveAssist(
+            let ctx = await projectContext(for: meeting.folderId)
+            let answer = try await ai.assistWithMemory(
                 question: question, meeting: meeting, transcript: transcript,
-                history: chat, userName: settings.defaultSpeakerName)
-            chat.messages.append(ChatMessage(role: "assistant", text: answer))
+                history: chat, userName: settings.defaultSpeakerName,
+                projectMarkdown: ctx.markdown, projectDetails: ctx.details,
+                allowWeb: settings.assistantWebSearch)
+            chat.messages.append(ChatMessage(role: "assistant", text: Self.formatAssist(answer)))
             try await store.saveChat(chat, for: meeting.id)
         } catch {
             chat.messages.append(ChatMessage(
@@ -839,6 +852,141 @@ final class AppState {
             try? await store.saveChat(chat, for: meeting.id)
         }
     }
+
+    /// Render a copilot answer for the chat thread: the exact wording first, supporting notes below.
+    static func formatAssist(_ a: ClaudeCLIService.AssistAnswer) -> String {
+        var out = a.say
+        if !a.notes.isEmpty {
+            out += "\n\n" + a.notes.map { "• \($0)" }.joined(separator: "\n")
+        }
+        return out
+    }
+
+    // MARK: - Project memory (copilot)
+
+    /// The live copilot's proactively-suggested answer to a question aimed at the user, if any.
+    var liveSuggestion: ClaudeCLIService.AssistAnswer?
+    @ObservationIgnored private var lastSuggestedText = ""
+
+    /// Assemble a project's context for the assistant: the living project.md plus the structured
+    /// details and (bounded) imported material.
+    func projectContext(for folderId: UUID?) async -> (markdown: String, details: String) {
+        guard let folderId else { return ("", "") }
+        let md = await store.projectMarkdown(for: folderId)
+        let memory = await store.projectMemory(for: folderId)
+        var details = memory.rendered()
+        var parts: [String] = []
+        for doc in memory.imports.prefix(6) {
+            let text = await store.importText(doc.id, for: folderId)
+            if !text.isEmpty { parts.append("### \(doc.title)\n\(String(text.prefix(4000)))") }
+        }
+        if !parts.isEmpty {
+            details += (details.isEmpty ? "" : "\n\n") + "Imported material:\n" + parts.joined(separator: "\n\n")
+        }
+        return (md, details)
+    }
+
+    func loadProjectMemory(_ folderId: UUID) async -> ProjectMemory {
+        await store.projectMemory(for: folderId)
+    }
+
+    func saveProjectMemory(_ memory: ProjectMemory, for folderId: UUID) async {
+        try? await store.saveProjectMemory(memory, for: folderId)
+        await rebuildProjectMemory(folderId: folderId)
+    }
+
+    func importIntoProject(title: String, text: String, folderId: UUID) async {
+        try? await store.addImport(title: title, text: text, for: folderId)
+        await rebuildProjectMemory(folderId: folderId)
+    }
+
+    func removeProjectImport(_ docId: UUID, folderId: UUID) async {
+        try? await store.removeImport(docId, for: folderId)
+        await rebuildProjectMemory(folderId: folderId)
+    }
+
+    /// Set the project (folder) for the live meeting so the assistant uses that project's memory.
+    func setLiveProject(_ folderId: UUID?) {
+        guard let session else { return }
+        session.setFolder(folderId)
+        Task { try? await store.save(session.meeting) }
+    }
+
+    /// Rebuild a project's living `project.md` from its details, imported material, and the digests
+    /// of its filed meetings.
+    func rebuildProjectMemory(folderId: UUID) async {
+        guard claudeAvailable else { return }
+        let memory = await store.projectMemory(for: folderId)
+        let projectName = folders.first(where: { $0.id == folderId })?.name ?? "Project"
+
+        var importsDigest = ""
+        for doc in memory.imports.prefix(8) {
+            let text = await store.importText(doc.id, for: folderId)
+            if !text.isEmpty { importsDigest += "### \(doc.title)\n\(String(text.prefix(6000)))\n\n" }
+        }
+
+        let childIds = Set(folders.filter { $0.parentId == folderId }.map(\.id))
+        let projectMeetings = meetings
+            .filter { $0.folderId == folderId || ($0.folderId.map { childIds.contains($0) } ?? false) }
+            .sorted { $0.createdAt > $1.createdAt }
+            .prefix(20)
+        var meetingsDigest = ""
+        for m in projectMeetings {
+            let dateStr = m.createdAt.formatted(date: .abbreviated, time: .omitted)
+            var entry = "## \(m.title) (\(dateStr))\n"
+            if let s = await store.summary(for: m.id) {
+                if !s.body.isEmpty { entry += String(s.body.prefix(2500)) + "\n" }
+                if !s.actionItems.isEmpty {
+                    entry += "Action items:\n" + s.actionItems
+                        .map { "- \($0.owner.map { "[\($0)] " } ?? "")\($0.text)" }
+                        .joined(separator: "\n") + "\n"
+                }
+                if !s.decisions.isEmpty {
+                    entry += "Decisions:\n" + s.decisions.map { "- \($0)" }.joined(separator: "\n") + "\n"
+                }
+                if !s.remember.isEmpty {
+                    entry += "Remember:\n" + s.remember.map { "- \($0)" }.joined(separator: "\n") + "\n"
+                }
+            }
+            meetingsDigest += entry + "\n"
+        }
+
+        do {
+            let md = try await ai.buildProjectMarkdown(
+                projectName: projectName, details: memory.rendered(),
+                importsDigest: importsDigest, meetingsDigest: meetingsDigest)
+            try await store.saveProjectMarkdown(md, for: folderId)
+        } catch {
+            SKLog.error(.aiRequestFailed, .ai, "project.md rebuild failed", error: error)
+        }
+    }
+
+    /// On a new final utterance from someone other than the user, proactively draft an answer if it
+    /// looks like a question aimed at the user (debounced by exact text, gated by the setting).
+    func considerAutoSuggest(speakerIsMe: Bool, text: String) {
+        guard settings.assistantAutoSuggest, let session, !busy.contains("autoSuggest") else { return }
+        guard MeetingAssist.isQuestionForMe(text, speakerIsMe: speakerIsMe,
+                                            userName: settings.defaultSpeakerName) else { return }
+        guard text != lastSuggestedText else { return }
+        lastSuggestedText = text
+        let meeting = session.meeting
+        let transcript = Transcript(segments: session.liveSegments)
+        Task {
+            busy.insert("autoSuggest"); defer { busy.remove("autoSuggest") }
+            let ctx = await projectContext(for: meeting.folderId)
+            let chat = await store.chat(for: meeting.id)
+            if let answer = try? await ai.assistWithMemory(
+                question: "Someone just asked me: \"\(text)\" — give me the exact words to say back.",
+                meeting: meeting, transcript: transcript, history: chat,
+                userName: settings.defaultSpeakerName,
+                projectMarkdown: ctx.markdown, projectDetails: ctx.details,
+                allowWeb: settings.assistantWebSearch) {
+                liveSuggestion = answer
+            }
+        }
+    }
+
+    func dismissLiveSuggestion() { liveSuggestion = nil }
 
     func autoCategorize(meetingId: UUID) async {
         guard var meeting = meetings.first(where: { $0.id == meetingId }),

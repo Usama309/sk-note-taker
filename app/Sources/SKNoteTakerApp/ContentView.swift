@@ -53,6 +53,7 @@ struct ContentView: View {
         .sheet(isPresented: $app.showScreenSourcePicker) {
             ScreenSourceSheet { filter in app.startScreenRecording(filter: filter) }
         }
+        .sheet(item: $app.projectMemoryTarget) { ProjectMemorySheet(project: $0) }
     }
 }
 
@@ -264,6 +265,9 @@ struct SidebarView: View {
         .dropDestination(for: String.self, action: { items, _ in dropMeetings(items, to: folder.id) },
                          isTargeted: { setDrop(folder.id.uuidString, $0) })
         .contextMenu {
+            Button("Project memory…", systemImage: "brain") {
+                app.projectMemoryTarget = ProjectRef(id: folder.id, name: folder.name)
+            }
             Button(isOpen ? "Collapse" : "Expand") {
                 withAnimation(.easeInOut(duration: 0.18)) {
                     if isOpen { expandedFolders.remove(folder.id) } else { expandedFolders.insert(folder.id) }
