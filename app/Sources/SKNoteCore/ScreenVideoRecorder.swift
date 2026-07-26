@@ -61,19 +61,21 @@ public enum ScreenCaptureScope {
     }
 }
 
-/// Records the screen (video only) to a .mov via a DEDICATED ScreenCaptureKit stream, kept fully
-/// separate from the system-audio stream so it can never destabilise the diarization audio path.
+/// Records the screen to a .mov via a DEDICATED ScreenCaptureKit stream (video + the call's system
+/// audio), kept fully separate from the diarization audio path so it can never destabilise it.
 /// Downscaled and frame-rate-capped to keep encoding light on the CPU (VideoToolbox H.264).
 /// Uses movie fragments so a crash still leaves a playable partial file.
 public final class ScreenVideoRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     private let url: URL
     private let videoQueue = DispatchQueue(label: "sk.notetaker.screenvideo")
+    private let audioQueue = DispatchQueue(label: "sk.notetaker.screenaudio")
     private let lock = NSLock()
     private var stream: SCStream?
     private var writer: AVAssetWriter?
     private var input: AVAssetWriterInput?
     private var adaptor: AVAssetWriterInputPixelBufferAdaptor?
-    private var started = false      // touched only on videoQueue
+    private var audioInput: AVAssetWriterInput?
+    private var started = false      // check-and-set under `lock` (video + audio queues both touch it)
 
     public init(outputURL: URL) {
         self.url = outputURL
@@ -152,7 +154,19 @@ public final class ScreenVideoRecorder: NSObject, SCStreamOutput, SCStreamDelega
             sourcePixelBufferAttributes: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA])
         guard writer.canAdd(input) else { throw ScreenVideoError("Cannot configure the video writer.") }
         writer.add(input)
-        lock.withLock { self.writer = writer; self.input = input; self.adaptor = adaptor }
+
+        // Audio track: the call's system audio (remote participants), encoded to AAC and muxed into
+        // the same movie so the recording is watchable with sound.
+        let audioSettings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVSampleRateKey: 48_000,
+            AVNumberOfChannelsKey: 2,
+            AVEncoderBitRateKey: 128_000,
+        ]
+        let audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
+        audioInput.expectsMediaDataInRealTime = true
+        if writer.canAdd(audioInput) { writer.add(audioInput) }
+        lock.withLock { self.writer = writer; self.input = input; self.adaptor = adaptor; self.audioInput = audioInput }
 
         let config = SCStreamConfiguration()
         config.width = w
@@ -161,13 +175,16 @@ public final class ScreenVideoRecorder: NSObject, SCStreamOutput, SCStreamDelega
         config.queueDepth = 5
         config.showsCursor = true
         config.pixelFormat = kCVPixelFormatType_32BGRA
-        config.capturesAudio = false
+        config.capturesAudio = true
+        config.sampleRate = 48_000
+        config.channelCount = 2
 
         let stream = SCStream(filter: filter, configuration: config, delegate: self)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: videoQueue)
+        try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: audioQueue)
         try await stream.startCapture()
         self.stream = stream
-        SKLog.info(.capture, "screen video: recording started (\(w)x\(h) @12fps, \(scope))")
+        SKLog.info(.capture, "screen recording started (\(w)x\(h) @12fps + audio, \(scope))")
         return scope
     }
 
@@ -189,18 +206,20 @@ public final class ScreenVideoRecorder: NSObject, SCStreamOutput, SCStreamDelega
         if let s = stream {
             try? await s.stopCapture()            // drains callbacks; safe to finalize after
             try? s.removeStreamOutput(self, type: .screen)
+            try? s.removeStreamOutput(self, type: .audio)
         }
         stream = nil
-        let (wr, inp): (AVAssetWriter?, AVAssetWriterInput?) = lock.withLock {
-            let w = writer; let i = input
-            writer = nil; input = nil; adaptor = nil
-            return (w, i)
+        let (wr, inp, ain): (AVAssetWriter?, AVAssetWriterInput?, AVAssetWriterInput?) = lock.withLock {
+            let w = writer; let i = input; let a = audioInput
+            writer = nil; input = nil; adaptor = nil; audioInput = nil
+            return (w, i, a)
         }
         guard let wr, wr.status == .writing else {
             SKLog.warn(.capture, "screen video: no frames captured; nothing saved")
             return false
         }
         inp?.markAsFinished()
+        ain?.markAsFinished()
         await wr.finishWriting()
         let ok = wr.status == .completed
         SKLog.info(.capture, "screen video: \(ok ? "saved" : "finalize failed") \(url.lastPathComponent)")
@@ -211,26 +230,44 @@ public final class ScreenVideoRecorder: NSObject, SCStreamOutput, SCStreamDelega
 
     public func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
                        of type: SCStreamOutputType) {
-        guard type == .screen, sampleBuffer.isValid, sampleBuffer.numSamples > 0 else { return }
-        // Only complete frames (SCK also delivers idle/blank frames to keep timing).
-        guard let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false)
-                as? [[SCStreamFrameInfo: Any]],
-              let statusRaw = attachments.first?[.status] as? Int,
-              SCFrameStatus(rawValue: statusRaw) == .complete,
-              let pixelBuffer = sampleBuffer.imageBuffer else { return }
-        let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        guard sampleBuffer.isValid, sampleBuffer.numSamples > 0 else { return }
 
-        let (wr, inp, ad): (AVAssetWriter?, AVAssetWriterInput?, AVAssetWriterInputPixelBufferAdaptor?) =
-            lock.withLock { (writer, input, adaptor) }
-        guard let wr, let inp, let ad else { return }
-
-        if !started {
-            started = true
-            wr.startWriting()
-            wr.startSession(atSourceTime: pts)
+        // A screen frame is only usable when it is a complete frame (SCK also delivers idle/blank
+        // frames to keep timing); audio buffers are always usable.
+        var pixelBuffer: CVPixelBuffer?
+        switch type {
+        case .screen:
+            guard let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false)
+                    as? [[SCStreamFrameInfo: Any]],
+                  let statusRaw = attachments.first?[.status] as? Int,
+                  SCFrameStatus(rawValue: statusRaw) == .complete,
+                  let pb = sampleBuffer.imageBuffer else { return }
+            pixelBuffer = pb
+        case .audio:
+            break
+        default:
+            return
         }
-        if inp.isReadyForMoreMediaData {
+
+        let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+        let (wr, vin, ad, ain): (AVAssetWriter?, AVAssetWriterInput?, AVAssetWriterInputPixelBufferAdaptor?, AVAssetWriterInput?) =
+            lock.withLock { (writer, input, adaptor, audioInput) }
+        guard let wr else { return }
+
+        // Start the writing session once, on the first usable buffer of either track. Done under the
+        // lock so the video and audio queues can't both start it (or append before it starts).
+        lock.withLock {
+            if !started {
+                started = true
+                wr.startWriting()
+                wr.startSession(atSourceTime: pts)
+            }
+        }
+
+        if type == .screen, let pixelBuffer, let vin, let ad, vin.isReadyForMoreMediaData {
             ad.append(pixelBuffer, withPresentationTime: pts)
+        } else if type == .audio, let ain, ain.isReadyForMoreMediaData {
+            ain.append(sampleBuffer)
         }
     }
 
