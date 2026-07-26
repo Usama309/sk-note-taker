@@ -1,13 +1,43 @@
 import SwiftUI
+import AppKit
 
-/// SK Note Taker brand system — indigo→teal gradient over a deep slate base.
+/// SK Note Taker brand system — charcoal + mint, Apple-clean, in light and dark. Colours are the
+/// single source of truth; use these tokens (not raw hex) everywhere.
 enum Theme {
-    static let indigo = Color(red: 0.31, green: 0.27, blue: 0.90)   // #4F46E5
-    static let teal = Color(red: 0.08, green: 0.72, blue: 0.65)     // #14B8A6
-    static let ink = Color(red: 0.043, green: 0.067, blue: 0.125)   // #0B1120
+    // MARK: Brand
+    static let mint      = Color(hex: "78C6A3")   // primary mint (accent / hover / fills)
+    static let mintLight = Color(hex: "A6DEC6")
+    static let mintSoft  = Color(hex: "D8F3E7")
+    static let charcoal  = Color(hex: "1F242A")   // primary dark (primary button, logo)
+    static let charcoal2 = Color(hex: "2B3138")   // secondary dark
 
+    /// The accent for text and small elements — a readable deep mint on light, bright mint on dark.
+    static let accent = Color(light: Color(hex: "2F8F6A"), dark: mint)
+
+    // MARK: Semantic
+    static let success = Color(hex: "4CAF7D")
+    static let warning = Color(hex: "F4B942")
+    static let error   = Color(hex: "E05C5C")
+
+    // MARK: Surfaces (theme-aware)
+    static let bg            = Color(light: Color(hex: "F8F9FB"), dark: Color(hex: "0F1115"))
+    static let surface       = Color(light: .white,               dark: Color(hex: "171A20"))
+    static let card          = Color(light: .white,               dark: Color(hex: "1F232B"))
+    static let border        = Color(light: Color(hex: "E7EAF0"), dark: Color(hex: "2D333C"))
+    static let textPrimary   = Color(light: Color(hex: "1B1F24"), dark: Color(hex: "F5F7FA"))
+    static let textSecondary = Color(light: Color(hex: "5F6773"), dark: Color(hex: "A2AAB8"))
+
+    // MARK: Legacy aliases — old names now resolve to the brand, so existing views rebrand at once.
+    static let indigo = accent          // was #4F46E5 → the brand accent
+    static let teal = mint              // was #14B8A6 → mint
+    static let ink = charcoal
+
+    /// Primary fill: charcoal (white text stays readable), matching the brand's primary button.
     static let accentGradient = LinearGradient(
-        colors: [indigo, teal], startPoint: .topLeading, endPoint: .bottomTrailing)
+        colors: [charcoal, charcoal2], startPoint: .topLeading, endPoint: .bottomTrailing)
+    /// Mint fill for accent surfaces / hovers.
+    static let mintGradient = LinearGradient(
+        colors: [mint, mintLight], startPoint: .topLeading, endPoint: .bottomTrailing)
 
     /// Distinct, stable hue per speaker key (S1 teal, S2 indigo, then rotating).
     /// Shades are picked for ≥4.5:1 contrast on the app's light surfaces — speaker names
@@ -32,9 +62,13 @@ enum Theme {
 }
 
 extension Theme {
-    /// One card corner radius across the whole app (was a mix of 12 / 14 / 16).
-    static let cardRadius: CGFloat = 14
-    static let hairline = Color.primary.opacity(0.06)
+    // Corner radii (brand spec).
+    static let cardRadius: CGFloat = 20
+    static let buttonRadius: CGFloat = 14
+    static let inputRadius: CGFloat = 14
+    static let dialogRadius: CGFloat = 24
+    static let navRadius: CGFloat = 18
+    static let hairline = border
 }
 
 /// The SK Note Taker type scale: a small, deliberate ramp used on every screen in place of
@@ -68,13 +102,21 @@ extension View {
             .background(fill, in: RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
                 .strokeBorder(Theme.hairline))
-            .shadow(color: .black.opacity(0.05), radius: 7, y: 2)
+            .shadow(color: .black.opacity(0.06), radius: 18, y: 6)   // soft, per brand spec
     }
 
     func skCard(padding: CGFloat = 14) -> some View { skCard(.background, padding: padding) }
 }
 
 extension Color {
+    /// A colour that resolves differently in light and dark appearances.
+    init(light: Color, dark: Color) {
+        self = Color(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return NSColor(isDark ? dark : light)
+        })
+    }
+
     /// Parse a Google calendar colour like "#a4bdfc". Falls back to grey on a bad string.
     init(hex: String) {
         let s = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#")).lowercased()

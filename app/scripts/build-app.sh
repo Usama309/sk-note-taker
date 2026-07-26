@@ -31,7 +31,9 @@ echo "==> Icon"
 ICONSET="$DIST/AppIcon.iconset"
 rm -rf "$ICONSET"
 mkdir -p "$ICONSET"
-if [[ ! -f "$DIST/icon-1024.png" ]]; then
+if [[ -f "$APP_DIR/AppIcon-1024.png" ]]; then
+    cp "$APP_DIR/AppIcon-1024.png" "$DIST/icon-1024.png"   # committed brand logo
+elif [[ ! -f "$DIST/icon-1024.png" ]]; then
     swift "$APP_DIR/scripts/icongen.swift" "$DIST/icon-1024.png" 1024
 fi
 for SIZE in 16 32 64 128 256 512; do
