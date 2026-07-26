@@ -10,6 +10,53 @@ struct SendableSCFilter: @unchecked Sendable {
     init(_ value: SCContentFilter) { self.value = value }
 }
 
+/// A click-through accent outline drawn over a window/display on screen, so hovering a row in the
+/// picker shows exactly what will be recorded.
+@MainActor
+final class WindowHighlightOverlay {
+    private var panel: NSPanel?
+
+    /// Show the outline at `cgRect` — ScreenCaptureKit's global frame (points, top-left origin).
+    func show(cgRect: CGRect) {
+        guard let rect = Self.toAppKit(cgRect), rect.width > 1, rect.height > 1 else { hide(); return }
+        let panel = self.panel ?? makePanel()
+        panel.setFrame(rect, display: true)
+        panel.orderFrontRegardless()
+        self.panel = panel
+    }
+
+    func hide() { panel?.orderOut(nil) }
+
+    private func makePanel() -> NSPanel {
+        let p = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
+                        backing: .buffered, defer: false)
+        p.isFloatingPanel = true
+        p.level = .screenSaver           // above the picker sheet so the outline is actually visible
+        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
+        p.isOpaque = false
+        p.backgroundColor = .clear
+        p.hasShadow = false
+        p.ignoresMouseEvents = true      // click-through: never steals the hover
+        let view = NSView()
+        view.wantsLayer = true
+        view.layer?.borderWidth = 4
+        view.layer?.borderColor = NSColor.controlAccentColor.cgColor
+        view.layer?.cornerRadius = 9     // border only; no fill, so it never tints the whole screen
+        p.contentView = view
+        return p
+    }
+
+    /// Convert a ScreenCaptureKit rect (top-left origin, relative to the primary display) to the
+    /// AppKit global coordinate space (bottom-left origin).
+    private static func toAppKit(_ cg: CGRect) -> NSRect? {
+        guard let primary = NSScreen.screens.first else { return nil }
+        let primaryHeight = primary.frame.height
+        return NSRect(x: cg.origin.x,
+                      y: primaryHeight - cg.origin.y - cg.height,
+                      width: cg.width, height: cg.height)
+    }
+}
+
 // MARK: - Top-right "record your screen?" popup (same style as the note-taking popup)
 
 @Observable @MainActor
@@ -165,6 +212,9 @@ struct ScreenSourceSheet: View {
     @State private var windows: [SCWindow] = []
     @State private var loaded = false
     @State private var errorText: String?
+    @State private var hovered: String?
+    @State private var thumbs: [String: NSImage] = [:]
+    @State private var overlay = WindowHighlightOverlay()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -187,10 +237,10 @@ struct ScreenSourceSheet: View {
                 List {
                     Section("Entire screen") {
                         ForEach(displays, id: \.displayID) { d in
-                            Button { pick(SCContentFilter(display: d, excludingApplications: [], exceptingWindows: [])) } label: {
-                                Label("Whole screen  (\(d.width)×\(d.height))", systemImage: "display")
-                            }
-                            .buttonStyle(.plain)
+                            sourceRow(id: "disp-\(d.displayID)",
+                                      title: "Whole screen  (\(d.width)×\(d.height))",
+                                      subtitle: nil, icon: nil, systemIcon: "display", frame: d.frame,
+                                      makeFilter: { SCContentFilter(display: d, excludingApplications: [], exceptingWindows: []) })
                         }
                     }
                     Section("A window") {
@@ -198,24 +248,11 @@ struct ScreenSourceSheet: View {
                             Text("No shareable windows open").foregroundStyle(.secondary)
                         }
                         ForEach(windows, id: \.windowID) { w in
-                            Button { pick(SCContentFilter(desktopIndependentWindow: w)) } label: {
-                                HStack(spacing: 10) {
-                                    if let icon = appIcon(w) {
-                                        Image(nsImage: icon).resizable().frame(width: 22, height: 22)
-                                    } else {
-                                        Image(systemName: "macwindow").frame(width: 22, height: 22)
-                                    }
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        Text(w.owningApplication?.applicationName ?? "Window")
-                                            .font(.skSubtitle)
-                                        if let t = w.title, !t.isEmpty {
-                                            Text(t).font(.skCaption).foregroundStyle(.secondary).lineLimit(1)
-                                        }
-                                    }
-                                    Spacer()
-                                }
-                            }
-                            .buttonStyle(.plain)
+                            sourceRow(id: "win-\(w.windowID)",
+                                      title: w.owningApplication?.applicationName ?? "Window",
+                                      subtitle: (w.title?.isEmpty == false) ? w.title : nil,
+                                      icon: appIcon(w), systemIcon: "macwindow", frame: w.frame,
+                                      makeFilter: { SCContentFilter(desktopIndependentWindow: w) })
                         }
                     }
                 }
@@ -224,9 +261,72 @@ struct ScreenSourceSheet: View {
         }
         .frame(width: 460, height: 520)
         .task { await load() }
+        .onDisappear { overlay.hide() }
+    }
+
+    /// One selectable source. Hovering highlights the real window/display on screen and loads a
+    /// thumbnail so the user sees exactly what will be recorded before picking.
+    @ViewBuilder
+    private func sourceRow(id: String, title: String, subtitle: String?, icon: NSImage?,
+                           systemIcon: String, frame: CGRect,
+                           makeFilter: @escaping () -> SCContentFilter) -> some View {
+        Button { pick(makeFilter()) } label: {
+            HStack(spacing: 10) {
+                thumbView(id: id, icon: icon, systemIcon: systemIcon)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).font(.skSubtitle)
+                    if let subtitle { Text(subtitle).font(.skCaption).foregroundStyle(.secondary).lineLimit(1) }
+                }
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(hovered == id ? Color.accentColor.opacity(0.12) : Color.clear)
+        .onHover { h in
+            if h {
+                hovered = id
+                overlay.show(cgRect: frame)
+                loadThumb(id: id, makeFilter: makeFilter)
+            } else if hovered == id {
+                hovered = nil
+                overlay.hide()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func thumbView(id: String, icon: NSImage?, systemIcon: String) -> some View {
+        if let thumb = thumbs[id] {
+            Image(nsImage: thumb)
+                .resizable().aspectRatio(contentMode: .fill)
+                .frame(width: 64, height: 40)
+                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Color.primary.opacity(0.12)))
+        } else if let icon {
+            Image(nsImage: icon).resizable().frame(width: 26, height: 26).frame(width: 64, height: 40)
+        } else {
+            Image(systemName: systemIcon).font(.system(size: 20)).foregroundStyle(.secondary)
+                .frame(width: 64, height: 40)
+        }
+    }
+
+    private func loadThumb(id: String, makeFilter: () -> SCContentFilter) {
+        guard thumbs[id] == nil else { return }
+        let box = SendableSCFilter(makeFilter())
+        Task {
+            let cfg = SCStreamConfiguration()
+            cfg.width = 480; cfg.height = 300
+            cfg.scalesToFit = true; cfg.showsCursor = false
+            if let cg = try? await SCScreenshotManager.captureImage(contentFilter: box.value, configuration: cfg) {
+                let img = NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+                thumbs[id] = img
+            }
+        }
     }
 
     private func pick(_ filter: SCContentFilter) {
+        overlay.hide()
         onPick(filter)
         dismiss()
     }
