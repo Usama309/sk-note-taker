@@ -202,6 +202,118 @@ public actor ClaudeCLIService {
                 title?.isEmpty == true ? nil : title)
     }
 
+    // MARK: - Meeting copilot (project memory + live answers)
+
+    /// The live copilot's answer: the exact wording to say, optional supporting notes, and where it
+    /// came from.
+    public struct AssistAnswer: Codable, Sendable, Equatable {
+        public var say: String
+        public var notes: [String]
+        public var source: String   // "memory" | "web" | "transcript" | "unknown"
+        public init(say: String, notes: [String] = [], source: String = "memory") {
+            self.say = say
+            self.notes = notes
+            self.source = source
+        }
+    }
+
+    /// Memory-backed live answer: tells the user the exact words to say, drawn from the project's
+    /// living memory, the live transcript, and (when allowed and needed) a quick web lookup.
+    public func assistWithMemory(question: String, meeting: Meeting, transcript: Transcript,
+                                 history: ChatLog, userName: String?,
+                                 projectMarkdown: String, projectDetails: String,
+                                 allowWeb: Bool) async throws -> AssistAnswer {
+        let rendered = transcript.rendered(with: meeting)
+        let tail = String(rendered.suffix(12_000))
+        let historyText = history.messages.suffix(6).map {
+            "\($0.role == "user" ? "Q" : "A"): \($0.text)"
+        }.joined(separator: "\n")
+
+        let schema = """
+        {"type":"object","properties":{
+          "say":{"type":"string","description":"The EXACT words for the user to say out loud, first person, 1-2 sentences, natural and speakable"},
+          "notes":{"type":"array","items":{"type":"string"},"description":"0-2 short supporting facts, optional"},
+          "source":{"type":"string","enum":["memory","web","transcript","unknown"]}
+        },"required":["say","source"]}
+        """
+
+        let prompt = """
+        You are the LIVE meeting copilot inside SK Note Taker. The meeting is happening RIGHT NOW. \
+        Your job is to tell \(userName ?? "the user") the EXACT words to say next, so they can read \
+        your "say" text aloud immediately. Draw on the project memory, the live transcript, and \
+        (only if needed) a quick web lookup.
+
+        \(CommunicationPlaybook.text)
+
+        Return: "say" = the exact wording to read aloud (1-2 sentences); "notes" = at most two short \
+        supporting facts, optional; "source" = where the answer mainly came from.
+
+        PROJECT MEMORY (project.md — read this first):
+        \(projectMarkdown.isEmpty ? "(none yet)" : projectMarkdown)
+
+        PROJECT DETAILS:
+        \(projectDetails.isEmpty ? "(none)" : projectDetails)
+
+        Meeting: \(meeting.title)
+        LIVE TRANSCRIPT (most recent part):
+        \(tail.isEmpty ? "(nothing yet)" : tail)
+
+        \(historyText.isEmpty ? "" : "PREVIOUS Q&A:\n\(historyText)\n")
+        \(allowWeb ? "If the answer needs current or external facts that are not in the memory (a how-to, a price, a policy, steps in a tool), use web search to get them, then give the exact wording. " : "")\
+        QUESTION / WHAT THE USER NEEDS TO SAY: \(question)
+        """
+        // With web allowed the model may reason + look up (use the stronger default model); pure
+        // memory answers stay on the fast model.
+        let output = try await run(prompt: prompt, jsonSchema: schema,
+                                   modelOverride: allowWeb ? nil : "haiku",
+                                   allowTools: allowWeb ? ["WebSearch", "WebFetch"] : [])
+        guard let structured = output.structured else {
+            throw ClaudeCLIError.badOutput("no structured output")
+        }
+        struct Payload: Decodable { let say: String; let notes: [String]?; let source: String? }
+        let p = try JSONDecoder().decode(Payload.self, from: structured)
+        return AssistAnswer(say: p.say.trimmingCharacters(in: .whitespacesAndNewlines),
+                            notes: p.notes ?? [], source: p.source ?? "memory")
+    }
+
+    /// Rebuild a project's living `project.md` from its details, imported material, and the digests
+    /// of its meetings. Returns the markdown file content.
+    public func buildProjectMarkdown(projectName: String, details: String,
+                                     importsDigest: String, meetingsDigest: String) async throws -> String {
+        let prompt = """
+        You maintain the living working-memory file (project.md) for a project inside SK Note Taker. \
+        Rebuild it from the details, imported material, and meeting history below. Output ONLY the \
+        markdown file content, no preamble, no code fences.
+
+        Use exactly these section headings (drop a section only if it would be truly empty):
+        # \(projectName) — Working Memory
+        ## People
+        ## Platforms & tools
+        ## Context
+        ## Open tasks (mine)
+        ## Decisions & outcomes
+        ## Reusable answers & facts
+        ## Glossary
+        ## Meeting log
+
+        Keep it compact and factual — it is read during live meetings for fast answers. Merge \
+        duplicates, keep the most recent state, and date entries where the date is known. Under \
+        "Open tasks (mine)" list what the user personally owes. Under "Reusable answers & facts" \
+        capture recurring questions with their answers.
+
+        DETAILS:
+        \(details.isEmpty ? "(none)" : details)
+
+        IMPORTED MATERIAL:
+        \(importsDigest.isEmpty ? "(none)" : importsDigest)
+
+        MEETINGS (most recent first):
+        \(meetingsDigest.isEmpty ? "(none yet)" : meetingsDigest)
+        """
+        let output = try await run(prompt: prompt, jsonSchema: nil)
+        return output.result.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     // MARK: - Subprocess plumbing
 
     struct CLIOutput {
@@ -224,10 +336,13 @@ public actor ClaudeCLIService {
     }
 
     private func run(prompt: String, jsonSchema: String?,
-                     modelOverride: String? = nil) async throws -> CLIOutput {
+                     modelOverride: String? = nil, allowTools: [String] = []) async throws -> CLIOutput {
         let binary = try await binaryPath()
         var args = [binary, "-p", "--output-format", "json", "--model", modelOverride ?? model,
                     "--setting-sources", "", "--strict-mcp-config"]
+        if !allowTools.isEmpty {
+            args += ["--allowedTools", allowTools.joined(separator: ",")]
+        }
         if let jsonSchema {
             args += ["--json-schema", jsonSchema]
         }

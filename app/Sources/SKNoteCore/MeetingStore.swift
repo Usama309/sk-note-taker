@@ -131,6 +131,74 @@ public actor MeetingStore {
         dir(for: id).appendingPathComponent("screen.mov")
     }
 
+    // MARK: - Project memory (per folder)
+
+    public func foldersDir() -> URL {
+        dataDir.appendingPathComponent("folders", isDirectory: true)
+    }
+
+    public func folderDir(for folderId: UUID) -> URL {
+        foldersDir().appendingPathComponent(folderId.uuidString, isDirectory: true)
+    }
+
+    public func projectMemory(for folderId: UUID) -> ProjectMemory {
+        let url = folderDir(for: folderId).appendingPathComponent("memory.json")
+        guard let data = try? Data(contentsOf: url),
+              let m = try? SKJSON.decoder.decode(ProjectMemory.self, from: data) else {
+            return ProjectMemory()
+        }
+        return m
+    }
+
+    public func saveProjectMemory(_ memory: ProjectMemory, for folderId: UUID) throws {
+        let dir = folderDir(for: folderId)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try atomicWrite(SKJSON.encoder.encode(memory), to: dir.appendingPathComponent("memory.json"))
+    }
+
+    /// The living knowledge file the assistant reads first. Empty string when not built yet.
+    public func projectMarkdown(for folderId: UUID) -> String {
+        let url = folderDir(for: folderId).appendingPathComponent("project.md")
+        return (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+    }
+
+    public func saveProjectMarkdown(_ markdown: String, for folderId: UUID) throws {
+        let dir = folderDir(for: folderId)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try atomicWrite(Data(markdown.utf8), to: dir.appendingPathComponent("project.md"))
+    }
+
+    private func importsDir(for folderId: UUID) -> URL {
+        folderDir(for: folderId).appendingPathComponent("imports", isDirectory: true)
+    }
+
+    /// Add imported text (a pasted transcript / note / an imported recording's transcript) to a
+    /// project's memory. Returns the new doc's metadata.
+    @discardableResult
+    public func addImport(title: String, text: String, for folderId: UUID) throws -> ImportedDoc {
+        let doc = ImportedDoc(id: UUID(), title: title, addedAt: Date())
+        let dir = importsDir(for: folderId)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try atomicWrite(Data(text.utf8), to: dir.appendingPathComponent("\(doc.id.uuidString).txt"))
+        var memory = projectMemory(for: folderId)
+        memory.imports.append(doc)
+        try saveProjectMemory(memory, for: folderId)
+        return doc
+    }
+
+    public func importText(_ docId: UUID, for folderId: UUID) -> String {
+        let url = importsDir(for: folderId).appendingPathComponent("\(docId.uuidString).txt")
+        return (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+    }
+
+    public func removeImport(_ docId: UUID, for folderId: UUID) throws {
+        try? FileManager.default.removeItem(
+            at: importsDir(for: folderId).appendingPathComponent("\(docId.uuidString).txt"))
+        var memory = projectMemory(for: folderId)
+        memory.imports.removeAll { $0.id == docId }
+        try saveProjectMemory(memory, for: folderId)
+    }
+
     // MARK: - Settings
 
     public func loadSettings() -> AppSettings {
