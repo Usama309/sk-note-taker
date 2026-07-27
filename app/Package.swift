@@ -22,7 +22,8 @@ let package = Package(
         ),
         .executableTarget(
             name: "SKNoteTakerApp",
-            dependencies: ["SKNoteCore"]
+            dependencies: ["SKNoteCore"],
+            resources: [.copy("Resources")]
         ),
         .executableTarget(
             name: "sknote-audiocheck",

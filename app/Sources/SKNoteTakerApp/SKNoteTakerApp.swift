@@ -146,17 +146,23 @@ struct MenuBarLabel: View {
     @Environment(AppState.self) private var app
 
     var body: some View {
-        Image(systemName: symbol)
+        if let symbol = statusSymbol {
+            Image(systemName: symbol)
+        } else if let logo = BrandAssets.logo {
+            Image(nsImage: logo).resizable().interpolation(.high)
+                .frame(width: 18, height: 18)
+                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+        } else {
+            Image(systemName: "waveform")
+        }
     }
 
-    private var symbol: String {
+    /// A red record indicator while recording; otherwise nil, so the menu bar shows the brand logo.
+    private var statusSymbol: String? {
         if let session = app.session {
             return session.isPaused ? "pause.circle.fill" : "record.circle.fill"
         }
-        if app.settings.showUpcomingInMenuBar, app.calendarConnected, app.nextMenuBarEvent != nil {
-            return "calendar"
-        }
-        return "waveform"
+        return nil
     }
 
     static func shortTitle(_ event: GoogleCalendarEvent) -> String {

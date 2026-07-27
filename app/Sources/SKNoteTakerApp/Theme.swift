@@ -132,24 +132,30 @@ extension Color {
 }
 
 /// The logo mark: rounded gradient square with soundwave bars (mirrors assets/logo.svg).
+/// Bundled brand assets.
+enum BrandAssets {
+    /// The SK Note Taker logo mark (loaded once).
+    static let logo: NSImage? = Bundle.module
+        .url(forResource: "BrandLogo", withExtension: "png")
+        .flatMap { NSImage(contentsOf: $0) }
+}
+
+/// The SK Note Taker logo mark, rendered as a rounded tile at any size.
 struct LogoMark: View {
     var size: CGFloat = 28
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
-                .fill(Theme.accentGradient)
-            HStack(spacing: size * 0.09) {
-                bar(0.32); bar(0.55); bar(0.80); bar(0.45); bar(0.62)
+        Group {
+            if let logo = BrandAssets.logo {
+                Image(nsImage: logo).resizable().interpolation(.high).aspectRatio(contentMode: .fill)
+            } else {
+                RoundedRectangle(cornerRadius: size * 0.24, style: .continuous).fill(Theme.accentGradient)
             }
         }
         .frame(width: size, height: size)
-    }
-
-    private func bar(_ scale: CGFloat) -> some View {
-        Capsule()
-            .fill(.white)
-            .frame(width: size * 0.075, height: size * scale * 0.72)
+        .clipShape(RoundedRectangle(cornerRadius: size * 0.24, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
+            .strokeBorder(Theme.hairline))
     }
 }
 
