@@ -1,0 +1,4 @@
+Bundled fonts, used under the SIL Open Font License 1.1 (https://openfontlicense.org):
+- Inter — Copyright (c) The Inter Project Authors (Rasmus Andersson). https://github.com/rsms/inter
+- Plus Jakarta Sans — Copyright (c) The Plus Jakarta Sans Project Authors (Tokotype). https://github.com/tokotype/PlusJakartaSans
+The OFL permits bundling and redistribution with the software.

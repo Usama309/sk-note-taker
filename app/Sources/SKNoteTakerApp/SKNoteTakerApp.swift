@@ -9,6 +9,7 @@ import SKNoteCore
 enum AppEntry {
     static func main() {
         if SelfTest.run(CommandLine.arguments) { exit(0) }
+        BrandFonts.register()
         SKNoteTakerApp.main()
     }
 }

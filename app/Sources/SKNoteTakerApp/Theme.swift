@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import CoreText
 
 /// SK Note Taker brand system — charcoal + mint, Apple-clean, in light and dark. Colours are the
 /// single source of truth; use these tokens (not raw hex) everywhere.
@@ -76,20 +77,28 @@ extension Theme {
 /// The common tiers (body/callout/caption/footnote) keep their existing sizes; only the scattered
 /// outliers are normalized onto the ramp.
 extension Font {
-    static let skHero          = Font.system(size: 22, weight: .bold, design: .rounded)     // empty-state + detail titles
-    static let skTitle         = Font.system(size: 18, weight: .bold)                        // large section / sheet titles
-    static let skHeadline      = Font.system(size: 15, weight: .semibold)                    // prominent headers
-    static let skSection       = Font.system(size: 14, weight: .semibold)                    // card titles
-    static let skSubtitle      = Font.system(size: 13, weight: .semibold)                    // row / event titles
-    static let skBody          = Font.system(size: 13)                                       // body, transcript, summary
-    static let skCallout       = Font.system(size: 12)                                       // secondary body
-    static let skLabel         = Font.system(size: 12, weight: .semibold)                    // small emphasized labels / buttons
-    static let skCaption       = Font.system(size: 11, weight: .medium)                      // metadata, tags
-    static let skCaptionStrong = Font.system(size: 11, weight: .semibold)                    // emphasized captions
-    static let skFootnote      = Font.system(size: 10)                                       // tertiary hints
-    static let skFootnoteStrong = Font.system(size: 10, weight: .semibold)                   // emphasized tertiary
-    static let skBadge         = Font.system(size: 9, weight: .bold)                         // micro badges / chevrons
-    static let skMono          = Font.system(size: 13, weight: .medium, design: .monospaced) // timers
+    // Brand pairing: headings in Plus Jakarta Sans, everything else in Inter (registered at launch).
+    private static func jakarta(_ size: CGFloat, _ weight: Font.Weight) -> Font {
+        .custom("Plus Jakarta Sans", size: size).weight(weight)
+    }
+    private static func inter(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+        .custom("Inter", size: size).weight(weight)
+    }
+
+    static let skHero          = jakarta(22, .bold)      // empty-state + detail titles
+    static let skTitle         = jakarta(18, .bold)      // large section / sheet titles
+    static let skHeadline      = jakarta(15, .semibold)  // prominent headers
+    static let skSection       = inter(14, .semibold)    // card titles
+    static let skSubtitle      = inter(13, .semibold)    // row / event titles
+    static let skBody          = inter(13)               // body, transcript, summary
+    static let skCallout       = inter(12)               // secondary body
+    static let skLabel         = inter(12, .medium)      // small emphasized labels / buttons
+    static let skCaption       = inter(11, .medium)      // metadata, tags
+    static let skCaptionStrong = inter(11, .semibold)    // emphasized captions
+    static let skFootnote      = inter(10)               // tertiary hints
+    static let skFootnoteStrong = inter(10, .semibold)   // emphasized tertiary
+    static let skBadge         = inter(9, .bold)         // micro badges / chevrons
+    static let skMono          = Font.system(size: 13, weight: .medium, design: .monospaced) // timers stay monospaced
     static let skMonoSmall     = Font.system(size: 11, design: .monospaced)                  // small mono (paths)
 }
 
@@ -138,6 +147,26 @@ enum BrandAssets {
     static let logo: NSImage? = Bundle.module
         .url(forResource: "BrandLogo", withExtension: "png")
         .flatMap { NSImage(contentsOf: $0) }
+}
+
+/// Registers the bundled brand fonts (Plus Jakarta Sans + Inter) so the type ramp can use them.
+/// Call once at launch, before any view renders.
+enum BrandFonts {
+    static func register() {
+        var urls: [URL] = []
+        for sub in [nil, "Fonts"] as [String?] {
+            if let found = Bundle.module.urls(forResourcesWithExtension: "ttf", subdirectory: sub) {
+                urls += found
+            }
+        }
+        if urls.isEmpty, let root = Bundle.module.resourceURL,
+           let walker = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil) {
+            for case let url as URL in walker where url.pathExtension.lowercased() == "ttf" { urls.append(url) }
+        }
+        for url in Set(urls) {
+            CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+        }
+    }
 }
 
 /// The SK Note Taker logo mark, rendered as a rounded tile at any size.
