@@ -294,7 +294,8 @@ public final class MeetingSession {
         let segments = await diarizer.finalPass()
         nameTrack.clearActive(at: elapsed)
         let (finalSegments, finalSpeakers) = assembler.assemble(
-            finals: finals, speakerSegments: segments, nameSpans: nameTrack.snapshot(now: elapsed))
+            finals: finals, speakerSegments: segments,
+            nameSpans: nameTrack.snapshot(now: elapsed), userName: userName)
         applyRebuild(segments: finalSegments, speakers: finalSpeakers)
 
         await recorder?.finish()
@@ -582,11 +583,13 @@ public final class MeetingSession {
         let segs = latestSpeakerSegments
         let nameSnapshot = nameTrack.snapshot(now: clock.sessionTime())
         let assembler = self.assembler
+        let userNameSnapshot = userName
         // Low priority: the O(mic×system) assemble grows with the meeting and must yield to
         // real-time audio ingestion.
         Task.detached(priority: .utility) { [weak self] in
             let (segments, speakers) = assembler.assemble(
-                finals: finalsSnapshot, speakerSegments: segs, nameSpans: nameSnapshot)
+                finals: finalsSnapshot, speakerSegments: segs, nameSpans: nameSnapshot,
+                userName: userNameSnapshot)
             await MainActor.run {
                 guard let self else { return }
                 // A finishing/failed meeting does its own authoritative final assemble; ignore

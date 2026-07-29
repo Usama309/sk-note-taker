@@ -36,26 +36,50 @@ public struct TranscriptAssembler: Sendable {
     public func assemble(
         finals: [TranscriptionResult],
         speakerSegments: [SpeakerSegment],
-        nameSpans: [NameSpan] = []
+        nameSpans: [NameSpan] = [],
+        userName: String? = nil
     ) -> (segments: [TranscriptSegment], speakers: [String: SpeakerInfo]) {
 
-        // Stable mapping: diarizer id -> S2, S3, … by first appearance in the timeline.
+        // When the meeting app tells us who is speaking (Zoom Accessibility spotlight / a Meet
+        // extension), THAT is the source of truth for who said what — not the voice-pitch diarizer,
+        // which over-split a single person into several "speakers". The diarizer is only a fallback
+        // for calls with no such signal (e.g. a browser call without the extension).
+        let useSpotlight = !nameSpans.isEmpty
+
+        // Fallback mapping: diarizer id -> S2, S3, … by first appearance in the timeline.
         var diarizerKey: [String: String] = [:]
         for seg in speakerSegments.sorted(by: { $0.start < $1.start }) {
             if diarizerKey[seg.speakerId] == nil {
                 diarizerKey[seg.speakerId] = "S\(diarizerKey.count + 2)"
             }
         }
-
-        // Attach a real name to each diarizer cluster from the meeting-app active-speaker signal.
+        // Fallback labelling (used only if a diarizer key survives with a spotlight name).
         var nameForKey: [String: String] = [:]
-        if !nameSpans.isEmpty {
+        if useSpotlight {
             for (diarId, key) in diarizerKey {
                 if let name = Self.dominantName(diarizerId: diarId, segments: speakerSegments, spans: nameSpans) {
                     nameForKey[key] = name
                 }
             }
         }
+
+        // Spotlight-primary identity: one stable key per named participant, in first-seen order.
+        var keyForName: [String: String] = [:]     // lowercased name -> S-key
+        var nameForSpotKey: [String: String] = [:]  // S-key -> display name
+        func spotlightKey(for name: String) -> String {
+            let norm = name.lowercased()
+            if let k = keyForName[norm] { return k }
+            let k = "S\(keyForName.count + 2)"
+            keyForName[norm] = k
+            nameForSpotKey[k] = name
+            return k
+        }
+        func nameAt(_ t: Double) -> String? {
+            guard useSpotlight else { return nil }
+            if let covering = nameSpans.first(where: { t >= $0.start && t < $0.end }) { return covering.name }
+            return nameSpans.min { Self.spanDistance($0, t) < Self.spanDistance($1, t) }?.name
+        }
+        let me = userName?.trimmingCharacters(in: .whitespaces)
 
         var tokens: [Token] = []
         for result in finals where result.isFinal {
@@ -72,8 +96,18 @@ public struct TranscriptAssembler: Sendable {
                     key = "S1"
                 case .system:
                     let mid = (tok.start + tok.end) / 2
-                    let id = Self.speakerId(atTime: mid, in: speakerSegments)
-                    key = id.flatMap { diarizerKey[$0] } ?? "S2"
+                    if let name = nameAt(mid) {
+                        // The meeting app named the active speaker at this moment.
+                        if let me, !me.isEmpty,
+                           name.localizedCaseInsensitiveContains(me) || me.localizedCaseInsensitiveContains(name) {
+                            key = "S1"   // the user's own voice echoing on the system channel
+                        } else {
+                            key = spotlightKey(for: name)
+                        }
+                    } else {
+                        let id = Self.speakerId(atTime: mid, in: speakerSegments)
+                        key = id.flatMap { diarizerKey[$0] } ?? "S2"
+                    }
                 }
                 tokens.append(Token(text: text, start: tok.start, end: tok.end,
                                     source: result.channel, speakerKey: key))
@@ -158,7 +192,7 @@ public struct TranscriptAssembler: Sendable {
         for key in usedKeys where key != "S1" {
             let number = Int(key.dropFirst()) ?? 2
             speakers[key] = SpeakerInfo(
-                label: "Speaker \(number)", name: nameForKey[key], source: .system)
+                label: "Speaker \(number)", name: nameForSpotKey[key] ?? nameForKey[key], source: .system)
         }
         return (segments, speakers)
     }
@@ -180,6 +214,13 @@ public struct TranscriptAssembler: Sendable {
               let best = byName.max(by: { $0.value < $1.value }),
               best.value / total >= 0.3 else { return nil }
         return best.key
+    }
+
+    /// Distance (seconds) from a time to a name span (0 when inside it).
+    static func spanDistance(_ span: NameSpan, _ t: Double) -> Double {
+        if t < span.start { return span.start - t }
+        if t > span.end { return t - span.end }
+        return 0
     }
 
     /// Max-overlap lookup: the diarizer segment containing the midpoint, else nearest.

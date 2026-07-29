@@ -87,18 +87,41 @@ struct TranscriptAssemblerNameTests {
         #expect(speakers["S3"]?.name == "Bob")
     }
 
-    @Test("a name covering under 30% of a cluster does not label it")
-    func lowCoverageNoName() {
+    @Test("over-split diarizer clusters collapse to one speaker when the app names them")
+    func overSplitCollapses() {
         let assembler = TranscriptAssembler()
-        let finals = [systemResult("a long stretch of talking", 0.0, 10.0)]
-        let diarized = [SpeakerSegment(speakerId: "A", start: 0.0, end: 10.0)]
-        let spans = [NameSpan(name: "Alice", start: 0.0, end: 1.0)]  // 10% coverage
+        // One remote person, but the voice-pitch diarizer over-split into A and B.
+        let finals = [
+            systemResult("part one", 1.0, 3.0),
+            systemResult("part two", 3.2, 5.0),
+        ]
+        let diarized = [
+            SpeakerSegment(speakerId: "A", start: 1.0, end: 3.0),
+            SpeakerSegment(speakerId: "B", start: 3.2, end: 5.0),
+        ]
+        // The meeting app said it was Sameel the whole time.
+        let spans = [NameSpan(name: "Sameel", start: 1.0, end: 5.0)]
 
-        let (_, speakers) = assembler.assemble(
+        let (segments, speakers) = assembler.assemble(
             finals: finals, speakerSegments: diarized, nameSpans: spans)
 
-        #expect(speakers["S2"]?.name == nil)
-        #expect(speakers["S2"]?.label == "Speaker 2")
+        let systemSpeakers = speakers.filter { $0.value.source == .system }
+        #expect(systemSpeakers.count == 1)                       // over-split is gone
+        #expect(systemSpeakers.first?.value.name == "Sameel")
+        #expect(Set(segments.filter { $0.source == .system }.map(\.speaker)).count == 1)
+    }
+
+    @Test("the user's own voice echoing on the system channel folds into the mic speaker")
+    func userEchoFolds() {
+        let assembler = TranscriptAssembler()
+        let finals = [systemResult("my own words echoing", 1.0, 3.0)]
+        let diarized = [SpeakerSegment(speakerId: "A", start: 1.0, end: 3.0)]
+        let spans = [NameSpan(name: "Muhammad Usama", start: 1.0, end: 3.0)]
+
+        let (segments, _) = assembler.assemble(
+            finals: finals, speakerSegments: diarized, nameSpans: spans, userName: "Usama")
+
+        #expect(segments.allSatisfy { $0.speaker == "S1" })   // attributed to the user, not a new speaker
     }
 
     @Test("no name spans leaves the diarize-only behaviour unchanged")
