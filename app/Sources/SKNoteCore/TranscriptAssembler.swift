@@ -74,12 +74,21 @@ public struct TranscriptAssembler: Sendable {
             nameForSpotKey[k] = name
             return k
         }
-        func nameAt(_ t: Double) -> String? {
-            guard useSpotlight else { return nil }
-            if let covering = nameSpans.first(where: { t >= $0.start && t < $0.end }) { return covering.name }
-            return nameSpans.min { Self.spanDistance($0, t) < Self.spanDistance($1, t) }?.name
-        }
         let me = userName?.trimmingCharacters(in: .whitespaces)
+        func isUser(_ name: String) -> Bool {
+            guard let me, !me.isEmpty else { return false }
+            return name.localizedCaseInsensitiveContains(me) || me.localizedCaseInsensitiveContains(name)
+        }
+        // The system channel is always a remote participant, never the user, so resolve to the
+        // active speaker's name EXCLUDING the user: Zoom's spotlight can lag onto the user's tile
+        // while the remote is the one actually on the system audio. Covering span first, else nearest.
+        func remoteNameAt(_ t: Double) -> String? {
+            guard useSpotlight else { return nil }
+            let remote = nameSpans.filter { !isUser($0.name) }
+            guard !remote.isEmpty else { return nil }
+            if let covering = remote.first(where: { t >= $0.start && t < $0.end }) { return covering.name }
+            return remote.min { Self.spanDistance($0, t) < Self.spanDistance($1, t) }?.name
+        }
 
         var tokens: [Token] = []
         for result in finals where result.isFinal {
@@ -96,14 +105,8 @@ public struct TranscriptAssembler: Sendable {
                     key = "S1"
                 case .system:
                     let mid = (tok.start + tok.end) / 2
-                    if let name = nameAt(mid) {
-                        // The meeting app named the active speaker at this moment.
-                        if let me, !me.isEmpty,
-                           name.localizedCaseInsensitiveContains(me) || me.localizedCaseInsensitiveContains(name) {
-                            key = "S1"   // the user's own voice echoing on the system channel
-                        } else {
-                            key = spotlightKey(for: name)
-                        }
+                    if let name = remoteNameAt(mid) {
+                        key = spotlightKey(for: name)
                     } else {
                         let id = Self.speakerId(atTime: mid, in: speakerSegments)
                         key = id.flatMap { diarizerKey[$0] } ?? "S2"

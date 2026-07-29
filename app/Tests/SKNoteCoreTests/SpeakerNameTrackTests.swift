@@ -111,17 +111,24 @@ struct TranscriptAssemblerNameTests {
         #expect(Set(segments.filter { $0.source == .system }.map(\.speaker)).count == 1)
     }
 
-    @Test("the user's own voice echoing on the system channel folds into the mic speaker")
-    func userEchoFolds() {
+    @Test("a system token during the user's spotlight (lag) is attributed to the remote, not the user")
+    func lagAttributedToRemote() {
         let assembler = TranscriptAssembler()
-        let finals = [systemResult("my own words echoing", 1.0, 3.0)]
-        let diarized = [SpeakerSegment(speakerId: "A", start: 1.0, end: 3.0)]
-        let spans = [NameSpan(name: "Muhammad Usama", start: 1.0, end: 3.0)]
-
-        let (segments, _) = assembler.assemble(
+        // The remote (Sameel) is on the system audio at t=6, but Zoom's spotlight lagged onto the
+        // user's tile. The system channel is never the user, so this must resolve to Sameel.
+        let finals = [systemResult("the remote line", 5.0, 7.0)]
+        let diarized = [SpeakerSegment(speakerId: "A", start: 5.0, end: 7.0)]
+        let spans = [
+            NameSpan(name: "Sameel", start: 0.0, end: 4.0),
+            NameSpan(name: "Muhammad Usama", start: 4.0, end: 8.0),
+        ]
+        let (segments, speakers) = assembler.assemble(
             finals: finals, speakerSegments: diarized, nameSpans: spans, userName: "Usama")
 
-        #expect(segments.allSatisfy { $0.speaker == "S1" })   // attributed to the user, not a new speaker
+        let sys = speakers.filter { $0.value.source == .system }
+        #expect(sys.count == 1)
+        #expect(sys.first?.value.name == "Sameel")
+        #expect(segments.contains { $0.source == .system && speakers[$0.speaker]?.name == "Sameel" })
     }
 
     @Test("no name spans leaves the diarize-only behaviour unchanged")
