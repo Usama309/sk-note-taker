@@ -145,6 +145,17 @@ public enum ZoomAX {
     /// The current active speaker, or nil if no trustworthy signal. `roster` (when non-empty)
     /// constrains the result to a known participant.
     public static func activeSpeaker(in root: AXNode, roster: [String]) -> ActiveSpeaker? {
+        // PRIMARY signal (confirmed on real 2-person Zoom calls): the spotlight / active-speaker
+        // tile is an AXTabGroup whose desc is "<Name>, Computer audio …, Video …" and follows
+        // whoever is talking. The name is the first comma-separated component. Zoom does NOT emit
+        // "is speaking"/"active speaker" text, so this is how we know who is speaking.
+        let tabs = root.flattened().filter { $0.role == "AXTabGroup" && ($0.desc?.isEmpty == false) }
+        if let spotlight = tabs.first(where: { ($0.desc ?? "").lowercased().contains("audio") }) ?? tabs.first,
+           let name = cleanName(spotlight.desc ?? "") {
+            return ActiveSpeaker(name: name, strategy: "spotlight")
+        }
+
+        // Fallback: explicit speaking markers (some Zoom builds / views may use them).
         for node in root.flattened() {
             let h = node.hay
             guard !h.isEmpty else { continue }

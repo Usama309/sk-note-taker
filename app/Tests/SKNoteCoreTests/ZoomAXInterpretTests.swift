@@ -90,10 +90,34 @@ struct ZoomAXInterpretTests {
 
     // MARK: Active speaker
 
-    @Test("no active speaker in the solo muted dump (the honest current state)")
+    @Test("the spotlight tab-group names the active speaker (confirmed on real Zoom calls)")
+    func activeSpotlight() {
+        // Mirrors the real 2-person capture: AXTabGroup desc "<Name>, Computer audio …, Video …".
+        let tree = AXNode(role: "AXApplication", children: [
+            AXNode(role: "AXWindow", title: "Zoom Meeting", children: [
+                AXNode(role: "AXTabGroup", desc: "Sameel, Computer audio unmuted, Video off", children: [
+                    AXNode(role: "AXImage"),
+                ]),
+                AXNode(role: "AXOutline", desc: "Participants list", children: [
+                    AXNode(role: "AXRow", children: [AXNode(role: "AXCell", children: [
+                        AXNode(role: "AXStaticText", value: "Sameel"),
+                    ])]),
+                    AXNode(role: "AXRow", children: [AXNode(role: "AXCell", children: [
+                        AXNode(role: "AXStaticText", value: "Muhammad Usama (Host, me)"),
+                    ])]),
+                ]),
+            ]),
+        ])
+        let who = ZoomAX.activeSpeaker(in: tree, roster: ZoomAX.roster(in: tree))
+        #expect(who?.name == "Sameel")
+        #expect(who?.strategy == "spotlight")
+    }
+
+    @Test("the solo call's spotlight resolves to the only participant")
     func activeSolo() {
         let tree = soloTree()
-        #expect(ZoomAX.activeSpeaker(in: tree, roster: ZoomAX.roster(in: tree)) == nil)
+        // The solo dump's AXTabGroup desc is "Muhammad Usama, Computer audio muted".
+        #expect(ZoomAX.activeSpeaker(in: tree, roster: ZoomAX.roster(in: tree))?.name == "Muhammad Usama")
     }
 
     @Test("an active-speaker marker resolves to the roster name")
