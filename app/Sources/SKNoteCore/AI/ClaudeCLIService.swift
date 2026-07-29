@@ -499,15 +499,25 @@ public actor ClaudeCLIService {
         let command = args.map { Self.shellQuote($0) }.joined(separator: " ")
         let (status, stdout, stderr) = try await Self.exec(
             "/bin/zsh", ["-lc", command], stdin: prompt, timeout: 300)
+
+        // Being signed out is the most common failure; the CLI reports it via stderr OR the JSON
+        // result body, so check both and surface a clear, actionable error either way.
+        let haystack = (stderr + "\n" + stdout).lowercased()
+        if haystack.contains("not logged in") || haystack.contains("please run /login")
+            || haystack.contains("invalid api key") || haystack.contains("claude login") {
+            throw ClaudeCLIError.notLoggedIn
+        }
         guard status == 0 else {
-            throw ClaudeCLIError.cliFailed(String(stderr.prefix(500)))
+            let detail = stderr.isEmpty ? String(stdout.prefix(500)) : String(stderr.prefix(500))
+            throw ClaudeCLIError.cliFailed(detail.isEmpty ? "the CLI exited with code \(status) and no output" : detail)
         }
         guard let data = stdout.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw ClaudeCLIError.badOutput(String(stdout.prefix(300)))
         }
         if let isError = json["is_error"] as? Bool, isError {
-            throw ClaudeCLIError.cliFailed(String((json["result"] as? String ?? "").prefix(500)))
+            let result = (json["result"] as? String) ?? ""
+            throw ClaudeCLIError.cliFailed(result.isEmpty ? "the CLI returned an error with no detail" : String(result.prefix(500)))
         }
         let result = json["result"] as? String ?? ""
         var structured: Data?
@@ -570,6 +580,7 @@ public actor ClaudeCLIService {
 
 public enum ClaudeCLIError: Error, LocalizedError {
     case cliNotFound
+    case notLoggedIn
     case cliFailed(String)
     case badOutput(String)
     case emptyTranscript
@@ -578,6 +589,8 @@ public enum ClaudeCLIError: Error, LocalizedError {
         switch self {
         case .cliNotFound:
             "Claude Code CLI not found. Install it and sign in (https://claude.com/claude-code)."
+        case .notLoggedIn:
+            "Claude isn't signed in. Open Terminal, run “claude”, then type /login and sign in with your Claude account. SK Note Taker uses that sign-in for all its AI features."
         case .cliFailed(let detail): "Claude CLI failed: \(detail)"
         case .badOutput(let detail): "Unexpected Claude CLI output: \(detail)"
         case .emptyTranscript: "No transcript to work with yet."
