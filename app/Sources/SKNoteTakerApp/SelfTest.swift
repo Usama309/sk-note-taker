@@ -153,6 +153,27 @@ enum SelfTest {
             }
             return true
         }
+        // Runs the real command-palette ranking over a synthetic command list, so filtering can be
+        // checked headlessly (the GUI needs a keychain prompt cleared before it can be driven).
+        if let i = args.firstIndex(of: "--selftest-palette") {
+            let q = (i + 1 < args.count) ? args[i + 1] : "selft"
+            let sample: [SKCommand] = [
+                SKCommand(id: "a1", title: "Start Meeting", group: "Action", icon: "r",
+                          keywords: ["record", "new"]) {},
+                SKCommand(id: "a2", title: "Open Assistant", group: "Action", icon: "s",
+                          keywords: ["ai"]) {},
+                SKCommand(id: "a3", title: "New Project", group: "Action", icon: "f") {},
+                SKCommand(id: "a4", title: "Settings", group: "Action", icon: "g") {},
+                SKCommand(id: "n1", title: "All Meetings", group: "Go to", icon: "t") {},
+                SKCommand(id: "n2", title: "Starred", group: "Go to", icon: "s") {},
+                SKCommand(id: "m1", title: "SELFTEST meeting", group: "Meeting", icon: "w") {},
+                SKCommand(id: "m2", title: "29 Jul 2026 at 5:04 AM Meeting", group: "Meeting", icon: "w") {},
+            ]
+            let ranked = MainActor.assumeIsolated { CommandRegistry.rank(sample, query: q) }
+            print("query: '\(q)'  ->  \(ranked.count) result(s)")
+            for r in ranked { print("   \(r.group.padding(toLength: 8, withPad: " ", startingAt: 0)) \(r.title)") }
+            return true
+        }
         // One-shot: print the current on-screen window list (Dock + big windows) and the
         // MissionControlMonitor verdict, so we can see what a false positive is matching.
         if args.contains("--selftest-mcwindows") {

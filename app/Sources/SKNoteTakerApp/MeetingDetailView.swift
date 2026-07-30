@@ -278,6 +278,22 @@ struct WaveformPlayer: View {
         playback.duration > 0 ? min(1, playback.currentTime / playback.duration) : 0
     }
 
+    /// Media keys for the player: Space toggles, arrows seek 5s. Mounted as zero-sized buttons so
+    /// they only fire while a recording is open and never steal keys from a focused text field.
+    private var playbackKeys: some View {
+        Group {
+            Button("") { playback.toggle() }
+                .keyboardShortcut(.space, modifiers: [])
+            Button("") { playback.seek(to: max(0, playback.currentTime - 5), andPlay: playback.playing) }
+                .keyboardShortcut(.leftArrow, modifiers: [])
+            Button("") { playback.seek(to: min(playback.duration, playback.currentTime + 5), andPlay: playback.playing) }
+                .keyboardShortcut(.rightArrow, modifiers: [])
+        }
+        .opacity(0).frame(width: 0, height: 0)
+        .disabled(!playback.ready)
+        .accessibilityHidden(true)
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             Button { playback.toggle() } label: {
@@ -288,9 +304,11 @@ struct WaveformPlayer: View {
                     .background(playback.ready ? AnyShapeStyle(Theme.accentGradient)
                                 : AnyShapeStyle(Color.secondary), in: Circle())
                     .shadow(color: Theme.accent.opacity(playback.ready ? 0.35 : 0), radius: 6, y: 2)
+                    .animation(Theme.Motion.spring, value: playback.playing)
             }
             .buttonStyle(.plain)
             .disabled(!playback.ready)
+            .background(playbackKeys)
 
             Text(Theme.timestamp(playback.currentTime))
                 .font(.skMonoSmall)

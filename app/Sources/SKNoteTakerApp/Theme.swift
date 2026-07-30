@@ -67,6 +67,13 @@ enum Theme {
         Color(light: Color(hex: "6D8A3A"), dark: Color(hex: "A3C46A")),   // olive
     ]
 
+    /// Stable colour per project. Seeded from the id string (UUID hashValue is per-run), so a
+    /// project keeps its colour across launches; shared by the sidebar and the command palette.
+    static func folderColor(for id: UUID) -> Color {
+        let seed = id.uuidString.unicodeScalars.reduce(0) { $0 + Int($1.value) }
+        return folderPalette[seed % folderPalette.count]
+    }
+
     /// Distinct, stable hue per speaker key (S1 teal, S2 accent, then rotating).
     /// Each entry is appearance-aware: the light shades hold >=4.5:1 on white surfaces (speaker
     /// names render as small bold text), the dark shades are brightened for charcoal.

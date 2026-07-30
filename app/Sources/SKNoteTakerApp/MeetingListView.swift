@@ -3,6 +3,7 @@ import SKNoteCore
 
 struct MeetingListView: View {
     @Environment(AppState.self) private var app
+    @FocusState private var searchFocused: Bool
 
     var body: some View {
         @Bindable var app = app
@@ -12,11 +13,14 @@ struct MeetingListView: View {
                     .foregroundStyle(.secondary)
                 TextField("Search meetings", text: $app.searchText)
                     .textFieldStyle(.plain)
+                    .focused($searchFocused)
             }
             .padding(8)
             .background(Theme.surface, in: RoundedRectangle(cornerRadius: 8))
             .padding(.horizontal, 12)
             .padding(.top, 10)
+            // Cmd+F focuses the search field from anywhere in the app.
+            .onChange(of: app.focusSearch) { searchFocused = true }
 
             if app.visibleMeetings.isEmpty {
                 Spacer()

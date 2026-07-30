@@ -290,6 +290,12 @@ final class AppState {
     var showOnboarding = false
     /// First-run tips shown once, right after a new user finishes (or skips) onboarding.
     var showTips = false
+    /// The Cmd+K command palette overlay.
+    var showCommandPalette = false
+    /// Set by the palette's "New Project" command; the sidebar picks it up and opens its field.
+    var pendingNewProject = false
+    /// Toggled by Cmd+F; the meeting list watches it and takes focus in its search field.
+    var focusSearch = false
     /// Whether macOS Mission Control is on screen — drives the branded thumbnail overlay.
     var isMissionControlActive = false
     @ObservationIgnored private let mcMonitor = MissionControlMonitor()
@@ -313,6 +319,11 @@ final class AppState {
 
     /// Open the in-app picker sheet (choose a window or a whole screen).
     func openScreenSourcePicker() { showScreenSourcePicker = true }
+
+    /// Opens the Settings scene (the palette and menus need this without a SettingsLink view).
+    func openSettings() {
+        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+    }
 
     /// Start recording the source the user picked in the sheet.
     func startScreenRecording(filter: sending SCContentFilter) {

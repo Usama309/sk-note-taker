@@ -45,6 +45,15 @@ struct ContentView: View {
             if app.isMissionControlActive { MissionControlBrandOverlay() }
         }
         .animation(Theme.Motion.standard, value: app.isMissionControlActive)
+        // Cmd+K command palette, as an overlay so it opens instantly.
+        .overlay {
+            if app.showCommandPalette {
+                CommandPaletteView()
+                    .zIndex(10)
+            }
+        }
+        .animation(Theme.Motion.snap, value: app.showCommandPalette)
+        .background(GlobalShortcuts())
         .background(WindowAccessor { app.mainWindow = $0 })
         .alert("Something went wrong", isPresented: .init(
             get: { app.errorMessage != nil },
@@ -115,11 +124,7 @@ struct SidebarView: View {
     }
 
     /// Stable colour per project (UUID hashValue is per-run, so seed from the string).
-    private func folderColor(_ folder: Folder) -> Color {
-        let palette = Theme.folderPalette
-        let seed = folder.id.uuidString.unicodeScalars.reduce(0) { $0 + Int($1.value) }
-        return palette[seed % palette.count]
-    }
+    private func folderColor(_ folder: Folder) -> Color { Theme.folderColor(for: folder.id) }
 
     var body: some View {
         // Rows are Buttons, not `List(selection:)` — selection-driven sidebar rows don't register
@@ -184,6 +189,13 @@ struct SidebarView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 14)
                 .padding(.top, 4)
+        }
+        // The palette's "New Project" command opens the inline field here.
+        .onChange(of: app.pendingNewProject) {
+            if app.pendingNewProject {
+                addingFolder = true
+                app.pendingNewProject = false
+            }
         }
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 8) {
