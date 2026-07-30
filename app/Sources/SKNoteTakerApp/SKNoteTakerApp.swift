@@ -277,6 +277,8 @@ final class AppState {
     }
     var notificationStatus: String = "notDetermined"
     var showOnboarding = false
+    /// First-run tips shown once, right after a new user finishes (or skips) onboarding.
+    var showTips = false
 
     // Screen recording: a top-right prompt at meeting start + an in-app source picker sheet.
     @ObservationIgnored private let screenRecordPrompt = ScreenRecordPromptPanel()
@@ -360,7 +362,9 @@ final class AppState {
         }
         refreshPermissions()
         // First run (mic never asked) → show the onboarding walkthrough.
+        // `--force-onboarding` replays it on demand (QA / "run setup again").
         showOnboarding = micStatus == .notDetermined
+            || CommandLine.arguments.contains("--force-onboarding")
         await recoverOrphanedMeetings()
         await refresh()
         await startAutoDetectIfEnabled()
@@ -684,6 +688,16 @@ final class AppState {
         // Fire the Screen Recording request first so the app is listed in the pane we open.
         Permission.requestScreenRecording()
         NSWorkspace.shared.open(Permission.systemAudioSettingsURL)
+    }
+
+    private static let tipsKey = "sk.hasSeenTips"
+    /// Called when the onboarding sheet closes: show the one-time first-run tips to a new user.
+    func maybeShowTips() {
+        if !UserDefaults.standard.bool(forKey: Self.tipsKey) { showTips = true }
+    }
+    func finishTips() {
+        UserDefaults.standard.set(true, forKey: Self.tipsKey)
+        showTips = false
     }
 
     /// Meetings left in "recording" state by a crash/quit: close them out (their transcript

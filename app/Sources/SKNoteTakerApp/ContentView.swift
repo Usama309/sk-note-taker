@@ -47,8 +47,11 @@ struct ContentView: View {
         } message: {
             Text(app.errorMessage ?? "")
         }
-        .sheet(isPresented: $app.showOnboarding) {
+        .sheet(isPresented: $app.showOnboarding, onDismiss: { app.maybeShowTips() }) {
             OnboardingView()
+        }
+        .sheet(isPresented: $app.showTips) {
+            FirstRunTipsView()
         }
         .sheet(isPresented: $app.showScreenSourcePicker) {
             ScreenSourceSheet { filter in app.startScreenRecording(filter: filter) }
