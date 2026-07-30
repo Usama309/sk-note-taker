@@ -39,6 +39,12 @@ struct ContentView: View {
         }
         .frame(minWidth: app.compactMode ? 260 : 1080,
                minHeight: app.compactMode ? 360 : 680)
+        // Mission-Control-only brand card: shows in the app's thumbnail while Mission Control is
+        // open, then reverts. Driven by MissionControlMonitor (public CGWindowList detection).
+        .overlay {
+            if app.isMissionControlActive { MissionControlBrandOverlay() }
+        }
+        .animation(.easeInOut(duration: 0.18), value: app.isMissionControlActive)
         .background(WindowAccessor { app.mainWindow = $0 })
         .alert("Something went wrong", isPresented: .init(
             get: { app.errorMessage != nil },

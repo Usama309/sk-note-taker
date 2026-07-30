@@ -1,7 +1,12 @@
 import Foundation
 import CoreAudio
 import AVFoundation
+import AppKit
 import SKNoteCore
+
+/// File-scope sink so the Darwin C notification callback (no captures allowed) and the escaping
+/// observer/toggle closures can all log through one place during the Mission Control probe.
+enum MCDetectSink { nonisolated(unsafe) static var log: ((String) -> Void)? }
 
 /// Hidden diagnostic entry points, run from the signed app bundle so they inherit the app's
 /// System-Audio-Recording TCC grant (the standalone CLI tool does not have it).
@@ -21,6 +26,72 @@ final class Flag: @unchecked Sendable {
 }
 
 enum SelfTest {
+
+    /// Empirically finds which signal (if any) fires when Mission Control opens/closes on this
+    /// macOS: instruments NSWorkspace + a broad set of distributed AND Darwin notification names,
+    /// then toggles Mission Control a few times, logging everything (with timestamps) to
+    /// Desktop/SK Note Taker Logs/mcdetect.log so we can correlate a signal with each toggle.
+    static func runMCDetect(seconds: Double) {
+        let dir = SKLog.directory
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let logURL = dir.appendingPathComponent("mcdetect.log")
+        try? Data("MCDETECT start\n".utf8).write(to: logURL)
+        let start = Date()
+        let logFn: (String) -> Void = { s in
+            let line = String(format: "%7.3f  %@\n", Date().timeIntervalSince(start), s)
+            if let h = try? FileHandle(forWritingTo: logURL) {
+                h.seekToEndOfFile(); h.write(Data(line.utf8)); try? h.close()
+            }
+            print(line, terminator: "")
+        }
+        MCDetectSink.log = logFn
+
+        // Every plausible name Dock/WindowServer might post for Exposé / Mission Control / spaces.
+        let names = [
+            "com.apple.expose.awake", "com.apple.expose.front.awake",
+            "com.apple.dock.showdesktop", "com.apple.dock.exposeallwindows",
+            "com.apple.dock.overview", "com.apple.spaces.switch",
+            "com.apple.spaces.changed", "com.apple.mission-control.active",
+            "com.apple.expose.spaces.awake",
+        ]
+
+        // 1. NSWorkspace space change (fires when Mission Control moves you between spaces).
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: nil) { _ in
+            MCDetectSink.log?("NSWorkspace.activeSpaceDidChange")
+        }
+        // 2. Distributed notifications, one observer per candidate name.
+        for n in names {
+            DistributedNotificationCenter.default().addObserver(
+                forName: Notification.Name(n), object: nil, queue: nil) { _ in MCDetectSink.log?("DISTRIBUTED \(n)") }
+        }
+        // 3. Darwin notifications, one observer per candidate name (C callback → MCDetectSink).
+        let darwin = CFNotificationCenterGetDarwinNotifyCenter()
+        for n in names {
+            CFNotificationCenterAddObserver(darwin, nil, { _, _, name, _, _ in
+                MCDetectSink.log?("DARWIN \((name?.rawValue as String?) ?? "?")")
+            }, n as CFString, nil, .deliverImmediately)
+        }
+
+        // Toggle Mission Control a few times so a firing signal lines up with a toggle.
+        func toggle(_ label: String) {
+            MCDetectSink.log?("→ toggling Mission Control (\(label))")
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+            p.arguments = ["-a", "Mission Control"]
+            try? p.run()
+        }
+        for (idx, t) in [2.0, 4.5, 7.0, 9.5].enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + t) { toggle("#\(idx)") }
+        }
+
+        // The reliable detection (a full-screen Dock window at layer ~18) lives in
+        // MissionControlMonitor; use --selftest-mcwindows to inspect the live window list.
+        logFn("observing for \(seconds)s…")
+        RunLoop.main.run(until: Date().addingTimeInterval(seconds))
+        logFn("MCDETECT done")
+        print("Log: \(logURL.path)")
+    }
 
     static func run(_ args: [String]) -> Bool {
         // Proves the logging pipeline end to end in the real app: writes one entry of each
@@ -80,6 +151,34 @@ enum SelfTest {
             while !done.get() {
                 RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.1))
             }
+            return true
+        }
+        // One-shot: print the current on-screen window list (Dock + big windows) and the
+        // MissionControlMonitor verdict, so we can see what a false positive is matching.
+        if args.contains("--selftest-mcwindows") {
+            let screens = NSScreen.screens.map(\.frame.size)
+            print("screens: \(screens)")
+            if let list = CGWindowListCopyWindowInfo(
+                [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] {
+                for w in list {
+                    let owner = (w[kCGWindowOwnerName as String] as? String) ?? "?"
+                    let layer = (w[kCGWindowLayer as String] as? Int) ?? 0
+                    var r = CGRect.zero
+                    if let bd = w[kCGWindowBounds as String],
+                       let rr = CGRect(dictionaryRepresentation: bd as! CFDictionary) { r = rr }
+                    let big = screens.contains { r.width >= $0.width * 0.9 && r.height >= $0.height * 0.9 }
+                    if owner == "Dock" || owner == "WindowServer" || big {
+                        let name = (w[kCGWindowName as String] as? String) ?? ""
+                        print("  \(owner) | '\(name)' | layer \(layer) | \(Int(r.width))x\(Int(r.height)) \(big ? "[FULLSCREEN]" : "")")
+                    }
+                }
+            }
+            return true
+        }
+        // Empirically find which signal fires when Mission Control opens on this macOS.
+        if let i = args.firstIndex(of: "--selftest-mcdetect") {
+            let seconds = (i + 1 < args.count ? Double(args[i + 1]) : nil) ?? 16
+            runMCDetect(seconds: seconds)
             return true
         }
         guard let i = args.firstIndex(of: "--selftest-systime") else { return false }

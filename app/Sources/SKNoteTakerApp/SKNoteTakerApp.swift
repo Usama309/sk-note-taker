@@ -289,6 +289,9 @@ final class AppState {
     var showOnboarding = false
     /// First-run tips shown once, right after a new user finishes (or skips) onboarding.
     var showTips = false
+    /// Whether macOS Mission Control is on screen — drives the branded thumbnail overlay.
+    var isMissionControlActive = false
+    @ObservationIgnored private let mcMonitor = MissionControlMonitor()
 
     // Screen recording: a top-right prompt at meeting start + an in-app source picker sheet.
     @ObservationIgnored private let screenRecordPrompt = ScreenRecordPromptPanel()
@@ -375,6 +378,9 @@ final class AppState {
         // `--force-onboarding` replays it on demand (QA / "run setup again").
         showOnboarding = micStatus == .notDetermined
             || CommandLine.arguments.contains("--force-onboarding")
+        // Watch for Mission Control so the app's thumbnail shows the brand card while it's open.
+        mcMonitor.onChange = { [weak self] active in self?.isMissionControlActive = active }
+        mcMonitor.start()
         await recoverOrphanedMeetings()
         await refresh()
         await startAutoDetectIfEnabled()
