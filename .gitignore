@@ -37,3 +37,6 @@ supabase/.temp/
 #   logs-live    -> ~/Desktop/SK Note Taker Logs               (runtime logs)
 meeting-data
 logs-live
+
+# Google OAuth desktop-client creds baked into the .app at build time (never commit)
+app/oauth-config.env

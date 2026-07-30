@@ -74,6 +74,24 @@ cat > "$BUNDLE/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
+# Bake the Google OAuth desktop client into the app so end users connect with one click and
+# never paste anything. Values come from the git-ignored app/oauth-config.env. For a Desktop
+# OAuth client the secret is non-confidential (Google's installed-app model), so embedding it in
+# the shipped .app is expected — we just keep the raw value out of git.
+OAUTH_ENV="$APP_DIR/oauth-config.env"
+if [[ -f "$OAUTH_ENV" ]]; then
+    set -a; # shellcheck disable=SC1090
+    source "$OAUTH_ENV"; set +a
+    PB=/usr/libexec/PlistBuddy
+    [[ -n "${SK_GOOGLE_CLIENT_ID:-}" ]] && \
+        "$PB" -c "Add :SKGoogleClientID string ${SK_GOOGLE_CLIENT_ID}" "$BUNDLE/Contents/Info.plist"
+    [[ -n "${SK_GOOGLE_CLIENT_SECRET:-}" ]] && \
+        "$PB" -c "Add :SKGoogleClientSecret string ${SK_GOOGLE_CLIENT_SECRET}" "$BUNDLE/Contents/Info.plist"
+    echo "==> Baked built-in Google OAuth client into Info.plist"
+else
+    echo "==> No oauth-config.env — shipping without a built-in Google client (users paste their own)"
+fi
+
 echo "==> Signing"
 # Hardened runtime blocks mic access unless the audio-input entitlement is present.
 ENTITLEMENTS="$DIST/entitlements.plist"

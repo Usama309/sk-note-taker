@@ -9,6 +9,12 @@ NOT the third-party security assessment (that is only for "restricted" scopes li
 
 ## Current state (done)
 - In-app Google sign-in built and working (loopback + PKCE OAuth; tokens in macOS Keychain).
+- **Built-in OAuth client (2026-07-30):** the app now ships with its own Google Desktop client
+  (baked into Info.plist at build time from the git-ignored `app/oauth-config.env`), so a new user
+  connects with ONE click and never pastes credentials. The "paste your own client" fields moved
+  under an Advanced disclosure. Connect screen now warns about the interim "unverified" notice.
+- **Consent-screen logo + copy-paste console values produced:** `docs/google-oauth/consent-logo-120.png`
+  and `docs/google-oauth/CONSOLE-VALUES.md`.
 - Verification website built and deployed to Vercel.
   - Vercel account: `email-2742`, project: `website`.
   - Live now: https://website-chi-gray-77.vercel.app and `/privacy.html`.
@@ -39,7 +45,7 @@ Cloudflare DNS record.
 - [ ] Privacy policy: `https://sknotetaker.saqibkamran.com/privacy.html`
 - [ ] Authorized domain: `saqibkamran.com`
 - [ ] Developer contact email set
-- [ ] (optional) App logo exported from the app icon — CLAUDE can produce this
+- [x] App logo produced: `docs/google-oauth/consent-logo-120.png` (upload it here)
 - [ ] Scope present (console.cloud.google.com/auth/scopes): `https://www.googleapis.com/auth/calendar.readonly`
 
 ### Phase 4 — submit

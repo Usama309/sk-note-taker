@@ -54,6 +54,21 @@ public struct GoogleCalendarError: LocalizedError {
 
 // MARK: - Service
 
+/// The app's built-in Google OAuth desktop client, baked into Info.plist at build time from the
+/// git-ignored `oauth-config.env` (see build-app.sh). This is what lets a brand-new user connect
+/// Google Calendar with one click and no setup. For a "Desktop app" client the secret is
+/// non-confidential and meant to be embedded, per Google's installed-app guidance. Empty under a
+/// plain `swift run` (no bundle Info.plist), where a user-pasted client is used instead.
+enum GoogleOAuthDefaults {
+    static var clientID: String {
+        Bundle.main.object(forInfoDictionaryKey: "SKGoogleClientID") as? String ?? ""
+    }
+    static var clientSecret: String {
+        Bundle.main.object(forInfoDictionaryKey: "SKGoogleClientSecret") as? String ?? ""
+    }
+    static var isPresent: Bool { !clientID.isEmpty && !clientSecret.isEmpty }
+}
+
 /// Self-contained Google Calendar sign-in for a desktop app: OAuth 2.0 with a loopback redirect
 /// and PKCE (no client secret ever leaves this machine, and none is required to be kept secret).
 /// The user clicks "Connect", the system browser opens Google's login, and the loopback server
@@ -67,8 +82,22 @@ public final class GoogleCalendarService {
 
     public init() {}
 
-    public var hasCredentials: Bool {
-        !(state.clientID ?? "").isEmpty && !(state.clientSecret ?? "").isEmpty
+    /// The client used for OAuth: the user's own (Advanced override) if they pasted one, else the
+    /// app's built-in desktop client. So a fresh install can connect with zero setup.
+    private var effectiveClientID: String {
+        let own = (state.clientID ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return own.isEmpty ? GoogleOAuthDefaults.clientID : own
+    }
+    private var effectiveClientSecret: String {
+        let own = (state.clientSecret ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return own.isEmpty ? GoogleOAuthDefaults.clientSecret : own
+    }
+    public var hasCredentials: Bool { !effectiveClientID.isEmpty && !effectiveClientSecret.isEmpty }
+    /// True when connecting will use the app's built-in client, so Settings can hide the
+    /// "bring your own OAuth client" fields for a normal user.
+    public var usesBuiltInClient: Bool {
+        (state.clientID ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && GoogleOAuthDefaults.isPresent
     }
     public var isConnected: Bool { !(state.refreshToken ?? "").isEmpty }
     public var connectedEmail: String? { state.email }
@@ -106,7 +135,7 @@ public final class GoogleCalendarService {
 
         var comps = URLComponents(string: "https://accounts.google.com/o/oauth2/v2/auth")!
         comps.queryItems = [
-            .init(name: "client_id", value: state.clientID),
+            .init(name: "client_id", value: effectiveClientID),
             .init(name: "redirect_uri", value: redirect),
             .init(name: "response_type", value: "code"),
             .init(name: "scope", value: scope),
@@ -203,8 +232,8 @@ public final class GoogleCalendarService {
     private func exchange(code: String, verifier: String, redirect: String) async throws {
         let form = [
             "code": code,
-            "client_id": state.clientID ?? "",
-            "client_secret": state.clientSecret ?? "",
+            "client_id": effectiveClientID,
+            "client_secret": effectiveClientSecret,
             "redirect_uri": redirect,
             "grant_type": "authorization_code",
             "code_verifier": verifier,
@@ -223,8 +252,8 @@ public final class GoogleCalendarService {
             return tok
         }
         let form = [
-            "client_id": state.clientID ?? "",
-            "client_secret": state.clientSecret ?? "",
+            "client_id": effectiveClientID,
+            "client_secret": effectiveClientSecret,
             "refresh_token": state.refreshToken ?? "",
             "grant_type": "refresh_token",
         ]

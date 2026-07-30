@@ -419,6 +419,7 @@ struct CalendarSettingsView: View {
     @Environment(AppState.self) private var app
     @State private var gClientID = ""
     @State private var gClientSecret = ""
+    @State private var showAdvancedGoogle = false
 
     var body: some View {
         Form {
@@ -484,22 +485,8 @@ struct CalendarSettingsView: View {
                 }
             } else {
                 Section("Connect Google Calendar") {
-                    TextField("OAuth Client ID", text: $gClientID, prompt: Text("xxxx.apps.googleusercontent.com"))
-                        .textFieldStyle(.roundedBorder)
-                        .onAppear { if gClientID.isEmpty { gClientID = app.savedGoogleClientID } }
-                    SecureField("OAuth Client Secret", text: $gClientSecret, prompt: Text("GOCSPX-..."))
-                        .textFieldStyle(.roundedBorder)
-                    HStack {
-                        Button("Save credentials") {
-                            app.setGoogleCredentials(clientID: gClientID, clientSecret: gClientSecret)
-                        }
-                        .controlSize(.small)
-                        .disabled(gClientID.isEmpty || gClientSecret.isEmpty)
-                        if app.googleCredentialsSaved {
-                            Label("Saved", systemImage: "lock.fill")
-                                .font(.skFootnote).foregroundStyle(.green)
-                        }
-                    }
+                    // One click for a normal user — the app ships with its own Google client, so
+                    // there is nothing to create or paste.
                     Button {
                         Task { await app.connectCalendar() }
                     } label: {
@@ -517,12 +504,35 @@ struct CalendarSettingsView: View {
                     if let err = app.calendarError {
                         Text(err).font(.skFootnote).foregroundStyle(.red).textSelection(.enabled)
                     }
-                    Text("Create a free OAuth client (type: Desktop app) in Google Cloud, enable the Calendar API, then paste its ID and secret above. Your secret and sign-in tokens are stored only in your macOS Keychain, never in the app's files.")
+                    Text("Your browser opens Google's sign-in. SK only reads your upcoming events; your calendar data and tokens stay in your macOS Keychain, never in the app's files or on a server.")
                         .font(.skFootnote).foregroundStyle(.tertiary)
-                    Button("Open Google Cloud Credentials") {
-                        NSWorkspace.shared.open(URL(string: "https://console.cloud.google.com/apis/credentials")!)
+                    if app.usesBuiltInGoogleClient {
+                        Text("While Google finishes reviewing the app, you may see a “Google hasn't verified this app” notice. Click Advanced, then “Go to SK Note Taker”, to continue — it's safe; you're signing in to your own account.")
+                            .font(.skFootnote).foregroundStyle(.secondary)
                     }
-                    .controlSize(.small)
+
+                    // Power users can point the app at their own OAuth client instead.
+                    DisclosureGroup("Advanced: use your own OAuth client", isExpanded: $showAdvancedGoogle) {
+                        TextField("OAuth Client ID", text: $gClientID, prompt: Text("xxxx.apps.googleusercontent.com"))
+                            .textFieldStyle(.roundedBorder)
+                            .onAppear { if gClientID.isEmpty { gClientID = app.savedGoogleClientID } }
+                        SecureField("OAuth Client Secret", text: $gClientSecret, prompt: Text("GOCSPX-..."))
+                            .textFieldStyle(.roundedBorder)
+                        HStack {
+                            Button("Save credentials") {
+                                app.setGoogleCredentials(clientID: gClientID, clientSecret: gClientSecret)
+                            }
+                            .controlSize(.small)
+                            .disabled(gClientID.isEmpty || gClientSecret.isEmpty)
+                            Button("Open Google Cloud Credentials") {
+                                NSWorkspace.shared.open(URL(string: "https://console.cloud.google.com/apis/credentials")!)
+                            }
+                            .controlSize(.small)
+                        }
+                        Text("Create a free OAuth client (type: Desktop app) in Google Cloud, enable the Calendar API, then paste its ID and secret. Overrides the built-in client. Stored only in your Keychain.")
+                            .font(.skFootnote).foregroundStyle(.tertiary)
+                    }
+                    .font(.skFootnote)
                 }
             }
         }

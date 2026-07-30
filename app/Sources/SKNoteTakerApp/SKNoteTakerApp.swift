@@ -149,14 +149,24 @@ struct MenuBarLabel: View {
     var body: some View {
         if let symbol = statusSymbol {
             Image(systemName: symbol)
-        } else if let logo = BrandAssets.logo {
-            Image(nsImage: logo).resizable().interpolation(.high)
-                .frame(width: 18, height: 18)
-                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
         } else {
-            Image(systemName: "waveform")
+            // A resizable()+frame() Image renders BLANK as a MenuBarExtra label (the item exists
+            // but shows nothing, so the menu bar looks empty). Handing MenuBarExtra an NSImage that
+            // already carries its point size renders reliably.
+            Image(nsImage: Self.menuBarIcon)
         }
     }
+
+    /// The brand logo pre-sized for the menu bar (18pt), or a symbol if the asset is missing.
+    static let menuBarIcon: NSImage = {
+        if let logo = BrandAssets.logo?.copy() as? NSImage {
+            logo.size = NSSize(width: 18, height: 18)
+            logo.isTemplate = false
+            return logo
+        }
+        return NSImage(systemSymbolName: "waveform.circle.fill",
+                       accessibilityDescription: "SK Note Taker") ?? NSImage()
+    }()
 
     /// A red record indicator while recording; otherwise nil, so the menu bar shows the brand logo.
     private var statusSymbol: String? {
@@ -383,6 +393,8 @@ final class AppState {
     // MARK: - Google Calendar
 
     var savedGoogleClientID: String { calendar.savedClientID ?? "" }
+    /// The app ships with a built-in Google client, so a normal user just clicks Connect.
+    var usesBuiltInGoogleClient: Bool { calendar.usesBuiltInClient }
 
     func setGoogleCredentials(clientID: String, clientSecret: String) {
         calendar.setCredentials(clientID: clientID, clientSecret: clientSecret)
