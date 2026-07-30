@@ -34,7 +34,7 @@ struct DropRouteSheet: View {
                 .textFieldStyle(.roundedBorder)
             if let result {
                 Label(result, systemImage: "checkmark.circle.fill")
-                    .font(.skCallout).foregroundStyle(Theme.teal)
+                    .font(.skCallout).foregroundStyle(Theme.success)
             }
             HStack(alignment: .center) {
                 Text("Audio and video are transcribed; PDF, Word, and text are read.")

@@ -44,7 +44,7 @@ struct ChatTab: View {
                     .padding(16)
                 }
                 .onChange(of: chat.messages.count) {
-                    withAnimation { proxy.scrollTo("chat-bottom") }
+                    withAnimation(Theme.Motion.standard) { proxy.scrollTo("chat-bottom") }
                 }
             }
 
@@ -52,7 +52,7 @@ struct ChatTab: View {
             HStack(spacing: 8) {
                 TextField("Ask about this meeting…", text: $question)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 13))
+                    .font(.skBody)
                     .onSubmit { send() }
                 Button {
                     send()
@@ -105,7 +105,7 @@ struct ChatBubble: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
             .background(
-                isUser ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(.quaternary.opacity(0.6)),
+                isUser ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(Theme.card),
                 in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .foregroundStyle(isUser ? .white : .primary)
             if !isUser { Spacer(minLength: 60) }
@@ -166,7 +166,7 @@ struct SpeakersSheet: View {
                 Divider()
                 HStack(spacing: 8) {
                     Image(systemName: "person.2.wave.2")
-                        .foregroundStyle(Theme.indigo)
+                        .foregroundStyle(Theme.accent)
                     VStack(alignment: .leading, spacing: 1) {
                         Text("Speakers merged together?")
                             .font(.skLabel)
@@ -198,7 +198,7 @@ struct SpeakersSheet: View {
                     Text("Save Names").fontWeight(.semibold)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(Theme.indigo)
+                .tint(Theme.accent)
                 .keyboardShortcut(.defaultAction)
                 .accessibilityLabel("Save Names")
             }
@@ -292,7 +292,7 @@ struct GeneralSettingsView: View {
                         if app.accessibilityStatus == .granted {
                             Label(app.speakerTagsActive ? "Connected" : "Ready",
                                   systemImage: "checkmark.circle.fill")
-                                .font(.skCaption).foregroundStyle(.green)
+                                .font(.skCaption).foregroundStyle(Theme.success)
                         } else {
                             Button("Set up") { app.setUpSpeakerTags() }.controlSize(.small)
                         }
@@ -320,7 +320,7 @@ struct GeneralSettingsView: View {
                 LabeledContent("CLI status") {
                     Label(app.claudeAvailable ? "Available" : "Not found",
                           systemImage: app.claudeAvailable ? "checkmark.circle.fill" : "xmark.circle.fill")
-                        .foregroundStyle(app.claudeAvailable ? .green : .red)
+                        .foregroundStyle(app.claudeAvailable ? Theme.success : Theme.error)
                 }
             }
             Section("General") {
@@ -330,7 +330,7 @@ struct GeneralSettingsView: View {
                 if LoginItem.needsApproval {
                     HStack {
                         Text("Approve in System Settings → Login Items")
-                            .font(.skFootnote).foregroundStyle(.orange)
+                            .font(.skFootnote).foregroundStyle(Theme.warning)
                         Button("Open") { LoginItem.openLoginItemsSettings() }
                             .controlSize(.small)
                     }
@@ -346,7 +346,7 @@ struct GeneralSettingsView: View {
                               systemImage: app.notificationStatus == "authorized"
                                 ? "checkmark.circle.fill" : "bell.slash")
                             .font(.skCaption)
-                            .foregroundStyle(app.notificationStatus == "authorized" ? .green : .orange)
+                            .foregroundStyle(app.notificationStatus == "authorized" ? Theme.success : Theme.warning)
                         if app.notificationStatus != "authorized" {
                             Button("Open Settings") {
                                 NSWorkspace.shared.open(URL(string:
@@ -443,14 +443,14 @@ struct CalendarSettingsView: View {
                     ForEach(app.calendarList) { cal in
                         HStack(spacing: 10) {
                             RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                .fill(cal.colorHex.map { Color(hex: $0) } ?? .gray)
+                                .fill(cal.colorHex.map { Color(hex: $0) } ?? Theme.textSecondary)
                                 .frame(width: 12, height: 12)
                             Text(cal.displayName).font(.skBody).lineLimit(1)
                             if cal.isPrimary {
                                 Text("Primary")
                                     .font(.skFootnote).foregroundStyle(.secondary)
                                     .padding(.horizontal, 5).padding(.vertical, 1)
-                                    .background(.quaternary.opacity(0.5), in: Capsule())
+                                    .background(Theme.border, in: Capsule())
                             }
                             Spacer()
                             Toggle("", isOn: Binding(
@@ -467,14 +467,14 @@ struct CalendarSettingsView: View {
                         Text("Visible calendars")
                         Spacer()
                         Button("Reset") { app.resetCalendarVisibility() }
-                            .buttonStyle(.plain).font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(Theme.indigo)
+                            .buttonStyle(.plain).font(.skCaption)
+                            .foregroundStyle(Theme.accent)
                     }
                 }
                 Section {
                     LabeledContent("Signed in") {
                         Label(app.calendarEmail ?? "Connected", systemImage: "checkmark.circle.fill")
-                            .font(.skCaption).foregroundStyle(.green)
+                            .font(.skCaption).foregroundStyle(Theme.success)
                     }
                     HStack {
                         Button("Refresh") { Task { await app.loadCalendarList(); await app.refreshUpcoming() } }
@@ -502,7 +502,7 @@ struct CalendarSettingsView: View {
                             .controlSize(.small)
                     }
                     if let err = app.calendarError {
-                        Text(err).font(.skFootnote).foregroundStyle(.red).textSelection(.enabled)
+                        Text(err).font(.skFootnote).foregroundStyle(Theme.error).textSelection(.enabled)
                     }
                     Text("Your browser opens Google's sign-in. SK only reads your upcoming events; your calendar data and tokens stay in your macOS Keychain, never in the app's files or on a server.")
                         .font(.skFootnote).foregroundStyle(.tertiary)

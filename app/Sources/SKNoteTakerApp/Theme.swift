@@ -39,18 +39,50 @@ enum Theme {
     /// Mint fill for accent surfaces / hovers.
     static let mintGradient = LinearGradient(
         colors: [mint, mintLight], startPoint: .topLeading, endPoint: .bottomTrailing)
+    /// Hero moments (home CTA, branded surfaces): charcoal deepening into a mint-tinged charcoal,
+    /// so the primary button reads bolder than a flat fill without leaving the brand.
+    static let heroGradient = LinearGradient(
+        colors: [charcoal, Color(hex: "1E3A2D")], startPoint: .topLeading, endPoint: .bottomTrailing)
 
-    /// Distinct, stable hue per speaker key (S1 teal, S2 indigo, then rotating).
-    /// Shades are picked for ≥4.5:1 contrast on the app's light surfaces — speaker names
-    /// render as small bold text, so brighter brand tints don't hold up.
+    // MARK: Semantic states (the only place these meanings get a color)
+    /// Recording / live indicator — brand-tuned red, brighter in dark so it doesn't vibrate on charcoal.
+    static let recording = Color(light: Color(hex: "D6453F"), dark: Color(hex: "E86B63"))
+    /// Starred items — tuned amber instead of system yellow.
+    static let star = Color(light: Color(hex: "E9A23B"), dark: Color(hex: "F2B84B"))
+    /// Row/selection highlight and drag-over target fills, tuned per scheme (the light-mode
+    /// opacities disappeared on charcoal).
+    static let selection = Color(light: mint.opacity(0.18), dark: mint.opacity(0.24))
+    static let dropTarget = Color(light: mint.opacity(0.32), dark: mint.opacity(0.38))
+    /// Elevation shadow for cards: soft in light, stronger in dark (a 6% black shadow is
+    /// invisible on near-black, so dark relies on the hairline border plus a deeper shadow).
+    static let cardShadow = Color(light: .black.opacity(0.06), dark: .black.opacity(0.45))
+
+    /// Brand-derived folder hues (stable per project, seeded from the folder id).
+    static let folderPalette: [Color] = [
+        accent,
+        Color(light: Color(hex: "E9A23B"), dark: Color(hex: "F2B84B")),   // amber
+        Color(light: Color(hex: "D2694A"), dark: Color(hex: "EE9273")),   // coral
+        Color(light: Color(hex: "3D7FB8"), dark: Color(hex: "74B3E8")),   // sky
+        Color(light: Color(hex: "7D63C4"), dark: Color(hex: "A990EE")),   // violet
+        Color(light: Color(hex: "6D8A3A"), dark: Color(hex: "A3C46A")),   // olive
+    ]
+
+    /// Distinct, stable hue per speaker key (S1 teal, S2 accent, then rotating).
+    /// Each entry is appearance-aware: the light shades hold >=4.5:1 on white surfaces (speaker
+    /// names render as small bold text), the dark shades are brightened for charcoal.
     static func speakerColor(_ key: String) -> Color {
         let palette: [Color] = [
-            Color(red: 0.05, green: 0.46, blue: 0.43),       // S1 deep teal — me
-            indigo,                                          // S2 #4F46E5
-            Color(red: 0.76, green: 0.25, blue: 0.05),       // S3 burnt orange
-            Color(red: 0.64, green: 0.11, blue: 0.66),       // S4 magenta
-            Color(red: 0.01, green: 0.41, blue: 0.63),       // S5 deep sky
-            Color(red: 0.30, green: 0.49, blue: 0.06),       // S6 olive
+            Color(light: Color(red: 0.05, green: 0.46, blue: 0.43),
+                  dark: Color(red: 0.36, green: 0.80, blue: 0.75)),      // S1 teal — me
+            accent,                                                       // S2 brand accent
+            Color(light: Color(red: 0.76, green: 0.25, blue: 0.05),
+                  dark: Color(red: 0.95, green: 0.58, blue: 0.38)),      // S3 burnt orange
+            Color(light: Color(red: 0.64, green: 0.11, blue: 0.66),
+                  dark: Color(red: 0.87, green: 0.56, blue: 0.90)),      // S4 magenta
+            Color(light: Color(red: 0.01, green: 0.41, blue: 0.63),
+                  dark: Color(red: 0.45, green: 0.74, blue: 0.95)),      // S5 sky
+            Color(light: Color(red: 0.30, green: 0.49, blue: 0.06),
+                  dark: Color(red: 0.66, green: 0.81, blue: 0.40)),      // S6 olive
         ]
         let number = Int(key.dropFirst()) ?? 1
         return palette[(number - 1) % palette.count]
@@ -70,6 +102,25 @@ extension Theme {
     static let dialogRadius: CGFloat = 24
     static let navRadius: CGFloat = 18
     static let hairline = border
+
+    /// The app's motion vocabulary — every withAnimation/.animation call site uses one of these
+    /// four tokens, never an inline curve, so timing stays coherent across screens. All of them
+    /// collapse to a near-instant fade when the user has Reduce Motion on.
+    enum Motion {
+        private static var reduce: Bool {
+            NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        }
+        /// Hovers, toggles, small state flips.
+        static var snap: Animation { reduce ? .linear(duration: 0.01) : .easeOut(duration: 0.15) }
+        /// Tab/content changes, expand/collapse, selection moves.
+        static var standard: Animation { reduce ? .linear(duration: 0.01) : .easeInOut(duration: 0.22) }
+        /// Buttons, cards, the command palette — anything that should feel physical.
+        static var spring: Animation {
+            reduce ? .linear(duration: 0.01) : .spring(response: 0.35, dampingFraction: 0.75)
+        }
+        /// Hero entrances and large surfaces.
+        static var gentle: Animation { reduce ? .linear(duration: 0.01) : .easeInOut(duration: 0.4) }
+    }
 }
 
 /// The SK Note Taker type scale: a small, deliberate ramp used on every screen in place of
@@ -85,6 +136,8 @@ extension Font {
         .custom("Inter", size: size).weight(weight)
     }
 
+    static let skDisplay       = jakarta(32, .bold)      // the home hero headline
+    static let skBrand         = jakarta(16, .bold)      // the sidebar wordmark
     static let skHero          = jakarta(22, .bold)      // empty-state + detail titles
     static let skTitle         = jakarta(18, .bold)      // large section / sheet titles
     static let skHeadline      = jakarta(15, .semibold)  // prominent headers
@@ -111,7 +164,7 @@ extension View {
             .background(fill, in: RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
                 .strokeBorder(Theme.hairline))
-            .shadow(color: .black.opacity(0.06), radius: 18, y: 6)   // soft, per brand spec
+            .shadow(color: Theme.cardShadow, radius: 18, y: 6)   // soft in light, deep in dark
     }
 
     func skCard(padding: CGFloat = 14) -> some View { skCard(.background, padding: padding) }
@@ -194,9 +247,9 @@ struct BrandTitle: View {
             LogoMark(size: 30)
             VStack(alignment: .leading, spacing: 0) {
                 Text("SK Note Taker")
-                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .font(.skBrand)
                 Text("AI meeting notes")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.skFootnoteStrong)
                     .foregroundStyle(.secondary)
             }
         }

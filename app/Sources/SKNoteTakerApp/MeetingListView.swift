@@ -14,7 +14,7 @@ struct MeetingListView: View {
                     .textFieldStyle(.plain)
             }
             .padding(8)
-            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 8))
             .padding(.horizontal, 12)
             .padding(.top, 10)
 
@@ -25,10 +25,10 @@ struct MeetingListView: View {
                         .font(.system(size: 30))
                         .foregroundStyle(Theme.accentGradient)
                     Text(app.searchText.isEmpty ? "No meetings yet" : "No matches")
-                        .font(.headline)
+                        .font(.skHeadline)
                     if app.searchText.isEmpty {
                         Text("Hit Start Meeting to record your first one.")
-                            .font(.callout)
+                            .font(.skCallout)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -91,7 +91,7 @@ struct MeetingRow: View {
 
     private var isLive: Bool { app.session?.meeting.id == meeting.id }
     // The selected row's background is the accent fill (blue when focused, grey when not), on which
-    // the tinted speaker chips are unreadable — switch them to a solid white pill there.
+    // the tinted speaker chips are unreadable; switch them to a solid card pill there.
     private var isSelected: Bool { app.selectedMeetingId == meeting.id }
 
     var body: some View {
@@ -103,10 +103,10 @@ struct MeetingRow: View {
                 Spacer()
                 if isLive {
                     HStack(spacing: 4) {
-                        Circle().fill(.red).frame(width: 7, height: 7)
+                        Circle().fill(Theme.recording).frame(width: 7, height: 7)
                         Text("LIVE").font(.skBadge)
                     }
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Theme.recording)
                 }
             }
             HStack(spacing: 6) {
@@ -130,7 +130,7 @@ struct MeetingRow: View {
                             .padding(.horizontal, 7)
                             .padding(.vertical, 2)
                             .background(
-                                isSelected ? Color.white.opacity(0.92) : Theme.speakerColor(key).opacity(0.18),
+                                isSelected ? Theme.card : Theme.speakerColor(key).opacity(0.16),
                                 in: Capsule())
                             .foregroundStyle(Theme.speakerColor(key))
                     }

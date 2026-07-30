@@ -38,10 +38,10 @@ struct UpcomingListView: View {
                 Spacer()
                 VStack(spacing: 8) {
                     Image(systemName: "calendar.badge.checkmark")
-                        .font(.system(size: 30)).foregroundStyle(Theme.teal)
-                    Text("No upcoming events").font(.headline)
+                        .font(.system(size: 30)).foregroundStyle(Theme.mint)
+                    Text("No upcoming events").font(.skHeadline)
                     Text("Events from your Google Calendar show up here.")
-                        .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                        .font(.skCallout).foregroundStyle(.secondary).multilineTextAlignment(.center)
                     Button("Refresh") { Task { await app.refreshUpcoming() } }.controlSize(.small)
                 }
                 .padding(.horizontal, 24)
@@ -161,17 +161,17 @@ struct EventDetailView: View {
                             .font(.skSubtitle)
                         ForEach(event.attendees.prefix(12), id: \.self) { name in
                             HStack(spacing: 9) {
-                                Circle().fill(Theme.indigo.opacity(0.15))
+                                Circle().fill(Theme.accent.opacity(0.16))
                                     .frame(width: 24, height: 24)
                                     .overlay(Text(String(name.prefix(1)).uppercased())
                                         .font(.skCaptionStrong)
-                                        .foregroundStyle(Theme.indigo))
+                                        .foregroundStyle(Theme.accent))
                                 Text(name).font(.skCallout)
                             }
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .skCard(.quaternary.opacity(0.35))
+                    .skCard(Theme.card)
                 }
 
                 if let notes = event.notes, !notes.isEmpty {
@@ -185,14 +185,14 @@ struct EventDetailView: View {
             .padding(28)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .background(.background)
+        .background(Theme.bg)
     }
 
     private func pillLabel(_ text: String, _ icon: String) -> some View {
         Label(text, systemImage: icon)
             .font(.skBody)
             .padding(.horizontal, 14).padding(.vertical, 9)
-            .background(.quaternary.opacity(0.5), in: Capsule())
+            .background(Theme.surface, in: Capsule())
             .foregroundStyle(.primary)
     }
 

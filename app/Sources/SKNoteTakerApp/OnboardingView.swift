@@ -48,11 +48,11 @@ struct OnboardingView: View {
             HStack(spacing: 6) {
                 ForEach(Step.allCases, id: \.rawValue) { s in
                     Capsule()
-                        .fill(s == step ? Theme.mint : Color.secondary.opacity(0.25))
+                        .fill(s == step ? Theme.mint : Theme.border)
                         .frame(width: s == step ? 22 : 7, height: 7)
                 }
             }
-            .animation(.easeInOut(duration: 0.22), value: step)
+            .animation(Theme.Motion.standard, value: step)
         }
         .padding(.horizontal, 22)
         .padding(.vertical, 15)
@@ -62,7 +62,7 @@ struct OnboardingView: View {
         HStack(spacing: 14) {
             if step != .welcome {
                 Button {
-                    withAnimation(.easeInOut(duration: 0.25)) {
+                    withAnimation(Theme.Motion.standard) {
                         step = Step(rawValue: step.rawValue - 1) ?? .welcome
                     }
                 } label: { Label("Back", systemImage: "chevron.left").labelStyle(.titleAndIcon) }
@@ -74,7 +74,7 @@ struct OnboardingView: View {
             Button {
                 if isLast { app.showOnboarding = false }
                 else {
-                    withAnimation(.easeInOut(duration: 0.25)) {
+                    withAnimation(Theme.Motion.standard) {
                         step = Step(rawValue: step.rawValue + 1) ?? .ready
                     }
                 }
@@ -100,11 +100,11 @@ struct OnboardingView: View {
         VStack(spacing: 18) {
             Spacer(minLength: 8)
             ZStack {
-                Circle().fill(tint.opacity(0.15)).frame(width: 84, height: 84)
+                Circle().fill(tint.opacity(0.16)).frame(width: 84, height: 84)
                 Image(systemName: icon).font(.system(size: 34, weight: .semibold)).foregroundStyle(tint)
             }
             VStack(spacing: 7) {
-                Text(title).font(.custom("Plus Jakarta Sans", size: 24).weight(.bold))
+                Text(title).font(.skHero)
                     .multilineTextAlignment(.center)
                 Text(subtitle).font(.skBody).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center).frame(maxWidth: 400)
@@ -190,7 +190,7 @@ struct OnboardingView: View {
                     }
                     .padding(12)
                     .frame(maxWidth: 400, alignment: .leading)
-                    .background(.quaternary.opacity(0.35),
+                    .background(Theme.card,
                                 in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
             }
@@ -228,7 +228,7 @@ struct OnboardingView: View {
                     }
                     .buttonStyle(.plain).disabled(app.calendarBusy)
                     if let err = app.calendarError {
-                        Text(err).font(.skCaption).foregroundStyle(.orange)
+                        Text(err).font(.skCaption).foregroundStyle(Theme.error)
                             .multilineTextAlignment(.center).frame(maxWidth: 380)
                     }
                     Text("You can also do this later in Settings. Skip if you'd rather not.")
@@ -250,7 +250,7 @@ struct OnboardingView: View {
             }
             .padding(16)
             .frame(width: 340)
-            .background(.quaternary.opacity(0.35),
+            .background(Theme.card,
                         in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .padding(.top, 4)
         }
@@ -259,7 +259,7 @@ struct OnboardingView: View {
     private func readyRow(_ label: String, _ done: Bool, optional: Bool = false) -> some View {
         HStack(spacing: 10) {
             Image(systemName: done ? "checkmark.circle.fill" : (optional ? "minus.circle" : "circle"))
-                .foregroundStyle(done ? Theme.mint : (optional ? Color.secondary : Color.orange))
+                .foregroundStyle(done ? Theme.mint : (optional ? Color.secondary : Theme.warning))
             Text(label).font(.skBody)
             Spacer()
             if !done && !optional {
@@ -275,7 +275,7 @@ struct StatusBadge: View {
     private var config: (String, Color, String) {
         switch status {
         case .granted: ("checkmark.circle.fill", Theme.mint, "Granted")
-        case .denied: ("xmark.circle.fill", .orange, "Off")
+        case .denied: ("xmark.circle.fill", Theme.warning, "Off")
         case .notDetermined: ("questionmark.circle", .secondary, "Not set")
         }
     }

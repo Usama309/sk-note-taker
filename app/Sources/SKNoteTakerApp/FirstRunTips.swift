@@ -16,7 +16,7 @@ struct FirstRunTipsView: View {
             tint: Theme.accent),
         Tip(icon: "folder.fill", title: "Organize by project",
             body: "Drag meetings into a project to give it living memory. Import past recordings, docs, and people so every summary has context.",
-            tint: .orange),
+            tint: Theme.folderPalette[1]),
         Tip(icon: "lock.fill", title: "Everything stays on your Mac",
             body: "Recordings, transcripts, and summaries are stored locally and processed on-device. Nothing is uploaded to a server we run.",
             tint: Theme.mint),
@@ -29,13 +29,13 @@ struct FirstRunTipsView: View {
         VStack(spacing: 0) {
             VStack(spacing: 18) {
                 ZStack {
-                    Circle().fill(tip.tint.opacity(0.15)).frame(width: 84, height: 84)
+                    Circle().fill(tip.tint.opacity(0.16)).frame(width: 84, height: 84)
                     Image(systemName: tip.icon).font(.system(size: 34, weight: .semibold))
                         .foregroundStyle(tip.tint)
                 }
                 .padding(.top, 10)
                 VStack(spacing: 8) {
-                    Text(tip.title).font(.custom("Plus Jakarta Sans", size: 22).weight(.bold))
+                    Text(tip.title).font(.skHero)
                     Text(tip.body).font(.skBody).foregroundStyle(.secondary)
                         .multilineTextAlignment(.center).frame(maxWidth: 360)
                         .fixedSize(horizontal: false, vertical: true)
@@ -48,11 +48,11 @@ struct FirstRunTipsView: View {
 
             HStack(spacing: 6) {
                 ForEach(tips.indices, id: \.self) { i in
-                    Capsule().fill(i == index ? Theme.mint : Color.secondary.opacity(0.25))
+                    Capsule().fill(i == index ? Theme.mint : Theme.border)
                         .frame(width: i == index ? 20 : 7, height: 7)
                 }
             }
-            .animation(.easeInOut(duration: 0.2), value: index)
+            .animation(Theme.Motion.standard, value: index)
             .padding(.bottom, 16)
 
             Divider().opacity(0.5)
@@ -62,7 +62,7 @@ struct FirstRunTipsView: View {
                 Spacer()
                 Button {
                     if isLast { app.finishTips() }
-                    else { withAnimation(.easeInOut(duration: 0.22)) { index += 1 } }
+                    else { withAnimation(Theme.Motion.standard) { index += 1 } }
                 } label: {
                     Text(isLast ? "Get started" : "Next")
                         .fontWeight(.semibold).padding(.horizontal, 20).padding(.vertical, 9)

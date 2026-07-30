@@ -140,14 +140,14 @@ struct DetailTopBar: View {
 
             TextField("Meeting title", text: $title)
                 .textFieldStyle(.plain)
-                .font(.system(size: 20, weight: .bold, design: .rounded))
+                .font(.skHero)
                 .onSubmit(onSaveTitle)
                 .frame(maxWidth: 460, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
 
             Button { app.toggleStar(meeting.id) } label: {
                 Image(systemName: app.isStarred(meeting.id) ? "star.fill" : "star")
-                    .foregroundStyle(app.isStarred(meeting.id) ? Color.yellow : Color.secondary)
+                    .foregroundStyle(app.isStarred(meeting.id) ? Theme.star : Color.secondary)
             }
             .buttonStyle(.plain)
             .help(app.isStarred(meeting.id) ? "Unstar" : "Star")
@@ -247,7 +247,7 @@ struct DetailMetaRow: View {
                     if !meeting.speakers.isEmpty {
                         Text("Edit")
                             .font(.skCaption)
-                            .foregroundStyle(Theme.indigo)
+                            .foregroundStyle(Theme.accent)
                             .padding(.leading, 12)
                     }
                 }
@@ -287,7 +287,7 @@ struct WaveformPlayer: View {
                     .frame(width: 40, height: 40)
                     .background(playback.ready ? AnyShapeStyle(Theme.accentGradient)
                                 : AnyShapeStyle(Color.secondary), in: Circle())
-                    .shadow(color: Theme.indigo.opacity(playback.ready ? 0.35 : 0), radius: 6, y: 2)
+                    .shadow(color: Theme.accent.opacity(playback.ready ? 0.35 : 0), radius: 6, y: 2)
             }
             .buttonStyle(.plain)
             .disabled(!playback.ready)
@@ -358,7 +358,7 @@ struct WaveformPlayer: View {
         .padding(.leading, 10)
         .padding(.trailing, 14)
         .padding(.vertical, 9)
-        .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous).strokeBorder(Theme.hairline))
     }
 }
@@ -377,7 +377,7 @@ struct WaveformView: View {
                     let played = Double(i) / Double(count) <= progress
                     Capsule()
                         .fill(played ? AnyShapeStyle(Theme.accentGradient)
-                              : AnyShapeStyle(Color.secondary.opacity(0.28)))
+                              : AnyShapeStyle(Theme.textSecondary.opacity(0.28)))
                         .frame(height: max(3, CGFloat(bars[i]) * geo.size.height))
                 }
             }
@@ -396,7 +396,7 @@ struct ProgressBarLine: View {
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
-                Capsule().fill(Color.secondary.opacity(0.22)).frame(height: 5)
+                Capsule().fill(Theme.textSecondary.opacity(0.22)).frame(height: 5)
                 Capsule().fill(Theme.accentGradient)
                     .frame(width: geo.size.width * progress, height: 5)
             }
@@ -419,8 +419,8 @@ struct DetailTabBar: View {
                 Button { tab = t } label: {
                     VStack(spacing: 7) {
                         Text(t.rawValue)
-                            .font(.system(size: 13, weight: tab == t ? .semibold : .regular))
-                            .foregroundStyle(tab == t ? AnyShapeStyle(Theme.indigo) : AnyShapeStyle(.secondary))
+                            .font(tab == t ? .skSubtitle : .skBody)
+                            .foregroundStyle(tab == t ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(.secondary))
                         Capsule()
                             .fill(tab == t ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(Color.clear))
                             .frame(height: 2.5)
@@ -434,7 +434,7 @@ struct DetailTabBar: View {
         .padding(.horizontal, 22)
         .padding(.top, 14)
         .padding(.bottom, 2)
-        .animation(.easeInOut(duration: 0.15), value: tab)
+        .animation(Theme.Motion.standard, value: tab)
     }
 }
 
@@ -458,7 +458,7 @@ struct DetailRightRail: View {
             }
             .padding(16)
         }
-        .background(.background.secondary.opacity(0.35))
+        .background(Theme.bg)
     }
 }
 
@@ -506,7 +506,7 @@ struct ScreenRecordingCard: View {
                             .font(.skCaption)
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(Theme.indigo)
+                    .foregroundStyle(Theme.accent)
                 }
             }
             if let player {
@@ -653,7 +653,7 @@ struct OwnerBadge: View {
     let meeting: Meeting
     let owner: String
 
-    /// Match the owner string to a speaker key when possible (for the right colour), else indigo.
+    /// Match the owner string to a speaker key when possible (for the right colour), else the accent.
     private var key: String? {
         meeting.speakers.first { (k, info) in
             (info.name?.caseInsensitiveCompare(owner) == .orderedSame)
@@ -667,7 +667,7 @@ struct OwnerBadge: View {
             .font(.skBadge)
             .foregroundStyle(.white)
             .frame(width: 18, height: 18)
-            .background(key.map(Theme.speakerColor) ?? Theme.indigo, in: Circle())
+            .background(key.map(Theme.speakerColor) ?? Theme.accent, in: Circle())
     }
 }
 
@@ -748,16 +748,16 @@ struct SummaryTab: View {
                     MarkdownBlock(text: summary.body)
 
                     if !summary.decisions.isEmpty {
-                        section("Decisions", tint: Theme.teal) {
+                        section("Decisions", tint: Theme.mint) {
                             ForEach(summary.decisions, id: \.self) { d in
-                                bullet(icon: "checkmark.circle.fill", tint: Theme.teal, text: d)
+                                bullet(icon: "checkmark.circle.fill", tint: Theme.mint, text: d)
                             }
                         }
                     }
                     if !summary.remember.isEmpty {
-                        section("Things to remember", tint: .orange) {
+                        section("Things to remember", tint: Theme.warning) {
                             ForEach(summary.remember, id: \.self) { r in
-                                bullet(icon: "sparkle", tint: .orange, text: r)
+                                bullet(icon: "sparkle", tint: Theme.warning, text: r)
                             }
                         }
                     }
@@ -788,12 +788,12 @@ struct SummaryTab: View {
         }
     }
 
-    @ViewBuilder private func section<C: View>(_ title: String, tint: Color = Theme.indigo,
+    @ViewBuilder private func section<C: View>(_ title: String, tint: Color = Theme.accent,
                                                @ViewBuilder _ content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Capsule().fill(tint).frame(width: 3, height: 16)
-                Text(title).font(.system(size: 16, weight: .bold))
+                Text(title).font(.skHeadline)
             }
             content()
         }
@@ -910,7 +910,7 @@ struct TranscriptTab: View {
                                         Text(label(forKey: key)).font(.skCaptionStrong)
                                     }
                                     .padding(.horizontal, 9).padding(.vertical, 4)
-                                    .background(Theme.speakerColor(key).opacity(0.12), in: Capsule())
+                                    .background(Theme.speakerColor(key).opacity(0.16), in: Capsule())
                                 }
                                 .buttonStyle(.plain).help("Rename speakers")
                             }
@@ -951,7 +951,7 @@ struct TranscriptTab: View {
                     .padding(.horizontal, 14).padding(.vertical, 8)
                     .background(.regularMaterial, in: Capsule())
                     .overlay(Capsule().strokeBorder(.quaternary))
-                    .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
+                    .shadow(color: Theme.cardShadow, radius: 8, y: 2)
                     .padding(.bottom, 12)
                 }
             }
@@ -979,7 +979,7 @@ struct NotesTab: View {
             }
             .padding(.horizontal, 14).padding(.top, 10)
             TextEditor(text: $notes)
-                .font(.system(size: 13))
+                .font(.skBody)
                 .scrollContentBackground(.hidden)
                 .padding(14)
                 .onChange(of: notes) { onSave() }

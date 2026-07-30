@@ -44,7 +44,7 @@ struct ContentView: View {
         .overlay {
             if app.isMissionControlActive { MissionControlBrandOverlay() }
         }
-        .animation(.easeInOut(duration: 0.18), value: app.isMissionControlActive)
+        .animation(Theme.Motion.standard, value: app.isMissionControlActive)
         .background(WindowAccessor { app.mainWindow = $0 })
         .alert("Something went wrong", isPresented: .init(
             get: { app.errorMessage != nil },
@@ -98,8 +98,8 @@ struct SidebarView: View {
 
     /// Row background reflecting both the current filter selection and an active drag-over.
     private func rowBackground(token: String, selected: Bool) -> Color {
-        if dropTarget == token { return Theme.teal.opacity(0.30) }
-        return selected ? Theme.indigo.opacity(0.14) : .clear
+        if dropTarget == token { return Theme.dropTarget }
+        return selected ? Theme.selection : .clear
     }
 
     private func setDrop(_ token: String, _ over: Bool) {
@@ -116,7 +116,7 @@ struct SidebarView: View {
 
     /// Stable colour per project (UUID hashValue is per-run, so seed from the string).
     private func folderColor(_ folder: Folder) -> Color {
-        let palette: [Color] = [Theme.indigo, Theme.teal, .orange, .pink, .blue, .green, .purple]
+        let palette = Theme.folderPalette
         let seed = folder.id.uuidString.unicodeScalars.reduce(0) { $0 + Int($1.value) }
         return palette[seed % palette.count]
     }
@@ -127,7 +127,7 @@ struct SidebarView: View {
         List {
             Section("Library") {
                 Button { app.showAppAssistant = true } label: {
-                    rowLabel(icon: AnyView(Image(systemName: "sparkles").foregroundStyle(Theme.indigo)),
+                    rowLabel(icon: AnyView(Image(systemName: "sparkles").foregroundStyle(Theme.accent)),
                              title: "Assistant", count: 0)
                 }
                 .buttonStyle(.plain)
@@ -144,7 +144,7 @@ struct SidebarView: View {
                                  isTargeted: { setDrop("all", $0) })
 
                 Button { app.libraryFilter = .starred } label: {
-                    rowLabel(icon: AnyView(Image(systemName: "star.fill").foregroundStyle(Color.yellow)),
+                    rowLabel(icon: AnyView(Image(systemName: "star.fill").foregroundStyle(Theme.star)),
                              title: "Starred", count: starredCount)
                 }
                 .buttonStyle(.plain)
@@ -152,7 +152,7 @@ struct SidebarView: View {
 
                 if app.calendarConnected {
                     Button { app.libraryFilter = .upcoming } label: {
-                        rowLabel(icon: AnyView(Image(systemName: "calendar").foregroundStyle(Theme.teal)),
+                        rowLabel(icon: AnyView(Image(systemName: "calendar").foregroundStyle(Theme.mint)),
                                  title: "Upcoming", count: app.upcomingEvents.count)
                     }
                     .buttonStyle(.plain)
@@ -196,7 +196,7 @@ struct SidebarView: View {
                 Divider()
                 HStack(spacing: 9) {
                     Circle().fill(Theme.accentGradient).frame(width: 30, height: 30)
-                        .overlay(Text(initials).font(.system(size: 12, weight: .bold)).foregroundStyle(.white))
+                        .overlay(Text(initials).font(.skLabel).foregroundStyle(.white))
                     VStack(alignment: .leading, spacing: 1) {
                         Text(app.userDisplayName).font(.skLabel).lineLimit(1)
                         Text("Local workspace").font(.skFootnote).foregroundStyle(.secondary)
@@ -266,7 +266,7 @@ struct SidebarView: View {
     private func folderHeaderRow(_ folder: Folder, count: Int, isOpen: Bool) -> some View {
         // Whole-row click opens the folder (and filters the middle list); the chevron shows state.
         Button {
-            withAnimation(.easeInOut(duration: 0.18)) {
+            withAnimation(Theme.Motion.standard) {
                 if expandedFolders.contains(folder.id) {
                     expandedFolders.remove(folder.id)
                 } else {
@@ -329,7 +329,7 @@ struct SidebarView: View {
             }
             Divider()
             Button(isOpen ? "Collapse" : "Expand") {
-                withAnimation(.easeInOut(duration: 0.18)) {
+                withAnimation(Theme.Motion.standard) {
                     if isOpen { expandedFolders.remove(folder.id) } else { expandedFolders.insert(folder.id) }
                 }
             }
@@ -359,7 +359,7 @@ struct SidebarView: View {
         }
         .buttonStyle(.plain)
         .listRowBackground(app.selectedMeetingId == meeting.id
-                           ? Theme.indigo.opacity(0.14) : Color.clear)
+                           ? Theme.selection : Color.clear)
     }
 
     private func addFolder() {
@@ -383,13 +383,13 @@ struct EmptyDetailView: View {
     var body: some View {
         VStack(spacing: 24) {
             LogoMark(size: 88)
-                .shadow(color: Theme.indigo.opacity(0.5), radius: 30, y: 12)
+                .shadow(color: Theme.accent.opacity(0.5), radius: 30, y: 12)
             VStack(spacing: 10) {
                 Text("Ready when you are")
-                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                    .font(.skDisplay)
                     .foregroundStyle(Theme.accentGradient)
                 Text("Capture mic and system audio with live, speaker-aware transcription.")
-                    .font(.system(size: 15))
+                    .font(.skHeadline)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: 400)
@@ -406,16 +406,16 @@ struct EmptyDetailView: View {
             if !app.claudeAvailable {
                 Label("Claude Code CLI not detected. AI features disabled.",
                       systemImage: "exclamationmark.triangle")
-                    .font(.callout)
-                    .foregroundStyle(.orange)
+                    .font(.skCallout)
+                    .foregroundStyle(Theme.warning)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             ZStack {
-                Color(nsColor: .textBackgroundColor)
+                Theme.bg
                 RadialGradient(
-                    colors: [Theme.indigo.opacity(0.12), Theme.teal.opacity(0.05), .clear],
+                    colors: [Theme.accent.opacity(0.12), Theme.mint.opacity(0.05), .clear],
                     center: .center, startRadius: 0, endRadius: 360)
                     .offset(y: -110)
                     .blendMode(.plusLighter)
@@ -433,20 +433,20 @@ struct SetupHint: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.orange)
+            Image(systemName: "exclamationmark.circle.fill").foregroundStyle(Theme.warning)
             VStack(alignment: .leading, spacing: 1) {
                 Text("Finish setup to record").font(.skLabel)
                 Text(missing).font(.skCaption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
             SettingsLink { Text("Open Settings").font(.skCallout) }
-                .buttonStyle(.plain).foregroundStyle(Theme.indigo)
+                .buttonStyle(.plain).foregroundStyle(Theme.accent)
         }
         .padding(12)
         .frame(width: 380)
-        .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
+        .background(Theme.warning.opacity(0.10), in: RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
-            .strokeBorder(Color.orange.opacity(0.25)))
+            .strokeBorder(Theme.warning.opacity(0.25)))
         .padding(.top, 8)
     }
 
@@ -470,7 +470,7 @@ struct UpcomingEventsCard: View {
                 Spacer()
                 Button("See all") { app.libraryFilter = .upcoming }
                     .buttonStyle(.plain).font(.skCaption)
-                    .foregroundStyle(Theme.indigo)
+                    .foregroundStyle(Theme.accent)
                 Button { Task { await app.refreshUpcoming() } } label: {
                     Image(systemName: "arrow.clockwise").font(.system(size: 11))
                 }
@@ -500,7 +500,7 @@ struct UpcomingEventsCard: View {
             }
         }
         .frame(width: 380)
-        .skCard(.quaternary.opacity(0.35))
+        .skCard(Theme.card)
     }
 
     private static func whenLabel(_ ev: GoogleCalendarEvent) -> String {
@@ -522,13 +522,13 @@ struct RecordButton: View {
                 Image(systemName: "record.circle.fill")
                     .font(.system(size: prominent ? 16 : 13))
                 Text("Start Meeting")
-                    .font(.system(size: prominent ? 15 : 13, weight: .semibold))
+                    .font(prominent ? .skHeadline : .skSubtitle)
             }
             .padding(.horizontal, prominent ? 30 : 22)
             .padding(.vertical, prominent ? 14 : 11)
             .background(Theme.accentGradient, in: Capsule())
             .foregroundStyle(.white)
-            .shadow(color: Theme.indigo.opacity(prominent ? 0.4 : 0), radius: 14, y: 6)
+            .shadow(color: Theme.accent.opacity(prominent ? 0.4 : 0), radius: 14, y: 6)
         }
         .buttonStyle(.plain)
         .disabled(app.session != nil)

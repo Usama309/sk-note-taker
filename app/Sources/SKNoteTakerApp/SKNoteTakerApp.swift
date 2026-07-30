@@ -33,7 +33,8 @@ struct SKNoteTakerApp: App {
         Window("SK Note Taker", id: "main") {
             ContentView()
                 .environment(appState)
-                .preferredColorScheme(.light)   // brand look: light surfaces, readable speaker colors
+                .tint(Theme.accent)   // brand accent on selections, toggles, and controls
+                // Follows the system appearance — Theme tokens carry both light and dark values.
                 .task { await appState.bootstrap() }
                 .onAppear {
                     // Give AppState a way to surface the main window (from the menu bar
@@ -67,7 +68,7 @@ struct SKNoteTakerApp: App {
         Settings {
             SettingsView()
                 .environment(appState)
-                .preferredColorScheme(.light)
+                .tint(Theme.accent)
         }
     }
 }

@@ -25,7 +25,7 @@ struct LiveMeetingView: View {
 
     private var micWarningBanner: some View {
         HStack(spacing: 8) {
-            Image(systemName: "mic.slash.fill").foregroundStyle(.orange)
+            Image(systemName: "mic.slash.fill").foregroundStyle(Theme.warning)
             Text("No microphone audio detected — your voice won't be transcribed. If a call started after recording began, stop and start the recording again; otherwise check your input device and mic access.")
                 .font(.skCallout)
             Spacer()
@@ -34,7 +34,7 @@ struct LiveMeetingView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
-        .background(.orange.opacity(0.12))
+        .background(Theme.warning.opacity(0.16))
     }
 
     var body: some View {
@@ -69,7 +69,7 @@ struct LiveMeetingView: View {
         HStack(spacing: 14) {
             HStack(spacing: 8) {
                 Circle()
-                    .fill(session.isPaused ? Color.orange : .red)
+                    .fill(session.isPaused ? Theme.warning : Theme.recording)
                     .frame(width: 10, height: 10)
                     .opacity(session.phase == .recording && !session.isPaused ? 1 : 0.4)
                 Text(session.isPaused ? "Paused" :
@@ -127,7 +127,7 @@ struct LiveMeetingView: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.large)
-                .tint(session.isRecordingScreen ? .red : nil)
+                .tint(session.isRecordingScreen ? Theme.recording : nil)
                 .help(session.isRecordingScreen ? "Stop recording the screen"
                       : "Pick a window, an app, or the whole screen to record with this meeting")
 
@@ -160,7 +160,7 @@ struct LiveMeetingView: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 7)
-                .background(.red.opacity(0.9), in: Capsule())
+                .background(Theme.recording, in: Capsule())
                 .foregroundStyle(.white)
             }
             .buttonStyle(.plain)
@@ -205,7 +205,7 @@ struct LiveMeetingView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
             TextEditor(text: $notes)
-                .font(.system(size: 13))
+                .font(.skBody)
                 .scrollContentBackground(.hidden)
                 .padding(10)
         }
@@ -244,7 +244,7 @@ struct LiveAssistantPane: View {
             HStack(spacing: 6) {
                 Image(systemName: "brain")
                     .font(.system(size: 11))
-                    .foregroundStyle(suggesting || thinking ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(Theme.indigo))
+                    .foregroundStyle(suggesting || thinking ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(Theme.accent))
                     .symbolEffect(.pulse, isActive: suggesting || thinking)
                 Menu {
                     Button("No project") { app.setLiveProject(nil) }
@@ -303,7 +303,7 @@ struct LiveAssistantPane: View {
                     .padding(12)
                 }
                 .onChange(of: chat.messages.count) {
-                    withAnimation { proxy.scrollTo("live-chat-bottom") }
+                    withAnimation(Theme.Motion.standard) { proxy.scrollTo("live-chat-bottom") }
                 }
             }
 
@@ -311,7 +311,7 @@ struct LiveAssistantPane: View {
             if let suggestion = app.liveSuggestion {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 6) {
-                        Image(systemName: "lightbulb.fill").font(.system(size: 11)).foregroundStyle(.yellow)
+                        Image(systemName: "lightbulb.fill").font(.system(size: 11)).foregroundStyle(Theme.warning)
                         Text("Suggested answer").font(.skCaptionStrong)
                         Spacer()
                         Button { app.dismissLiveSuggestion() } label: {
@@ -326,8 +326,8 @@ struct LiveAssistantPane: View {
                     }
                 }
                 .padding(10)
-                .background(Theme.indigo.opacity(0.09), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.indigo.opacity(0.25)))
+                .background(Theme.accent.opacity(0.16), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.accent.opacity(0.25)))
                 .padding(.horizontal, 10).padding(.bottom, 6)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
@@ -342,7 +342,7 @@ struct LiveAssistantPane: View {
                             .font(.skFootnoteStrong)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 5)
-                            .background(Theme.indigo.opacity(0.10), in: Capsule())
+                            .background(Theme.accent.opacity(0.16), in: Capsule())
                     }
                     .buttonStyle(.plain)
                     .disabled(thinking || session.liveSegments.isEmpty)
@@ -355,7 +355,7 @@ struct LiveAssistantPane: View {
             HStack(spacing: 8) {
                 TextField("Ask about what's being said…", text: $question)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 13))
+                    .font(.skBody)
                     .onSubmit { ask(question) }
                 Button {
                     ask(question)
@@ -397,7 +397,7 @@ struct EndPromptBanner: View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             HStack(spacing: 10) {
                 Image(systemName: "moon.zzz.fill")
-                    .foregroundStyle(Theme.indigo)
+                    .foregroundStyle(Theme.accent)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(prompt.reason)
                         .font(.skLabel)
@@ -415,11 +415,11 @@ struct EndPromptBanner: View {
                 }
                 .controlSize(.small)
                 .buttonStyle(.borderedProminent)
-                .tint(.red)
+                .tint(Theme.recording)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
-            .background(Theme.indigo.opacity(0.10))
+            .background(Theme.accent.opacity(0.16))
         }
     }
 
@@ -443,7 +443,7 @@ struct ChannelMeter: View {
                 .font(.system(size: 10))
                 .foregroundStyle(bars > 0 ? AnyShapeStyle(Theme.accentGradient)
                                  : AnyShapeStyle(hasAudio ? AnyShapeStyle(.secondary)
-                                                          : AnyShapeStyle(Color.orange)))
+                                                          : AnyShapeStyle(Theme.warning)))
             HStack(spacing: 2) {
                 ForEach(0..<5, id: \.self) { i in
                     RoundedRectangle(cornerRadius: 1)
@@ -454,7 +454,7 @@ struct ChannelMeter: View {
             }
         }
         .help("\(label) input level — \(bars)/5")
-        .animation(.easeOut(duration: 0.12), value: bars)
+        .animation(Theme.Motion.snap, value: bars)
     }
 }
 
@@ -491,7 +491,7 @@ struct UtteranceBubble: View {
                 if isMe, selected {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 12))
-                        .foregroundStyle(Theme.indigo)
+                        .foregroundStyle(Theme.accent)
                 }
                 Text(name)
                     .font(.skCaptionStrong)
@@ -517,7 +517,7 @@ struct UtteranceBubble: View {
                 if !isMe, selected {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 12))
-                        .foregroundStyle(Theme.indigo)
+                        .foregroundStyle(Theme.accent)
                 }
             }
             Text(text)
@@ -529,11 +529,11 @@ struct UtteranceBubble: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(color.opacity(volatile ? 0.05 : selected ? 0.16 : isMe ? 0.13 : 0.09),
+        .background(color.opacity(volatile ? 0.10 : selected ? 0.24 : isMe ? 0.20 : 0.16),
                     in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(Theme.indigo.opacity(selected ? 0.55 : 0), lineWidth: 1.5))
+                .strokeBorder(Theme.accent.opacity(selected ? 0.55 : 0), lineWidth: 1.5))
     }
 }
 
@@ -594,10 +594,10 @@ struct LiveTranscriptList: View {
                 .padding(14)
             }
             .onChange(of: session.liveSegments.count) {
-                withAnimation { proxy.scrollTo("bottom") }
+                withAnimation(Theme.Motion.standard) { proxy.scrollTo("bottom") }
             }
         }
-        .background(.background.secondary.opacity(0.4))
+        .background(Theme.bg)
     }
 }
 
@@ -612,7 +612,7 @@ struct CompactLiveView: View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Circle()
-                    .fill(session.isPaused ? Color.orange : .red)
+                    .fill(session.isPaused ? Theme.warning : Theme.recording)
                     .frame(width: 8, height: 8)
                     .opacity(session.isPaused ? 0.5 : 1)
                 Text(session.isPaused ? "Paused" : "REC")
@@ -636,7 +636,7 @@ struct CompactLiveView: View {
                 .buttonStyle(.plain)
                 .help("Expand back to the full app")
                 Button { Task { await app.stopMeeting() } } label: {
-                    Image(systemName: "stop.fill").foregroundStyle(.red)
+                    Image(systemName: "stop.fill").foregroundStyle(Theme.recording)
                 }
                 .buttonStyle(.plain)
                 .help("End meeting")

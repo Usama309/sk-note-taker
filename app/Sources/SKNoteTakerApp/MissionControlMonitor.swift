@@ -75,7 +75,7 @@ struct MissionControlBrandOverlay: View {
                 LogoMark(size: 104)
                     .shadow(color: .black.opacity(0.45), radius: 26, y: 12)
                 Text("SK Note Taker is here")
-                    .font(.custom("Plus Jakarta Sans", size: 30).weight(.bold))
+                    .font(.skDisplay)
                     .foregroundStyle(.white)
             }
         }

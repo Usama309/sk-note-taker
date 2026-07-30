@@ -47,21 +47,21 @@ struct AppAssistantSheet: View {
                     .padding(16)
                 }
                 .onChange(of: app.appAssistantChat.messages.count) { _, _ in
-                    withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
+                    withAnimation(Theme.Motion.standard) { proxy.scrollTo("bottom", anchor: .bottom) }
                 }
             }
 
             if let action = app.pendingAppAction {
                 Divider()
                 HStack(spacing: 10) {
-                    Image(systemName: "wand.and.stars").foregroundStyle(Theme.indigo)
+                    Image(systemName: "wand.and.stars").foregroundStyle(Theme.accent)
                     Text(action.label ?? "Perform this action?").font(.skCallout)
                     Spacer()
                     Button("Dismiss") { app.pendingAppAction = nil }.buttonStyle(.bordered)
                     Button("Do it") { Task { await app.runPendingAppAction() } }.buttonStyle(.borderedProminent)
                 }
                 .padding(12)
-                .background(Theme.indigo.opacity(0.06))
+                .background(Theme.selection)
             }
 
             Divider()
@@ -71,7 +71,7 @@ struct AppAssistantSheet: View {
                     .onSubmit(ask)
                 Button(action: ask) {
                     if asking { ProgressView().controlSize(.small) }
-                    else { Image(systemName: "arrow.up.circle.fill").font(.title2) }
+                    else { Image(systemName: "arrow.up.circle.fill").font(.system(size: 22)) }
                 }
                 .buttonStyle(.plain)
                 .disabled(question.trimmingCharacters(in: .whitespaces).isEmpty || asking)

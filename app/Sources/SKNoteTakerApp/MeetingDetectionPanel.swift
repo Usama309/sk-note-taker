@@ -128,7 +128,7 @@ struct DetectionPanelView: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.08)))
+                .strokeBorder(Theme.border))
         // macOS-style close chip, top-left corner, revealed on hover.
         .overlay(alignment: .topLeading) {
             CloseChip(action: onDismiss)
@@ -136,13 +136,13 @@ struct DetectionPanelView: View {
                 .allowsHitTesting(hovering)
                 .offset(x: -7, y: -7)
         }
-        .shadow(color: .black.opacity(0.22), radius: 14, y: 5)
+        .shadow(color: Theme.cardShadow, radius: 14, y: 5)
         .padding(12)
         .onHover { h in
             hovering = h
             model.paused = h
         }
-        .animation(.easeInOut(duration: 0.15), value: hovering)
+        .animation(Theme.Motion.snap, value: hovering)
     }
 }
 
@@ -160,8 +160,8 @@ struct CloseChip: View {
                 .background(
                     Circle()
                         .fill(.regularMaterial)
-                        .overlay(Circle().strokeBorder(Color.primary.opacity(0.12))))
-                .shadow(color: .black.opacity(0.2), radius: 3, y: 1)
+                        .overlay(Circle().strokeBorder(Theme.border)))
+                .shadow(color: Theme.cardShadow, radius: 3, y: 1)
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }

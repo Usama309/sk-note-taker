@@ -40,7 +40,7 @@ final class WindowHighlightOverlay {
         let view = NSView()
         view.wantsLayer = true
         view.layer?.borderWidth = 4
-        view.layer?.borderColor = NSColor.controlAccentColor.cgColor
+        view.layer?.borderColor = NSColor(Theme.accent).cgColor
         view.layer?.cornerRadius = 9     // border only; no fill, so it never tints the whole screen
         p.contentView = view
         return p
@@ -185,17 +185,17 @@ struct ScreenRecordPromptView: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.08)))
+                .strokeBorder(Theme.border))
         .overlay(alignment: .topLeading) {
             CloseChip(action: onDismiss)
                 .opacity(hovering ? 1 : 0)
                 .allowsHitTesting(hovering)
                 .offset(x: -7, y: -7)
         }
-        .shadow(color: .black.opacity(0.22), radius: 14, y: 5)
+        .shadow(color: Theme.cardShadow, radius: 14, y: 5)
         .padding(12)
         .onHover { h in hovering = h; model.paused = h }
-        .animation(.easeInOut(duration: 0.15), value: hovering)
+        .animation(Theme.Motion.snap, value: hovering)
     }
 }
 
@@ -282,7 +282,7 @@ struct ScreenSourceSheet: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .listRowBackground(hovered == id ? Color.accentColor.opacity(0.12) : Color.clear)
+        .listRowBackground(hovered == id ? Theme.selection : Color.clear)
         .onHover { h in
             if h {
                 hovered = id
@@ -302,7 +302,7 @@ struct ScreenSourceSheet: View {
                 .resizable().aspectRatio(contentMode: .fill)
                 .frame(width: 64, height: 40)
                 .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Color.primary.opacity(0.12)))
+                .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Theme.border))
         } else if let icon {
             Image(nsImage: icon).resizable().frame(width: 26, height: 26).frame(width: 64, height: 40)
         } else {

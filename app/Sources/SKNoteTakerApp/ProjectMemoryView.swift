@@ -73,7 +73,7 @@ struct ProjectMemorySheet: View {
             importsSection
             Section("Notes") {
                 TextEditor(text: $memory.context)
-                    .font(.system(size: 13)).frame(minHeight: 70)
+                    .font(.skBody).frame(minHeight: 70)
                 Text("Optional. Anything the assistant should know. Most memory comes from your files and meetings.")
                     .font(.skFootnote).foregroundStyle(.tertiary)
             }
@@ -140,7 +140,7 @@ struct ProjectMemorySheet: View {
                     .padding(16)
                 }
                 .onChange(of: chat.messages.count) { _, _ in
-                    withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
+                    withAnimation(Theme.Motion.standard) { proxy.scrollTo("bottom", anchor: .bottom) }
                 }
             }
             Divider()
@@ -150,7 +150,7 @@ struct ProjectMemorySheet: View {
                     .onSubmit(ask)
                 Button(action: ask) {
                     if asking { ProgressView().controlSize(.small) }
-                    else { Image(systemName: "arrow.up.circle.fill").font(.title2) }
+                    else { Image(systemName: "arrow.up.circle.fill").font(.system(size: 22)) }
                 }
                 .buttonStyle(.plain)
                 .disabled(question.trimmingCharacters(in: .whitespaces).isEmpty || asking)
