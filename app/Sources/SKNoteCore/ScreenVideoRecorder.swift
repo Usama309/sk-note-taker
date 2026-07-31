@@ -62,19 +62,22 @@ public enum ScreenCaptureScope {
 }
 
 /// Records the screen to a .mov via a DEDICATED ScreenCaptureKit stream (video + the call's system
-/// audio), kept fully separate from the diarization audio path so it can never destabilise it.
+/// audio + the microphone, so both sides of the conversation are in the file), kept fully separate
+/// from the diarization audio path so it can never destabilise it.
 /// Downscaled and frame-rate-capped to keep encoding light on the CPU (VideoToolbox H.264).
 /// Uses movie fragments so a crash still leaves a playable partial file.
 public final class ScreenVideoRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     private let url: URL
     private let videoQueue = DispatchQueue(label: "sk.notetaker.screenvideo")
     private let audioQueue = DispatchQueue(label: "sk.notetaker.screenaudio")
+    private let micQueue = DispatchQueue(label: "sk.notetaker.screenmic")
     private let lock = NSLock()
     private var stream: SCStream?
     private var writer: AVAssetWriter?
     private var input: AVAssetWriterInput?
     private var adaptor: AVAssetWriterInputPixelBufferAdaptor?
     private var audioInput: AVAssetWriterInput?
+    private var micInput: AVAssetWriterInput?
     private var started = false      // check-and-set under `lock` (video + audio queues both touch it)
 
     public init(outputURL: URL) {
@@ -166,7 +169,20 @@ public final class ScreenVideoRecorder: NSObject, SCStreamOutput, SCStreamDelega
         let audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
         audioInput.expectsMediaDataInRealTime = true
         if writer.canAdd(audioInput) { writer.add(audioInput) }
-        lock.withLock { self.writer = writer; self.input = input; self.adaptor = adaptor; self.audioInput = audioInput }
+
+        // Second audio track: the microphone, so the recording carries BOTH sides of the call.
+        // System audio alone captures the remote participants but not the user's own voice, which
+        // makes a meeting recording half a conversation. Players mix enabled audio tracks, so the
+        // movie plays back with both. Mic capture needs the Microphone grant; when it is missing
+        // SCStream simply delivers no mic buffers and the track stays empty.
+        let micInput = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
+        micInput.expectsMediaDataInRealTime = true
+        if writer.canAdd(micInput) { writer.add(micInput) }
+
+        lock.withLock {
+            self.writer = writer; self.input = input; self.adaptor = adaptor
+            self.audioInput = audioInput; self.micInput = micInput
+        }
 
         let config = SCStreamConfiguration()
         config.width = w
@@ -178,13 +194,15 @@ public final class ScreenVideoRecorder: NSObject, SCStreamOutput, SCStreamDelega
         config.capturesAudio = true
         config.sampleRate = 48_000
         config.channelCount = 2
+        config.captureMicrophone = true    // the user's own voice, alongside the system audio
 
         let stream = SCStream(filter: filter, configuration: config, delegate: self)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: videoQueue)
         try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: audioQueue)
+        try stream.addStreamOutput(self, type: .microphone, sampleHandlerQueue: micQueue)
         try await stream.startCapture()
         self.stream = stream
-        SKLog.info(.capture, "screen recording started (\(w)x\(h) @12fps + audio, \(scope))")
+        SKLog.info(.capture, "screen recording started (\(w)x\(h) @12fps + system audio + mic, \(scope))")
         return scope
     }
 
@@ -207,12 +225,13 @@ public final class ScreenVideoRecorder: NSObject, SCStreamOutput, SCStreamDelega
             try? await s.stopCapture()            // drains callbacks; safe to finalize after
             try? s.removeStreamOutput(self, type: .screen)
             try? s.removeStreamOutput(self, type: .audio)
+            try? s.removeStreamOutput(self, type: .microphone)
         }
         stream = nil
-        let (wr, inp, ain): (AVAssetWriter?, AVAssetWriterInput?, AVAssetWriterInput?) = lock.withLock {
-            let w = writer; let i = input; let a = audioInput
-            writer = nil; input = nil; adaptor = nil; audioInput = nil
-            return (w, i, a)
+        let (wr, inp, ain, min_): (AVAssetWriter?, AVAssetWriterInput?, AVAssetWriterInput?, AVAssetWriterInput?) = lock.withLock {
+            let w = writer; let i = input; let a = audioInput; let m = micInput
+            writer = nil; input = nil; adaptor = nil; audioInput = nil; micInput = nil
+            return (w, i, a, m)
         }
         guard let wr, wr.status == .writing else {
             SKLog.warn(.capture, "screen video: no frames captured; nothing saved")
@@ -220,6 +239,7 @@ public final class ScreenVideoRecorder: NSObject, SCStreamOutput, SCStreamDelega
         }
         inp?.markAsFinished()
         ain?.markAsFinished()
+        min_?.markAsFinished()
         await wr.finishWriting()
         let ok = wr.status == .completed
         SKLog.info(.capture, "screen video: \(ok ? "saved" : "finalize failed") \(url.lastPathComponent)")
@@ -243,15 +263,15 @@ public final class ScreenVideoRecorder: NSObject, SCStreamOutput, SCStreamDelega
                   SCFrameStatus(rawValue: statusRaw) == .complete,
                   let pb = sampleBuffer.imageBuffer else { return }
             pixelBuffer = pb
-        case .audio:
+        case .audio, .microphone:
             break
         default:
             return
         }
 
         let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-        let (wr, vin, ad, ain): (AVAssetWriter?, AVAssetWriterInput?, AVAssetWriterInputPixelBufferAdaptor?, AVAssetWriterInput?) =
-            lock.withLock { (writer, input, adaptor, audioInput) }
+        let (wr, vin, ad, ain, min_): (AVAssetWriter?, AVAssetWriterInput?, AVAssetWriterInputPixelBufferAdaptor?, AVAssetWriterInput?, AVAssetWriterInput?) =
+            lock.withLock { (writer, input, adaptor, audioInput, micInput) }
         guard let wr else { return }
 
         // Start the writing session once, on the first usable buffer of either track. Done under the
@@ -268,6 +288,8 @@ public final class ScreenVideoRecorder: NSObject, SCStreamOutput, SCStreamDelega
             ad.append(pixelBuffer, withPresentationTime: pts)
         } else if type == .audio, let ain, ain.isReadyForMoreMediaData {
             ain.append(sampleBuffer)
+        } else if type == .microphone, let min_, min_.isReadyForMoreMediaData {
+            min_.append(sampleBuffer)
         }
     }
 
