@@ -45,6 +45,7 @@ struct AppAssistantSheet: View {
                         Color.clear.frame(height: 1).id("bottom")
                     }
                     .padding(16)
+                    .animation(Theme.Motion.standard, value: app.appAssistantChat.messages.count)
                 }
                 .onChange(of: app.appAssistantChat.messages.count) { _, _ in
                     withAnimation(Theme.Motion.standard) { proxy.scrollTo("bottom", anchor: .bottom) }
@@ -62,6 +63,7 @@ struct AppAssistantSheet: View {
                 }
                 .padding(12)
                 .background(Theme.selection)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
             Divider()
@@ -73,12 +75,16 @@ struct AppAssistantSheet: View {
                     if asking { ProgressView().controlSize(.small) }
                     else { Image(systemName: "arrow.up.circle.fill").font(.system(size: 22)) }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(SendPressStyle())
                 .disabled(question.trimmingCharacters(in: .whitespaces).isEmpty || asking)
+                .animation(Theme.Motion.snap, value: asking)
+                .animation(Theme.Motion.snap,
+                           value: question.trimmingCharacters(in: .whitespaces).isEmpty)
             }
             .padding(12)
         }
         .frame(width: 560, height: 640)
+        .animation(Theme.Motion.spring, value: app.pendingAppAction != nil)
         .task { await app.loadAppChat() }
     }
 

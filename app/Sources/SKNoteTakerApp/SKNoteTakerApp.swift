@@ -379,6 +379,7 @@ final class AppState {
         starred = Set((UserDefaults.standard.array(forKey: Self.starredKey) as? [String] ?? [])
             .compactMap(UUID.init(uuidString:)))
         settings = await store.loadSettings()
+        SoundManager.shared.enabled = settings.uiSounds
         ai = ClaudeCLIService(model: settings.claudeModel)
         claudeAvailable = await ai.isAvailable()
         // Sync the login item to the saved preference (registers on first run if defaulted on).
@@ -798,6 +799,7 @@ final class AppState {
             self?.considerAutoSuggest(speakerIsMe: isMe, text: text)
         }
         self.session = session
+        SoundManager.shared.play(.recordingStarted)
         await session.start()
         refreshPermissions()
         if case .failed(let why) = session.phase {
@@ -814,6 +816,7 @@ final class AppState {
     func stopMeeting() async {
         stopSpeakerSources()
         guard let session else { return }
+        SoundManager.shared.play(.recordingStopped)
         if compactMode { setCompact(false) }   // restore the full window when the meeting ends
         notifier.clearEndPrompts()
         await session.finish()
@@ -1370,5 +1373,6 @@ final class AppState {
     func saveSettings() async {
         try? await store.save(settings: settings)
         ai = ClaudeCLIService(model: settings.claudeModel)
+        SoundManager.shared.enabled = settings.uiSounds
     }
 }

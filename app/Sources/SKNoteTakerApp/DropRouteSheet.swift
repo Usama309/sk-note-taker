@@ -35,6 +35,7 @@ struct DropRouteSheet: View {
             if let result {
                 Label(result, systemImage: "checkmark.circle.fill")
                     .font(.skCallout).foregroundStyle(Theme.success)
+                    .transition(.opacity.combined(with: .offset(y: 6)))
             }
             HStack(alignment: .center) {
                 Text("Audio and video are transcribed; PDF, Word, and text are read.")
@@ -45,10 +46,12 @@ struct DropRouteSheet: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(importing)
+                .animation(Theme.Motion.snap, value: importing)
             }
         }
         .padding(20)
         .frame(width: 520)
+        .animation(Theme.Motion.spring, value: result)
     }
 
     private func doImport() {

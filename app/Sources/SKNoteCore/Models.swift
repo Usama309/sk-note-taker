@@ -233,6 +233,8 @@ public struct AppSettings: Codable, Sendable, Equatable {
     public var assistantWebSearch: Bool
     /// Proactively suggest an answer when someone asks the user a question mid-meeting. On by default.
     public var assistantAutoSuggest: Bool
+    /// Soft cues for recording start/stop and deliberate saves. On by default; never during typing.
+    public var uiSounds: Bool
 
     public init(claudeModel: String = "sonnet", defaultSpeakerName: String? = nil,
                 locale: String = "en-US", autoDetectMeetings: Bool = true,
@@ -240,7 +242,8 @@ public struct AppSettings: Codable, Sendable, Equatable {
                 autoEndSilenceMinutes: Double = 2, autoSummarize: Bool = true,
                 showUpcomingInMenuBar: Bool = true, showEventsWithoutParticipants: Bool = true,
                 visibleCalendarIds: [String] = [], askToRecordScreen: Bool = true,
-                assistantWebSearch: Bool = true, assistantAutoSuggest: Bool = true) {
+                assistantWebSearch: Bool = true, assistantAutoSuggest: Bool = true,
+                uiSounds: Bool = true) {
         self.claudeModel = claudeModel
         self.defaultSpeakerName = defaultSpeakerName
         self.locale = locale
@@ -255,6 +258,7 @@ public struct AppSettings: Codable, Sendable, Equatable {
         self.askToRecordScreen = askToRecordScreen
         self.assistantWebSearch = assistantWebSearch
         self.assistantAutoSuggest = assistantAutoSuggest
+        self.uiSounds = uiSounds
     }
 
     // Tolerant decode: older settings.json without new fields default to on.
@@ -262,7 +266,7 @@ public struct AppSettings: Codable, Sendable, Equatable {
         case claudeModel, defaultSpeakerName, locale, autoDetectMeetings, launchAtLogin
         case autoEndDetection, autoEndSilenceMinutes, autoSummarize
         case showUpcomingInMenuBar, showEventsWithoutParticipants, visibleCalendarIds
-        case askToRecordScreen, assistantWebSearch, assistantAutoSuggest
+        case askToRecordScreen, assistantWebSearch, assistantAutoSuggest, uiSounds
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -282,6 +286,7 @@ public struct AppSettings: Codable, Sendable, Equatable {
         askToRecordScreen = try c.decodeIfPresent(Bool.self, forKey: .askToRecordScreen) ?? true
         assistantWebSearch = try c.decodeIfPresent(Bool.self, forKey: .assistantWebSearch) ?? true
         assistantAutoSuggest = try c.decodeIfPresent(Bool.self, forKey: .assistantAutoSuggest) ?? true
+        uiSounds = try c.decodeIfPresent(Bool.self, forKey: .uiSounds) ?? true
     }
 }
 

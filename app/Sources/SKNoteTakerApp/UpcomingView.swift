@@ -6,6 +6,7 @@ import SKNoteCore
 /// All upcoming Google Calendar events, grouped by day. Selecting one opens it in the detail pane.
 struct UpcomingListView: View {
     @Environment(AppState.self) private var app
+    @State private var refreshHover = false
 
     private var groups: [(key: Date, label: String, events: [GoogleCalendarEvent])] {
         let cal = Calendar.current
@@ -29,8 +30,13 @@ struct UpcomingListView: View {
                 Spacer()
                 Button { Task { await app.refreshUpcoming() } } label: {
                     Image(systemName: "arrow.clockwise").font(.system(size: 12))
+                        .scaleEffect(refreshHover ? 1.12 : 1)
                 }
-                .buttonStyle(.plain).foregroundStyle(.secondary).help("Refresh")
+                .buttonStyle(.plain)
+                .foregroundStyle(refreshHover ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(.secondary))
+                .help("Refresh")
+                .onHover { refreshHover = $0 }
+                .animation(Theme.Motion.snap, value: refreshHover)
             }
             .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 8)
 
@@ -73,7 +79,13 @@ struct UpcomingListView: View {
 }
 
 struct EventRow: View {
+    @Environment(AppState.self) private var app
     let event: GoogleCalendarEvent
+    @State private var hovering = false
+
+    // Same story as MeetingRow: the selected row already wears the accent fill, so the hover
+    // tint has to stay out of its way.
+    private var isSelected: Bool { app.selectedEventId == event.id }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -87,7 +99,9 @@ struct EventRow: View {
             }
             .frame(width: 54, alignment: .trailing)
 
+            // Scaled, not resized, so the hover never nudges the rows below it.
             Capsule().fill(Theme.accentGradient).frame(width: 3, height: 32)
+                .scaleEffect(y: hovering ? 1.18 : 1)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(event.title).font(.skSubtitle).lineLimit(1)
@@ -106,6 +120,10 @@ struct EventRow: View {
             Spacer(minLength: 0)
         }
         .padding(.vertical, 4)
+        .background(Theme.surface.opacity(hovering && !isSelected ? 1 : 0),
+                    in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .onHover { hovering = $0 }
+        .animation(Theme.Motion.snap, value: hovering)
     }
 
     static func time(_ date: Date) -> String {
@@ -120,6 +138,9 @@ struct EventRow: View {
 struct EventDetailView: View {
     @Environment(AppState.self) private var app
     let event: GoogleCalendarEvent
+    @State private var startHover = false
+    /// Which pill link the cursor is over. Keyed by title so the two links share one flag.
+    @State private var hoveredPill: String?
 
     var body: some View {
         ScrollView {
@@ -143,9 +164,12 @@ struct EventDetailView: View {
                             .padding(.horizontal, 16).padding(.vertical, 9)
                             .background(Theme.accentGradient, in: Capsule())
                             .foregroundStyle(.white)
+                            .scaleEffect(startHover ? 1.03 : 1)
                     }
                     .buttonStyle(.plain)
                     .disabled(app.session != nil)
+                    .onHover { startHover = $0 && app.session == nil }
+                    .animation(Theme.Motion.snap, value: startHover)
 
                     if let url = event.meetingURL {
                         Link(destination: url) { pillLabel("Join", "video.fill") }
@@ -194,6 +218,9 @@ struct EventDetailView: View {
             .padding(.horizontal, 14).padding(.vertical, 9)
             .background(Theme.surface, in: Capsule())
             .foregroundStyle(.primary)
+            .scaleEffect(hoveredPill == text ? 1.03 : 1)
+            .onHover { hoveredPill = $0 ? text : nil }
+            .animation(Theme.Motion.snap, value: hoveredPill)
     }
 
     private var dateRange: String {

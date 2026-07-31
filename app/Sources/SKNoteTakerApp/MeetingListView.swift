@@ -4,6 +4,15 @@ import SKNoteCore
 struct MeetingListView: View {
     @Environment(AppState.self) private var app
     @FocusState private var searchFocused: Bool
+    /// How many rows are rendered. Grows as the user reaches the end, so a long history does not
+    /// build every row up front. Search resets it.
+    @State private var windowSize = 30
+    private static let pageSize = 30
+
+    /// The slice of the filtered list that is actually rendered.
+    private var windowed: [Meeting] {
+        Array(app.visibleMeetings.prefix(windowSize))
+    }
 
     var body: some View {
         @Bindable var app = app
@@ -21,6 +30,9 @@ struct MeetingListView: View {
             .padding(.top, 10)
             // Cmd+F focuses the search field from anywhere in the app.
             .onChange(of: app.focusSearch) { searchFocused = true }
+            // A new search starts from the top of a fresh window.
+            .onChange(of: app.searchText) { windowSize = Self.pageSize }
+            .onChange(of: app.libraryFilter) { windowSize = Self.pageSize }
 
             if app.visibleMeetings.isEmpty {
                 Spacer()
@@ -39,7 +51,7 @@ struct MeetingListView: View {
                 Spacer()
             } else {
                 List(selection: $app.selectedMeetingId) {
-                    ForEach(app.visibleMeetings) { meeting in
+                    ForEach(windowed) { meeting in
                         MeetingRow(meeting: meeting)
                             .tag(meeting.id)
                             .draggable(meeting.id.uuidString)   // drag onto a sidebar folder to file it
@@ -49,10 +61,20 @@ struct MeetingListView: View {
                                     Task { await app.delete(meetingId: meeting.id) }
                                 }
                             }
+                            .onAppear {
+                                // Reached the end of the rendered window: extend it.
+                                if meeting.id == windowed.last?.id,
+                                   windowSize < app.visibleMeetings.count {
+                                    windowSize += Self.pageSize
+                                }
+                            }
                     }
                 }
                 .listStyle(.inset)
                 .scrollContentBackground(.hidden)
+                // Rows added or removed (new recording, delete, filter change) slide in instead of
+                // popping. Paging the window in does not change this count, so scrolling stays instant.
+                .animation(Theme.Motion.standard, value: app.visibleMeetings.count)
             }
         }
         .safeAreaInset(edge: .bottom) {
@@ -93,6 +115,10 @@ struct MeetingRow: View {
     @Environment(AppState.self) private var app
     let meeting: Meeting
 
+    @State private var hovering = false
+    /// Flipped on once the LIVE badge exists so its opacity has something to breathe between.
+    @State private var livePulse = false
+
     private var isLive: Bool { app.session?.meeting.id == meeting.id }
     // The selected row's background is the accent fill (blue when focused, grey when not), on which
     // the tinted speaker chips are unreadable; switch them to a solid card pill there.
@@ -111,6 +137,12 @@ struct MeetingRow: View {
                         Text("LIVE").font(.skBadge)
                     }
                     .foregroundStyle(Theme.recording)
+                    // Slow breath while this row is the one recording. The badge only exists while
+                    // live, so the pulse starts and stops with the session.
+                    .opacity(livePulse ? 0.55 : 1)
+                    .animation(Theme.Motion.breathe, value: livePulse)
+                    .onAppear { livePulse = Theme.Motion.breathingEnabled }
+                    .onDisappear { livePulse = false }
                 }
             }
             HStack(spacing: 6) {
@@ -142,5 +174,10 @@ struct MeetingRow: View {
             }
         }
         .padding(.vertical, 4)
+        // Hover lift. Skipped while selected, where the list's own selection fill owns the row.
+        .background(Theme.surface.opacity(hovering && !isSelected ? 1 : 0),
+                    in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .onHover { hovering = $0 }
+        .animation(Theme.Motion.snap, value: hovering)
     }
 }

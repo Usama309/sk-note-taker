@@ -56,6 +56,9 @@ enum Theme {
     /// Elevation shadow for cards: soft in light, stronger in dark (a 6% black shadow is
     /// invisible on near-black, so dark relies on the hairline border plus a deeper shadow).
     static let cardShadow = Color(light: .black.opacity(0.06), dark: .black.opacity(0.45))
+    /// Skeleton placeholders: the resting block and the shimmer that sweeps across it.
+    static let skeletonBase = Color(light: Color(hex: "E9ECF1"), dark: Color(hex: "252A32"))
+    static let skeletonSheen = Color(light: .white.opacity(0.85), dark: .white.opacity(0.10))
 
     /// Brand-derived folder hues (stable per project, seeded from the folder id).
     static let folderPalette: [Color] = [
@@ -127,6 +130,18 @@ extension Theme {
         }
         /// Hero entrances and large surfaces.
         static var gentle: Animation { reduce ? .linear(duration: 0.01) : .easeInOut(duration: 0.4) }
+
+        /// A slow breathing pulse for live indicators (the recording dot, the LIVE badge).
+        ///
+        /// This one carries its own `repeatForever`, and returns nil under Reduce Motion: the other
+        /// tokens collapse to a ~10ms animation, and a collapsed animation repeated forever is a
+        /// ~50Hz strobe, which is exactly what Reduce Motion exists to prevent. Pair it with
+        /// `breathingEnabled` so the element simply rests instead of flickering.
+        static var breathe: Animation? {
+            reduce ? nil : .easeInOut(duration: 1.15).repeatForever(autoreverses: true)
+        }
+        /// Whether a breathing pulse should run at all. False under Reduce Motion.
+        static var breathingEnabled: Bool { !reduce }
     }
 }
 

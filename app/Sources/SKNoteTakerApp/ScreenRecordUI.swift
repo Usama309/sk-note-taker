@@ -133,6 +133,7 @@ struct ScreenRecordPromptView: View {
     let onChoose: () -> Void
     let onDismiss: () -> Void
     @State private var hovering = false
+    @State private var hoveredAction: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -159,6 +160,8 @@ struct ScreenRecordPromptView: View {
                         .foregroundStyle(.white)
                 }
                 .buttonStyle(.plain)
+                .scaleEffect(hoveredAction == "choose" ? 1.05 : 1)
+                .onHover { hoveredAction = $0 ? "choose" : nil }
                 Button(action: onWholeScreen) {
                     Text("Whole screen")
                         .font(.skSubtitle)
@@ -168,8 +171,11 @@ struct ScreenRecordPromptView: View {
                         .foregroundStyle(.primary)
                 }
                 .buttonStyle(.plain)
+                .scaleEffect(hoveredAction == "whole" ? 1.05 : 1)
+                .onHover { hoveredAction = $0 ? "whole" : nil }
                 Spacer(minLength: 0)
             }
+            .animation(Theme.Motion.snap, value: hoveredAction)
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule().fill(.quaternary)
@@ -282,7 +288,9 @@ struct ScreenSourceSheet: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .scaleEffect(hovered == id ? 1.015 : 1, anchor: .leading)
         .listRowBackground(hovered == id ? Theme.selection : Color.clear)
+        .animation(Theme.Motion.snap, value: hovered)
         .onHover { h in
             if h {
                 hovered = id

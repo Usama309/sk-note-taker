@@ -88,6 +88,7 @@ struct DetectionPanelView: View {
     let onStart: () -> Void
     let onDismiss: () -> Void
     @State private var hovering = false
+    @State private var startHover = false
 
     var body: some View {
         VStack(spacing: 12) {
@@ -111,6 +112,9 @@ struct DetectionPanelView: View {
                         .foregroundStyle(.white)
                 }
                 .buttonStyle(.plain)
+                .scaleEffect(startHover ? 1.05 : 1)
+                .onHover { startHover = $0 }
+                .animation(Theme.Motion.snap, value: startHover)
             }
             // Countdown bar: fills from the left edge to the right over the full 40s window.
             GeometryReader { geo in
@@ -164,7 +168,9 @@ struct CloseChip: View {
                 .shadow(color: Theme.cardShadow, radius: 3, y: 1)
         }
         .buttonStyle(.plain)
+        .scaleEffect(hover ? 1.12 : 1)
         .onHover { hover = $0 }
+        .animation(Theme.Motion.snap, value: hover)
         .help("Dismiss")
     }
 }

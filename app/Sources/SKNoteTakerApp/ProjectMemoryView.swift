@@ -55,7 +55,9 @@ struct ProjectMemorySheet: View {
             Divider()
 
             if !loaded {
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                SkeletonLines(count: 7)
+                    .padding(20)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             } else if tab == .memory {
                 memoryTab
             } else {
@@ -86,6 +88,8 @@ struct ProjectMemorySheet: View {
             }
         }
         .formStyle(.grouped)
+        .animation(Theme.Motion.snap, value: importing)
+        .animation(Theme.Motion.standard, value: memory.imports.count)
     }
 
     private var importsSection: some View {
@@ -115,6 +119,7 @@ struct ProjectMemorySheet: View {
                     ProgressView().controlSize(.small)
                     Text(importStatus).font(.skFootnote).foregroundStyle(.secondary)
                 }
+                .transition(.opacity)
             }
             Text("Import anything: audio or video (transcribed), PDF, Word, CSV, or text. It becomes part of this project's memory.")
                 .font(.skFootnote).foregroundStyle(.tertiary)
@@ -138,6 +143,7 @@ struct ProjectMemorySheet: View {
                         Color.clear.frame(height: 1).id("bottom")
                     }
                     .padding(16)
+                    .animation(Theme.Motion.standard, value: chat.messages.count)
                 }
                 .onChange(of: chat.messages.count) { _, _ in
                     withAnimation(Theme.Motion.standard) { proxy.scrollTo("bottom", anchor: .bottom) }
@@ -152,8 +158,11 @@ struct ProjectMemorySheet: View {
                     if asking { ProgressView().controlSize(.small) }
                     else { Image(systemName: "arrow.up.circle.fill").font(.system(size: 22)) }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(SendPressStyle())
                 .disabled(question.trimmingCharacters(in: .whitespaces).isEmpty || asking)
+                .animation(Theme.Motion.snap, value: asking)
+                .animation(Theme.Motion.snap,
+                           value: question.trimmingCharacters(in: .whitespaces).isEmpty)
             }
             .padding(12)
         }
@@ -210,6 +219,7 @@ struct ProjectMemorySheet: View {
     private func save() {
         let toSave = memory
         Task { await app.saveProjectMemory(toSave, for: project.id) }
+        SoundManager.shared.play(.noteSaved)
         dismiss()
     }
 }

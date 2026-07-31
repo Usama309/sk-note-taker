@@ -20,6 +20,9 @@ struct MeetingDetailView: View {
 
     @State private var tab: Tab = .summary
     @State private var transcript: Transcript?
+    /// False until load() finishes, so the pane shows a skeleton instead of flashing the
+    /// "No transcript" empty state on every open.
+    @State private var loaded = false
     @State private var summary: SummaryData?
     @State private var notes = ""
     @State private var title = ""
@@ -46,20 +49,25 @@ struct MeetingDetailView: View {
                 VStack(spacing: 0) {
                     DetailTabBar(tab: $tab)
                     Divider()
-                    switch tab {
-                    case .summary:
-                        SummaryTab(meeting: meeting, summary: summary, notes: notes,
-                                   onGenerate: generateSummary)
-                    case .transcript:
-                        TranscriptTab(meeting: meeting, transcript: transcript,
-                                      onRenameSpeakers: { showSpeakers = true },
-                                      onSeek: meeting.hasRecording
-                                          ? { playback.seek(to: $0, andPlay: true) } : nil)
-                    case .notes:
-                        NotesTab(notes: $notes, onSave: saveNotes)
-                    case .chat:
-                        ChatTab(meeting: meeting)
+                    Group {
+                        switch tab {
+                        case .summary:
+                            SummaryTab(meeting: meeting, summary: summary, notes: notes,
+                                       onGenerate: generateSummary)
+                        case .transcript:
+                            TranscriptTab(meeting: meeting, transcript: transcript,
+                                          onRenameSpeakers: { showSpeakers = true },
+                                          onSeek: meeting.hasRecording
+                                              ? { playback.seek(to: $0, andPlay: true) } : nil,
+                                          loading: !loaded)
+                        case .notes:
+                            NotesTab(notes: $notes, onSave: saveNotes)
+                        case .chat:
+                            ChatTab(meeting: meeting)
+                        }
                     }
+                    .transition(.opacity)
+                    .animation(Theme.Motion.standard, value: tab)
                 }
                 .frame(maxWidth: .infinity)
 
@@ -87,6 +95,7 @@ struct MeetingDetailView: View {
         if meeting.hasRecording {
             playback.load(url: await app.store.recordingURL(for: meeting.id))
         }
+        loaded = true
     }
 
     private func generateSummary() {
@@ -148,6 +157,9 @@ struct DetailTopBar: View {
             Button { app.toggleStar(meeting.id) } label: {
                 Image(systemName: app.isStarred(meeting.id) ? "star.fill" : "star")
                     .foregroundStyle(app.isStarred(meeting.id) ? Theme.star : Color.secondary)
+                    .scaleEffect(app.isStarred(meeting.id) ? 1.14 : 1)
+                    .symbolEffect(.bounce, value: app.isStarred(meeting.id))
+                    .animation(Theme.Motion.spring, value: app.isStarred(meeting.id))
             }
             .buttonStyle(.plain)
             .help(app.isStarred(meeting.id) ? "Unstar" : "Star")
@@ -400,6 +412,7 @@ struct WaveformView: View {
                 }
             }
             .frame(width: geo.size.width, height: geo.size.height, alignment: .center)
+            .animation(Theme.Motion.snap, value: progress)
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0)
                 .onEnded { onSeek(min(1, max(0, $0.location.x / geo.size.width))) })
@@ -418,6 +431,7 @@ struct ProgressBarLine: View {
                 Capsule().fill(Theme.accentGradient)
                     .frame(width: geo.size.width * progress, height: 5)
             }
+            .animation(Theme.Motion.snap, value: progress)
             .frame(maxHeight: .infinity, alignment: .center)
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0)
@@ -430,6 +444,8 @@ struct ProgressBarLine: View {
 
 struct DetailTabBar: View {
     @Binding var tab: MeetingDetailView.Tab
+    /// Lets the single underline capsule slide between tabs instead of blinking on and off.
+    @Namespace private var underline
 
     var body: some View {
         HStack(spacing: 24) {
@@ -439,9 +455,15 @@ struct DetailTabBar: View {
                         Text(t.rawValue)
                             .font(tab == t ? .skSubtitle : .skBody)
                             .foregroundStyle(tab == t ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(.secondary))
-                        Capsule()
-                            .fill(tab == t ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(Color.clear))
-                            .frame(height: 2.5)
+                        ZStack {
+                            Capsule().fill(Color.clear)
+                            if tab == t {
+                                Capsule()
+                                    .fill(Theme.accentGradient)
+                                    .matchedGeometryEffect(id: "detailTabUnderline", in: underline)
+                            }
+                        }
+                        .frame(height: 2.5)
                     }
                     .contentShape(Rectangle())
                 }
@@ -882,6 +904,9 @@ struct CopyButton: View {
         } label: {
             Label(copied ? "Copied" : label, systemImage: copied ? "checkmark" : "doc.on.doc")
                 .font(.skCaption)
+                .contentTransition(.opacity)
+                .symbolEffect(.bounce, value: copied)
+                .animation(Theme.Motion.spring, value: copied)
         }
         .buttonStyle(.bordered)
         .controlSize(.small)
@@ -896,6 +921,9 @@ struct TranscriptTab: View {
     let transcript: Transcript?
     let onRenameSpeakers: () -> Void
     var onSeek: ((Double) -> Void)?
+    /// True until the meeting's data has loaded, so we show a skeleton rather than flashing the
+    /// "No transcript" empty state on every open.
+    var loading = false
     @State private var selected: Set<Int> = []
 
     private func transcriptText(_ t: Transcript) -> String { t.rendered(with: meeting) }
@@ -916,7 +944,11 @@ struct TranscriptTab: View {
     }
 
     var body: some View {
-        if let transcript, !transcript.segments.isEmpty {
+        if loading {
+            SkeletonTranscript()
+                .padding(20)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        } else if let transcript, !transcript.segments.isEmpty {
             ZStack(alignment: .bottom) {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 10) {

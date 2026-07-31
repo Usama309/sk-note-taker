@@ -38,10 +38,13 @@ struct ChatTab: View {
                                 Text("Thinking…").font(.skCallout).foregroundStyle(.secondary)
                             }
                             .padding(.leading, 8)
+                            .transition(.opacity)
                         }
                         Color.clear.frame(height: 1).id("chat-bottom")
                     }
                     .padding(16)
+                    .animation(Theme.Motion.standard, value: chat.messages.count)
+                    .animation(Theme.Motion.standard, value: app.busy.contains("chat"))
                 }
                 .onChange(of: chat.messages.count) {
                     withAnimation(Theme.Motion.standard) { proxy.scrollTo("chat-bottom") }
@@ -62,8 +65,9 @@ struct ChatTab: View {
                         .foregroundStyle(question.isEmpty ? AnyShapeStyle(.tertiary)
                                          : AnyShapeStyle(Theme.accentGradient))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(SendPressStyle())
                 .disabled(question.isEmpty || app.busy.contains("chat"))
+                .animation(Theme.Motion.snap, value: question.isEmpty)
             }
             .padding(12)
         }
@@ -110,6 +114,17 @@ struct ChatBubble: View {
             .foregroundStyle(isUser ? .white : .primary)
             if !isUser { Spacer(minLength: 60) }
         }
+        // New replies slide up a hair as they fade in; inert unless the list animates.
+        .transition(.opacity.combined(with: .offset(y: 8)))
+    }
+}
+
+/// A plain button that dips while held, so sending a message feels physical.
+struct SendPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.88 : 1)
+            .animation(Theme.Motion.snap, value: configuration.isPressed)
     }
 }
 
@@ -186,6 +201,7 @@ struct SpeakersSheet: View {
                     }
                     .controlSize(.small)
                     .disabled(app.busy.contains("redoSpeakers"))
+                    .animation(Theme.Motion.snap, value: app.busy.contains("redoSpeakers"))
                 }
             }
 
@@ -194,6 +210,7 @@ struct SpeakersSheet: View {
                 Button("Cancel") { dismiss() }
                 Button {
                     save()
+                    SoundManager.shared.play(.noteSaved)
                 } label: {
                     Text("Save Names").fontWeight(.semibold)
                 }
@@ -385,6 +402,12 @@ struct GeneralSettingsView: View {
                     .font(.skFootnote)
                     .foregroundStyle(.tertiary)
             }
+            Section("Sounds") {
+                Toggle("Play soft sounds for recording and saves", isOn: $app.settings.uiSounds)
+                Text("Very short cues when a recording starts or stops, and when something is saved. Never while you are typing.")
+                    .font(.skFootnote)
+                    .foregroundStyle(.tertiary)
+            }
             Section("Live assistant") {
                 Toggle("Suggest an answer when someone asks me a question", isOn: $app.settings.assistantAutoSuggest)
                 Toggle("Let the assistant search the web for answers", isOn: $app.settings.assistantWebSearch)
@@ -406,6 +429,8 @@ struct GeneralSettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .animation(Theme.Motion.snap, value: app.settings.autoEndDetection)
+        .animation(Theme.Motion.snap, value: app.accessibilityStatus)
         .onAppear { app.refreshPermissions() }
         .onChange(of: app.settings) {
             Task { await app.saveSettings() }
@@ -537,6 +562,7 @@ struct CalendarSettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .animation(Theme.Motion.snap, value: app.calendarBusy)
         .task {
             if app.calendarConnected && app.calendarList.isEmpty { await app.loadCalendarList() }
         }

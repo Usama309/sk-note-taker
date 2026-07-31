@@ -95,7 +95,9 @@ struct SidebarView: View {
     @State private var addingFolder = false
     /// "all" / "starred" / a folder uuid string while a meeting is dragged over (for highlight).
     @State private var dropTarget: String?
-    @State private var hoveredFolder: UUID?
+    /// The row under the pointer, in the same token space as `dropTarget`.
+    @State private var hoveredRow: String?
+    @State private var hoveredMeeting: UUID?
     /// Folders currently expanded to reveal their recordings inline.
     @State private var expandedFolders: Set<UUID> = []
 
@@ -105,14 +107,25 @@ struct SidebarView: View {
     }
     private var initials: String { String(app.userDisplayName.prefix(1)).uppercased() }
 
-    /// Row background reflecting both the current filter selection and an active drag-over.
+    /// Row background reflecting the current filter selection, an active drag-over, and hover.
     private func rowBackground(token: String, selected: Bool) -> Color {
         if dropTarget == token { return Theme.dropTarget }
-        return selected ? Theme.selection : .clear
+        if selected { return Theme.selection }
+        return hoveredRow == token ? Theme.selection.opacity(0.5) : .clear
+    }
+
+    /// The same fill as a list row background, fading between states instead of snapping.
+    private func rowBackgroundView(token: String, selected: Bool) -> some View {
+        let fill = rowBackground(token: token, selected: selected)
+        return fill.animation(Theme.Motion.snap, value: fill)
     }
 
     private func setDrop(_ token: String, _ over: Bool) {
         if over { dropTarget = token } else if dropTarget == token { dropTarget = nil }
+    }
+
+    private func setHover(_ token: String, _ over: Bool) {
+        if over { hoveredRow = token } else if hoveredRow == token { hoveredRow = nil }
     }
 
     /// A meeting (or several) was dropped onto a folder (nil = unfile to All Meetings).
@@ -136,7 +149,8 @@ struct SidebarView: View {
                              title: "Assistant", count: 0)
                 }
                 .buttonStyle(.plain)
-                .listRowBackground(Color.clear)
+                .onHover { setHover("assistant", $0) }
+                .listRowBackground(rowBackgroundView(token: "assistant", selected: false))
 
                 Button { app.libraryFilter = .all } label: {
                     rowLabel(icon: AnyView(Image(systemName: "tray.full")
@@ -144,7 +158,8 @@ struct SidebarView: View {
                         title: "All Meetings", count: app.meetings.count)
                 }
                 .buttonStyle(.plain)
-                .listRowBackground(rowBackground(token: "all", selected: app.libraryFilter == .all))
+                .onHover { setHover("all", $0) }
+                .listRowBackground(rowBackgroundView(token: "all", selected: app.libraryFilter == .all))
                 .dropDestination(for: String.self, action: { items, _ in dropMeetings(items, to: nil) },
                                  isTargeted: { setDrop("all", $0) })
 
@@ -153,7 +168,8 @@ struct SidebarView: View {
                              title: "Starred", count: starredCount)
                 }
                 .buttonStyle(.plain)
-                .listRowBackground(rowBackground(token: "starred", selected: app.libraryFilter == .starred))
+                .onHover { setHover("starred", $0) }
+                .listRowBackground(rowBackgroundView(token: "starred", selected: app.libraryFilter == .starred))
 
                 if app.calendarConnected {
                     Button { app.libraryFilter = .upcoming } label: {
@@ -161,7 +177,8 @@ struct SidebarView: View {
                                  title: "Upcoming", count: app.upcomingEvents.count)
                     }
                     .buttonStyle(.plain)
-                    .listRowBackground(rowBackground(token: "upcoming", selected: app.libraryFilter == .upcoming))
+                    .onHover { setHover("upcoming", $0) }
+                    .listRowBackground(rowBackgroundView(token: "upcoming", selected: app.libraryFilter == .upcoming))
                 }
             }
 
@@ -302,7 +319,7 @@ struct SidebarView: View {
         }
         .buttonStyle(.plain)
         .overlay(alignment: .trailing) {
-            if hoveredFolder == folder.id {
+            if hoveredRow == folder.id.uuidString {
                 HStack(spacing: 10) {
                     Button {
                         app.projectMemoryTarget = ProjectRef(id: folder.id, name: folder.name)
@@ -321,12 +338,9 @@ struct SidebarView: View {
                                           selected: app.libraryFilter == .folder(folder.id)))
             }
         }
-        .onHover { hovering in
-            if hovering { hoveredFolder = folder.id }
-            else if hoveredFolder == folder.id { hoveredFolder = nil }
-        }
-        .listRowBackground(rowBackground(token: folder.id.uuidString,
-                                         selected: app.libraryFilter == .folder(folder.id)))
+        .onHover { setHover(folder.id.uuidString, $0) }
+        .listRowBackground(rowBackgroundView(token: folder.id.uuidString,
+                                             selected: app.libraryFilter == .folder(folder.id)))
         .dropDestination(for: String.self, action: { items, _ in dropMeetings(items, to: folder.id) },
                          isTargeted: { setDrop(folder.id.uuidString, $0) })
         .contextMenu {
@@ -355,7 +369,10 @@ struct SidebarView: View {
     }
 
     private func nestedMeetingRow(_ meeting: Meeting) -> some View {
-        Button {
+        let fill: Color = app.selectedMeetingId == meeting.id
+            ? Theme.selection
+            : (hoveredMeeting == meeting.id ? Theme.selection.opacity(0.5) : .clear)
+        return Button {
             app.selectedMeetingId = meeting.id
         } label: {
             HStack(spacing: 8) {
@@ -370,8 +387,11 @@ struct SidebarView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .listRowBackground(app.selectedMeetingId == meeting.id
-                           ? Theme.selection : Color.clear)
+        .onHover { hovering in
+            if hovering { hoveredMeeting = meeting.id }
+            else if hoveredMeeting == meeting.id { hoveredMeeting = nil }
+        }
+        .listRowBackground(fill.animation(Theme.Motion.snap, value: fill))
     }
 
     private func addFolder() {
@@ -391,35 +411,44 @@ struct SidebarView: View {
 
 struct EmptyDetailView: View {
     @Environment(AppState.self) private var app
+    /// Flipped once on appear to run the hero stack's entrance.
+    @State private var appeared = false
 
     var body: some View {
         VStack(spacing: 24) {
             LogoMark(size: 88)
                 .shadow(color: Theme.accent.opacity(0.5), radius: 30, y: 12)
+                .heroEntrance(appeared, step: 0)
             VStack(spacing: 10) {
                 Text("Ready when you are")
                     .font(.skDisplay)
                     .foregroundStyle(Theme.accentGradient)
+                    .heroEntrance(appeared, step: 1)
                 Text("Capture mic and system audio with live, speaker-aware transcription.")
                     .font(.skHeadline)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: 400)
+                    .heroEntrance(appeared, step: 2)
             }
             RecordButton(prominent: true)
                 .padding(.top, 4)
+                .heroEntrance(appeared, step: 3)
             if app.micStatus != .granted || app.systemAudioStatus != .granted {
                 SetupHint()
+                    .heroEntrance(appeared, step: 4)
             }
             if app.calendarConnected && !app.upcomingEvents.isEmpty {
                 UpcomingEventsCard()
                     .padding(.top, 10)
+                    .heroEntrance(appeared, step: 4)
             }
             if !app.claudeAvailable {
                 Label("Claude Code CLI not detected. AI features disabled.",
                       systemImage: "exclamationmark.triangle")
                     .font(.skCallout)
                     .foregroundStyle(Theme.warning)
+                    .heroEntrance(appeared, step: 5)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -434,7 +463,27 @@ struct EmptyDetailView: View {
             }
             .ignoresSafeArea()
         )
+        .onAppear { appeared = true }
         .task { app.refreshPermissions() }
+    }
+}
+
+/// Fades and lifts a home-screen element in, each `step` landing just behind the one before it.
+private struct HeroEntrance: ViewModifier {
+    let appeared: Bool
+    let step: Double
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(appeared ? 1 : 0)
+            .offset(y: appeared ? 0 : 10)
+            .animation(Theme.Motion.gentle.delay(step * 0.05), value: appeared)
+    }
+}
+
+private extension View {
+    func heroEntrance(_ appeared: Bool, step: Double) -> some View {
+        modifier(HeroEntrance(appeared: appeared, step: step))
     }
 }
 
@@ -522,6 +571,15 @@ struct UpcomingEventsCard: View {
     }
 }
 
+/// Gives a bare (chrome-free) button a physical dip while the mouse is held down.
+private struct PressScaleButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.96 : 1)
+            .animation(Theme.Motion.spring, value: configuration.isPressed)
+    }
+}
+
 struct RecordButton: View {
     @Environment(AppState.self) private var app
     var prominent = false
@@ -542,7 +600,7 @@ struct RecordButton: View {
             .foregroundStyle(.white)
             .shadow(color: Theme.accent.opacity(prominent ? 0.4 : 0), radius: 14, y: 6)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressScaleButtonStyle())
         .disabled(app.session != nil)
         .keyboardShortcut("n", modifiers: [.command])
         .accessibilityLabel("Start Meeting")

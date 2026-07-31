@@ -9,11 +9,15 @@ struct LiveMeetingView: View {
     @State private var notes = ""
     @State private var showSpeakers = false
     @State private var sidePane: SidePane = .notes
+    @State private var pulse = false
 
     enum SidePane: String, CaseIterable {
         case notes = "Notes"
         case assistant = "Assistant"
     }
+
+    /// The header dot only breathes while audio is genuinely being captured.
+    private var isBreathing: Bool { session.phase == .recording && !session.isPaused }
 
     /// After ~4s of recording with the mic still silent, warn the user — this is exactly the
     /// failure mode where the mic looks "on" but no audio arrives.
@@ -71,7 +75,11 @@ struct LiveMeetingView: View {
                 Circle()
                     .fill(session.isPaused ? Theme.warning : Theme.recording)
                     .frame(width: 10, height: 10)
-                    .opacity(session.phase == .recording && !session.isPaused ? 1 : 0.4)
+                    .scaleEffect(pulse ? 1.18 : 1)
+                    .opacity(isBreathing ? (pulse ? 0.55 : 1) : 0.4)
+                    .animation(isBreathing ? Theme.Motion.breathe : Theme.Motion.snap, value: pulse)
+                    .onAppear { pulse = isBreathing && Theme.Motion.breathingEnabled }
+                    .onChange(of: isBreathing) { pulse = isBreathing && Theme.Motion.breathingEnabled }
                 Text(session.isPaused ? "Paused" :
                      session.phase == .preparing ? "Preparing…" :
                      session.phase == .finishing ? "Finishing…" : "Recording")
@@ -370,6 +378,9 @@ struct LiveAssistantPane: View {
             }
             .padding(10)
         }
+        // Drives the suggestion card's transition — the state lives in AppState, so the
+        // animation has to be attached here rather than wrapped around the mutation.
+        .animation(Theme.Motion.spring, value: app.liveSuggestion)
         .task { chat = await app.store.chat(for: session.meeting.id) }
     }
 
@@ -577,6 +588,7 @@ struct LiveTranscriptList: View {
                             volatile: false,
                             isMe: segment.source == .mic)
                             .id(segment.id)
+                            .transition(.opacity.combined(with: .offset(y: 8)))
                     }
                     ForEach([AudioChannel.mic, .system], id: \.self) { channel in
                         if let text = session.volatileText[channel], !text.isEmpty {
@@ -592,6 +604,7 @@ struct LiveTranscriptList: View {
                     Color.clear.frame(height: 1).id("bottom")
                 }
                 .padding(14)
+                .animation(Theme.Motion.standard, value: session.liveSegments.count)
             }
             .onChange(of: session.liveSegments.count) {
                 withAnimation(Theme.Motion.standard) { proxy.scrollTo("bottom") }
@@ -607,6 +620,10 @@ struct LiveTranscriptList: View {
 struct CompactLiveView: View {
     @Environment(AppState.self) private var app
     let session: MeetingSession
+    @State private var pulse = false
+
+    /// Matches the full header: the dot only breathes while audio is genuinely being captured.
+    private var isBreathing: Bool { session.phase == .recording && !session.isPaused }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -614,7 +631,11 @@ struct CompactLiveView: View {
                 Circle()
                     .fill(session.isPaused ? Theme.warning : Theme.recording)
                     .frame(width: 8, height: 8)
-                    .opacity(session.isPaused ? 0.5 : 1)
+                    .scaleEffect(pulse ? 1.18 : 1)
+                    .opacity(isBreathing ? (pulse ? 0.55 : 1) : (session.isPaused ? 0.5 : 1))
+                    .animation(isBreathing ? Theme.Motion.breathe : Theme.Motion.snap, value: pulse)
+                    .onAppear { pulse = isBreathing && Theme.Motion.breathingEnabled }
+                    .onChange(of: isBreathing) { pulse = isBreathing && Theme.Motion.breathingEnabled }
                 Text(session.isPaused ? "Paused" : "REC")
                     .font(.skCaptionStrong)
                 Text(Theme.timestamp(session.elapsed))
