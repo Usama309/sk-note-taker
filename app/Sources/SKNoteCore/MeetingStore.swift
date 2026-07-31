@@ -45,11 +45,18 @@ public actor MeetingStore {
             at: meetingsDir(), includingPropertiesForKeys: nil) else { return [] }
         var result: [Meeting] = []
         for entry in entries {
+            // Finder drops .DS_Store in here; it is not a meeting folder, so don't treat it as one.
+            if entry.lastPathComponent.hasPrefix(".") { continue }
             let url = entry.appendingPathComponent("meeting.json")
             guard let data = try? Data(contentsOf: url),
                   let meeting = try? SKJSON.decoder.decode(Meeting.self, from: data) else {
-                if FileManager.default.fileExists(atPath: url.path) {
-                    SKLog.error(.storeReadFailed, .store, "Skipping malformed file: \(url.lastPathComponent)")
+                // An empty file is a meeting still being written (or one whose write was
+                // interrupted), not a corrupt one. Only shout about a file with real content in it,
+                // otherwise every interrupted run logs a scary error for a file that is fine.
+                let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size]) as? Int ?? 0
+                if size > 0 {
+                    SKLog.error(.storeReadFailed, .store,
+                                "Skipping malformed file: \(entry.lastPathComponent)/meeting.json")
                 }
                 continue
             }
