@@ -1,6 +1,6 @@
 # Google OAuth Verification — PENDING
 
-Status: **paused, to resume later** (noted 2026-07-24).
+Status: **site live on sk-note-taker.vercel.app; ready for Search Console + consent screen** (2026-07-30).
 
 Goal: remove the "Google hasn't verified this app" warning so any user can connect Google
 Calendar in SK Note Taker with a clean consent screen (and no 7-day token expiry). Required
@@ -22,28 +22,40 @@ NOT the third-party security assessment (that is only for "restricted" scopes li
     Google "Limited Use" disclosure).
 - App also hardened: connect flow times out after 3 min and has a Cancel button.
 
-## Blocking next step
-Everything below is blocked on getting the site onto the custom domain, which starts with ONE
-Cloudflare DNS record.
+## Domain decision (2026-07-30)
 
-## The checklist
+`saqibkamran.com` is NOT usable: Usama has no DNS access to it, and the Vercel CLI here is signed
+in as `vvostro43-6624`, which is not authorized on the `email-2742` account that hosts the original
+deployment. Both halves of the old plan were blocked.
 
-### Phase 1 — make the subdomain live
-- [ ] **[YOU] Add CNAME in Cloudflare** (dash.cloudflare.com -> saqibkamran.com -> DNS -> Records -> Add record):
-  - Type: `CNAME`  |  Name: `sknotetaker`  |  Target: `cname.vercel-dns.com`  |  Proxy: **DNS only** (grey cloud)
-- [ ] **[CLAUDE] Attach domain on Vercel + issue SSL**, then confirm `https://sknotetaker.saqibkamran.com` and `/privacy.html` load.
-      (Command once DNS resolves: `cd website && vercel domains add sknotetaker.saqibkamran.com`.)
+Resolved by hosting the verification site on a free Vercel subdomain instead. `vercel.app` is on the
+Public Suffix List, so `sk-note-taker.vercel.app` counts as its own top private domain and is a valid
+Google authorized domain. No DNS access and no cost.
+
+**Live now (verified 200, on the account we control):**
+- https://sk-note-taker.vercel.app
+- https://sk-note-taker.vercel.app/privacy.html  (carries the required Google Limited Use disclosure)
+
+Redeploy with: `cd website && vercel deploy --prod --yes`
+
+### Phase 1 — site live
+- [x] Site deployed to a domain we control (`sk-note-taker.vercel.app`), both pages public.
 
 ### Phase 2 — verify domain ownership
-- [ ] **[YOU] Google Search Console** (same Google account that owns the Cloud project): add `saqibkamran.com`
-      as a **Domain** property, add the TXT record it gives you in Cloudflare, then Verify. (Skip if already verified.)
+- [ ] **[YOU] Google Search Console** (same Google account that owns the Cloud project): add
+      `https://sk-note-taker.vercel.app/` as a **URL prefix** property. Choose the **HTML file upload**
+      method and send Claude the `google*.html` filename it gives you (a TXT/DNS record is NOT possible
+      here, since we do not own vercel.app).
+- [ ] **[CLAUDE] Add that file to `website/` and redeploy**, then you click Verify.
 
 ### Phase 3 — OAuth consent screen (console.cloud.google.com/auth/branding)
 - [ ] App name: `SK Note Taker`
 - [ ] User support email: a real inbox you check
-- [ ] App home page: `https://sknotetaker.saqibkamran.com`
-- [ ] Privacy policy: `https://sknotetaker.saqibkamran.com/privacy.html`
-- [ ] Authorized domain: `saqibkamran.com`
+- [ ] App home page: `https://sk-note-taker.vercel.app`
+- [ ] Privacy policy: `https://sk-note-taker.vercel.app/privacy.html`
+- [ ] Authorized domain: `sk-note-taker.vercel.app`
+      (If the console rejects it, that means Google is not honouring the Public Suffix List
+      for vercel.app. Fallback: buy a cheap domain, or ask Saqib for one CNAME on saqibkamran.com.)
 - [ ] Developer contact email set
 - [x] App logo produced: `docs/google-oauth/consent-logo-120.png` (upload it here)
 - [ ] Scope present (console.cloud.google.com/auth/scopes): `https://www.googleapis.com/auth/calendar.readonly`
