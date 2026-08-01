@@ -48,7 +48,7 @@ struct FirstRunTipsView: View {
 
             HStack(spacing: 6) {
                 ForEach(tips.indices, id: \.self) { i in
-                    Capsule().fill(i == index ? Theme.mint : Theme.border)
+                    Capsule().fill(i == index ? Theme.accent : Theme.border)
                         .frame(width: i == index ? 20 : 7, height: 7)
                 }
             }

@@ -19,9 +19,13 @@ enum Theme {
     static let accent = Color(light: Color(hex: "2B8462"), dark: mint)
 
     // MARK: Semantic
-    static let success = Color(hex: "4CAF7D")
-    static let warning = Color(hex: "F4B942")
-    static let error   = Color(hex: "E05C5C")
+    /// Appearance-aware, like `accent` and `recording`. The original single hexes were tuned against
+    /// the dark surfaces and measured 1.77:1 (warning) and 2.71:1 (success) on white, so status
+    /// icons and warning text were washed out in light mode. The light variants below clear 4.5:1
+    /// on white; the dark variants are the original brand hues.
+    static let success = Color(light: Color(hex: "38825D"), dark: Color(hex: "4CAF7D"))
+    static let warning = Color(light: Color(hex: "9E6D09"), dark: Color(hex: "F4B942"))
+    static let error   = Color(light: Color(hex: "C4322F"), dark: Color(hex: "E05C5C"))
 
     // MARK: Surfaces (theme-aware)
     static let bg            = Color(light: Color(hex: "F8F9FB"), dark: Color(hex: "0F1115"))

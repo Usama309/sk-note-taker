@@ -70,7 +70,7 @@ struct MissionControlBrandOverlay: View {
     var body: some View {
         ZStack {
             Rectangle().fill(.ultraThinMaterial)
-            Color.black.opacity(0.34)
+            Color.black.opacity(0.55)   // white wordmark stays >=5:1 even over a light app
             VStack(spacing: 20) {
                 LogoMark(size: 104)
                     .shadow(color: .black.opacity(0.45), radius: 26, y: 12)

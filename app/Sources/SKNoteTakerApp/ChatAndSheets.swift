@@ -63,7 +63,7 @@ struct ChatTab: View {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.system(size: 22))
                         .foregroundStyle(question.isEmpty ? AnyShapeStyle(.tertiary)
-                                         : AnyShapeStyle(Theme.accentGradient))
+                                         : AnyShapeStyle(Theme.accentTextGradient))
                 }
                 .buttonStyle(SendPressStyle())
                 .disabled(question.isEmpty || app.busy.contains("chat"))

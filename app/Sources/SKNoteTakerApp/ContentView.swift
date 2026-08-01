@@ -224,7 +224,7 @@ struct SidebarView: View {
                 }
                 Divider()
                 HStack(spacing: 9) {
-                    Circle().fill(Theme.accentGradient).frame(width: 30, height: 30)
+                    Circle().fill(Theme.accentTextGradient).frame(width: 30, height: 30)
                         .overlay(Text(initials).font(.skLabel).foregroundStyle(.white))
                     VStack(alignment: .leading, spacing: 1) {
                         Text(app.userDisplayName).font(.skLabel).lineLimit(1)

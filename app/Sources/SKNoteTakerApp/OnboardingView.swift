@@ -48,7 +48,7 @@ struct OnboardingView: View {
             HStack(spacing: 6) {
                 ForEach(Step.allCases, id: \.rawValue) { s in
                     Capsule()
-                        .fill(s == step ? Theme.mint : Theme.border)
+                        .fill(s == step ? Theme.accent : Theme.border)
                         .frame(width: s == step ? 22 : 7, height: 7)
                 }
             }
@@ -259,7 +259,7 @@ struct OnboardingView: View {
     private func readyRow(_ label: String, _ done: Bool, optional: Bool = false) -> some View {
         HStack(spacing: 10) {
             Image(systemName: done ? "checkmark.circle.fill" : (optional ? "minus.circle" : "circle"))
-                .foregroundStyle(done ? Theme.mint : (optional ? Color.secondary : Theme.warning))
+                .foregroundStyle(done ? Theme.accent : (optional ? Color.secondary : Theme.warning))
             Text(label).font(.skBody)
             Spacer()
             if !done && !optional {
@@ -274,7 +274,7 @@ struct StatusBadge: View {
 
     private var config: (String, Color, String) {
         switch status {
-        case .granted: ("checkmark.circle.fill", Theme.mint, "Granted")
+        case .granted: ("checkmark.circle.fill", Theme.accent, "Granted")
         case .denied: ("xmark.circle.fill", Theme.warning, "Off")
         case .notDetermined: ("questionmark.circle", .secondary, "Not set")
         }

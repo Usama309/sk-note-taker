@@ -406,8 +406,8 @@ struct WaveformView: View {
                 ForEach(bars.indices, id: \.self) { i in
                     let played = Double(i) / Double(count) <= progress
                     Capsule()
-                        .fill(played ? AnyShapeStyle(Theme.accentGradient)
-                              : AnyShapeStyle(Theme.textSecondary.opacity(0.28)))
+                        .fill(played ? AnyShapeStyle(Theme.accentTextGradient)
+                              : AnyShapeStyle(Theme.textSecondary.opacity(0.55)))
                         .frame(height: max(3, CGFloat(bars[i]) * geo.size.height))
                 }
             }
@@ -428,7 +428,7 @@ struct ProgressBarLine: View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
                 Capsule().fill(Theme.textSecondary.opacity(0.22)).frame(height: 5)
-                Capsule().fill(Theme.accentGradient)
+                Capsule().fill(Theme.accentTextGradient)
                     .frame(width: geo.size.width * progress, height: 5)
             }
             .animation(Theme.Motion.snap, value: progress)
@@ -459,7 +459,7 @@ struct DetailTabBar: View {
                             Capsule().fill(Color.clear)
                             if tab == t {
                                 Capsule()
-                                    .fill(Theme.accentGradient)
+                                    .fill(Theme.accentTextGradient)
                                     .matchedGeometryEffect(id: "detailTabUnderline", in: underline)
                             }
                         }
@@ -682,7 +682,9 @@ struct SpeakerAvatar: View {
     var body: some View {
         Text(short)
             .font(.system(size: size * (short.count > 1 ? 0.36 : 0.46), weight: .bold))
-            .foregroundStyle(.white)
+            // The avatar fill is speakerColor, which is dark on light and BRIGHT on dark, so the
+            // ink has to invert with it: white initials on the bright dark-mode fills were ~2:1.
+            .foregroundStyle(Color(light: .white, dark: Theme.charcoal))
             .frame(width: size, height: size)
             .background(Theme.speakerColor(key), in: Circle())
     }

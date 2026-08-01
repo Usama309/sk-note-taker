@@ -76,7 +76,7 @@ struct LiveMeetingView: View {
                     .fill(session.isPaused ? Theme.warning : Theme.recording)
                     .frame(width: 10, height: 10)
                     .scaleEffect(pulse ? 1.18 : 1)
-                    .opacity(isBreathing ? (pulse ? 0.55 : 1) : 0.4)
+                    .opacity(isBreathing ? (pulse ? 0.55 : 1) : (session.isPaused ? 0.85 : 1))
                     .animation(isBreathing ? Theme.Motion.breathe : Theme.Motion.snap, value: pulse)
                     .onAppear { pulse = isBreathing && Theme.Motion.breathingEnabled }
                     .onChange(of: isBreathing) { pulse = isBreathing && Theme.Motion.breathingEnabled }
@@ -103,10 +103,10 @@ struct LiveMeetingView: View {
 
             // Live input meters so the user can SEE audio arriving on each channel.
             if session.phase == .recording {
-                ChannelMeter(label: "Mic", systemImage: "mic.fill",
+                ChannelMeter(label: "Mic", systemImage: "mic.fill", mutedImage: "mic.slash.fill",
                              level: session.levels[.mic] ?? 0,
                              hasAudio: session.channelHasAudio[.mic] ?? false)
-                ChannelMeter(label: "System", systemImage: "speaker.wave.2.fill",
+                ChannelMeter(label: "System", systemImage: "speaker.wave.2.fill", mutedImage: "speaker.slash.fill",
                              level: session.levels[.system] ?? 0,
                              hasAudio: session.channelHasAudio[.system] ?? false)
             }
@@ -252,7 +252,7 @@ struct LiveAssistantPane: View {
             HStack(spacing: 6) {
                 Image(systemName: "brain")
                     .font(.system(size: 11))
-                    .foregroundStyle(suggesting || thinking ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(Theme.accent))
+                    .foregroundStyle(suggesting || thinking ? AnyShapeStyle(Theme.accentTextGradient) : AnyShapeStyle(Theme.accent))
                     .symbolEffect(.pulse, isActive: suggesting || thinking)
                 Menu {
                     Button("No project") { app.setLiveProject(nil) }
@@ -371,7 +371,7 @@ struct LiveAssistantPane: View {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.system(size: 22))
                         .foregroundStyle(question.isEmpty ? AnyShapeStyle(.tertiary)
-                                         : AnyShapeStyle(Theme.accentGradient))
+                                         : AnyShapeStyle(Theme.accentTextGradient))
                 }
                 .buttonStyle(.plain)
                 .disabled(question.isEmpty || thinking)
@@ -443,6 +443,10 @@ struct EndPromptBanner: View {
 struct ChannelMeter: View {
     let label: String
     let systemImage: String
+    /// Passed explicitly because the slashed variants are NOT formed by appending ".slash":
+    /// "mic.fill.slash" and "speaker.wave.2.fill.slash" are not real SF Symbols, and an invalid
+    /// name renders as nothing, so the indicator vanished exactly when a channel went silent.
+    let mutedImage: String
     let level: Float          // 0…1 RMS
     let hasAudio: Bool
 
@@ -450,15 +454,15 @@ struct ChannelMeter: View {
 
     var body: some View {
         HStack(spacing: 5) {
-            Image(systemName: bars > 0 ? systemImage : systemImage + ".slash")
+            Image(systemName: bars > 0 ? systemImage : mutedImage)
                 .font(.system(size: 10))
-                .foregroundStyle(bars > 0 ? AnyShapeStyle(Theme.accentGradient)
+                .foregroundStyle(bars > 0 ? AnyShapeStyle(Theme.accentTextGradient)
                                  : AnyShapeStyle(hasAudio ? AnyShapeStyle(.secondary)
                                                           : AnyShapeStyle(Theme.warning)))
             HStack(spacing: 2) {
                 ForEach(0..<5, id: \.self) { i in
                     RoundedRectangle(cornerRadius: 1)
-                        .fill(i < bars ? AnyShapeStyle(Theme.accentGradient)
+                        .fill(i < bars ? AnyShapeStyle(Theme.accentTextGradient)
                               : AnyShapeStyle(.quaternary))
                         .frame(width: 3, height: 5 + CGFloat(i) * 2.5)
                 }

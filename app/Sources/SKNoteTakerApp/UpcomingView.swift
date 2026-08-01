@@ -25,7 +25,7 @@ struct UpcomingListView: View {
             HStack {
                 Text("Upcoming").font(.skHeadline)
                 if let email = app.calendarEmail {
-                    Text(email).font(.skFootnote).foregroundStyle(.tertiary).lineLimit(1)
+                    Text(email).font(.skFootnote).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer()
                 Button { Task { await app.refreshUpcoming() } } label: {
@@ -100,7 +100,7 @@ struct EventRow: View {
             .frame(width: 54, alignment: .trailing)
 
             // Scaled, not resized, so the hover never nudges the rows below it.
-            Capsule().fill(Theme.accentGradient).frame(width: 3, height: 32)
+            Capsule().fill(Theme.accentTextGradient).frame(width: 3, height: 32)
                 .scaleEffect(y: hovering ? 1.18 : 1)
 
             VStack(alignment: .leading, spacing: 2) {

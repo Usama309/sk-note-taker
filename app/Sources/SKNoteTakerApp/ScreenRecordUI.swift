@@ -179,7 +179,7 @@ struct ScreenRecordPromptView: View {
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule().fill(.quaternary)
-                    Capsule().fill(Theme.accentGradient)
+                    Capsule().fill(Theme.accentTextGradient)
                         .frame(width: max(0, geo.size.width * model.progress))
                 }
             }
