@@ -44,7 +44,7 @@ struct UpcomingListView: View {
                 Spacer()
                 VStack(spacing: 8) {
                     Image(systemName: "calendar.badge.checkmark")
-                        .font(.system(size: 30)).foregroundStyle(Theme.mint)
+                        .font(.system(size: 30)).foregroundStyle(Theme.accent)
                     Text("No upcoming events").font(.skHeadline)
                     Text("Events from your Google Calendar show up here.")
                         .font(.skCallout).foregroundStyle(.secondary).multilineTextAlignment(.center)

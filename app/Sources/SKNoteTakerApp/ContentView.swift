@@ -154,7 +154,7 @@ struct SidebarView: View {
 
                 Button { app.libraryFilter = .all } label: {
                     rowLabel(icon: AnyView(Image(systemName: "tray.full")
-                        .foregroundStyle(Theme.accentGradient)),
+                        .foregroundStyle(Theme.accentTextGradient)),
                         title: "All Meetings", count: app.meetings.count)
                 }
                 .buttonStyle(.plain)
@@ -173,7 +173,7 @@ struct SidebarView: View {
 
                 if app.calendarConnected {
                     Button { app.libraryFilter = .upcoming } label: {
-                        rowLabel(icon: AnyView(Image(systemName: "calendar").foregroundStyle(Theme.mint)),
+                        rowLabel(icon: AnyView(Image(systemName: "calendar").foregroundStyle(Theme.accent)),
                                  title: "Upcoming", count: app.upcomingEvents.count)
                     }
                     .buttonStyle(.plain)
@@ -422,7 +422,7 @@ struct EmptyDetailView: View {
             VStack(spacing: 10) {
                 Text("Ready when you are")
                     .font(.skDisplay)
-                    .foregroundStyle(Theme.accentGradient)
+                    .foregroundStyle(Theme.accentTextGradient)
                     .heroEntrance(appeared, step: 1)
                 Text("Capture mic and system audio with live, speaker-aware transcription.")
                     .font(.skHeadline)

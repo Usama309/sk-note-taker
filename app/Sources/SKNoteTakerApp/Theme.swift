@@ -13,7 +13,10 @@ enum Theme {
     static let charcoal2 = Color(hex: "2B3138")   // secondary dark
 
     /// The accent for text and small elements — a readable deep mint on light, bright mint on dark.
-    static let accent = Color(light: Color(hex: "2F8F6A"), dark: mint)
+    /// The light value is deliberately deeper than the brand mint: mint on white measures 2.0:1,
+    /// which fails WCAG, while this clears 4.5:1 for body text. Use this (never raw `mint`) whenever
+    /// the colour IS the text or icon.
+    static let accent = Color(light: Color(hex: "2B8462"), dark: mint)
 
     // MARK: Semantic
     static let success = Color(hex: "4CAF7D")
@@ -39,6 +42,12 @@ enum Theme {
     /// Mint fill for accent surfaces / hovers.
     static let mintGradient = LinearGradient(
         colors: [mint, mintLight], startPoint: .topLeading, endPoint: .bottomTrailing)
+    /// The gradient for TEXT and ICONS, as opposed to `accentGradient`, which fills a shape behind
+    /// white text. Charcoal reads well on a light background but disappears against the dark one,
+    /// so this resolves to mint in dark mode. Use this any time the gradient IS the foreground.
+    static let accentTextGradient = LinearGradient(
+        colors: [Color(light: charcoal, dark: mint), Color(light: charcoal2, dark: mintLight)],
+        startPoint: .topLeading, endPoint: .bottomTrailing)
     /// Hero moments (home CTA, branded surfaces): charcoal deepening into a mint-tinged charcoal,
     /// so the primary button reads bolder than a flat fill without leaving the brand.
     static let heroGradient = LinearGradient(

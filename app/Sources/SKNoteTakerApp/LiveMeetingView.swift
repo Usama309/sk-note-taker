@@ -284,7 +284,7 @@ struct LiveAssistantPane: View {
                             VStack(spacing: 8) {
                                 Image(systemName: "sparkles")
                                     .font(.system(size: 24))
-                                    .foregroundStyle(Theme.accentGradient)
+                                    .foregroundStyle(Theme.accentTextGradient)
                                 Text("Ask AI while the meeting runs")
                                     .font(.skSubtitle)
                                 Text("Catch up, decode what they mean, or get a suggested reply — from the live transcript.")
@@ -570,7 +570,7 @@ struct LiveTranscriptList: View {
                         VStack(spacing: 10) {
                             Image(systemName: "waveform")
                                 .font(.system(size: 26))
-                                .foregroundStyle(Theme.accentGradient)
+                                .foregroundStyle(Theme.accentTextGradient)
                             Text("Listening… start talking or play meeting audio.")
                                 .foregroundStyle(.secondary)
                                 .font(.skCallout)

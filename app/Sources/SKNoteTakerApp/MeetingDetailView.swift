@@ -816,7 +816,7 @@ struct SummaryTab: View {
             } else {
                 VStack(spacing: 14) {
                     Image(systemName: "sparkles").font(.system(size: 34))
-                        .foregroundStyle(Theme.accentGradient)
+                        .foregroundStyle(Theme.accentTextGradient)
                     Text("No summary yet").font(.skTitle)
                     Text("Generate an intelligent summary with an overview, decisions,\nand action items — powered by Claude.")
                         .multilineTextAlignment(.center).foregroundStyle(.secondary)

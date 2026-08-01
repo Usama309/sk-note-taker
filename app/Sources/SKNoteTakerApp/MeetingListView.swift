@@ -39,7 +39,7 @@ struct MeetingListView: View {
                 VStack(spacing: 8) {
                     Image(systemName: "waveform.and.mic")
                         .font(.system(size: 30))
-                        .foregroundStyle(Theme.accentGradient)
+                        .foregroundStyle(Theme.accentTextGradient)
                     Text(app.searchText.isEmpty ? "No meetings yet" : "No matches")
                         .font(.skHeadline)
                     if app.searchText.isEmpty {

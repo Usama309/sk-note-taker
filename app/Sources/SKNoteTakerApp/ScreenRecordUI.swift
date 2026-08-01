@@ -140,7 +140,7 @@ struct ScreenRecordPromptView: View {
             HStack(spacing: 12) {
                 Image(systemName: "rectangle.dashed.badge.record")
                     .font(.system(size: 22))
-                    .foregroundStyle(Theme.accentGradient)
+                    .foregroundStyle(Theme.accentTextGradient)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Record your screen?")
                         .font(.skSubtitle).foregroundStyle(.primary)

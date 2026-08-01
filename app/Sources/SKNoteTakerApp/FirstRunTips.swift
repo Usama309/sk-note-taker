@@ -10,7 +10,7 @@ struct FirstRunTipsView: View {
     private let tips: [Tip] = [
         Tip(icon: "record.circle.fill", title: "Start a meeting",
             body: "Hit Start Meeting on Home (or ⌘N). SK captures your mic and the other side, and transcribes live with real names.",
-            tint: Theme.mint),
+            tint: Theme.accent),
         Tip(icon: "sparkles", title: "Your AI assistant",
             body: "Open Assistant in the sidebar to ask about any meeting, pull action items, or draft a reply. It reads your notes, not the cloud.",
             tint: Theme.accent),
@@ -19,7 +19,7 @@ struct FirstRunTipsView: View {
             tint: Theme.folderPalette[1]),
         Tip(icon: "lock.fill", title: "Everything stays on your Mac",
             body: "Recordings, transcripts, and summaries are stored locally and processed on-device. Nothing is uploaded to a server we run.",
-            tint: Theme.mint),
+            tint: Theme.accent),
     ]
 
     private var isLast: Bool { index == tips.count - 1 }

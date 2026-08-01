@@ -94,7 +94,7 @@ struct OnboardingView: View {
 
     /// Shared layout for a step: a big icon, a title, a one-line subtitle, then the step's controls.
     private func scaffold<Content: View>(
-        icon: String, tint: Color = Theme.mint, title: String, subtitle: String,
+        icon: String, tint: Color = Theme.accent, title: String, subtitle: String,
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(spacing: 18) {
@@ -141,7 +141,7 @@ struct OnboardingView: View {
                 StatusBadge(status: app.micStatus)
                 if app.micStatus == .granted {
                     Label("Microphone is on. You're set.", systemImage: "checkmark.seal.fill")
-                        .font(.skCallout).foregroundStyle(Theme.mint)
+                        .font(.skCallout).foregroundStyle(Theme.accent)
                 } else {
                     Button {
                         if app.micStatus == .denied { app.openMicSettings() }
@@ -149,7 +149,7 @@ struct OnboardingView: View {
                     } label: {
                         Text(app.micStatus == .denied ? "Open System Settings" : "Allow Microphone")
                             .fontWeight(.semibold).padding(.horizontal, 18).padding(.vertical, 9)
-                            .background(Theme.mint, in: Capsule()).foregroundStyle(.white)
+                            .background(Theme.mint, in: Capsule()).foregroundStyle(Theme.charcoal)
                     }
                     .buttonStyle(.plain)
                     if app.micStatus == .denied {
@@ -169,7 +169,7 @@ struct OnboardingView: View {
                 StatusBadge(status: app.systemAudioStatus)
                 if app.systemAudioStatus == .granted {
                     Label("System audio is on. Everyone will be transcribed.", systemImage: "checkmark.seal.fill")
-                        .font(.skCallout).foregroundStyle(Theme.mint).multilineTextAlignment(.center)
+                        .font(.skCallout).foregroundStyle(Theme.accent).multilineTextAlignment(.center)
                 } else {
                     HStack(spacing: 10) {
                         Button {
@@ -177,7 +177,7 @@ struct OnboardingView: View {
                         } label: {
                             Text("Open System Settings")
                                 .fontWeight(.semibold).padding(.horizontal, 16).padding(.vertical, 9)
-                                .background(Theme.mint, in: Capsule()).foregroundStyle(.white)
+                                .background(Theme.mint, in: Capsule()).foregroundStyle(Theme.charcoal)
                         }
                         .buttonStyle(.plain)
                         Button("I've enabled it") { app.probeSystemAudio() }
@@ -200,7 +200,7 @@ struct OnboardingView: View {
 
     private func stepHint(_ n: Int, _ text: String) -> some View {
         HStack(alignment: .top, spacing: 8) {
-            Text("\(n)").font(.skCaptionStrong).foregroundStyle(.white)
+            Text("\(n)").font(.skCaptionStrong).foregroundStyle(Theme.charcoal)
                 .frame(width: 16, height: 16).background(Theme.mint, in: Circle())
             Text(text).font(.skCaption).foregroundStyle(.secondary)
         }
@@ -213,7 +213,7 @@ struct OnboardingView: View {
                 if app.calendarConnected {
                     Label(app.calendarEmail.map { "Connected as \($0)" } ?? "Calendar connected",
                           systemImage: "checkmark.seal.fill")
-                        .font(.skCallout).foregroundStyle(Theme.mint)
+                        .font(.skCallout).foregroundStyle(Theme.accent)
                 } else {
                     Button {
                         Task { await app.connectCalendar() }

@@ -18,7 +18,7 @@ struct ChatTab: View {
                             VStack(spacing: 10) {
                                 Image(systemName: "bubble.left.and.text.bubble.right")
                                     .font(.system(size: 30))
-                                    .foregroundStyle(Theme.accentGradient)
+                                    .foregroundStyle(Theme.accentTextGradient)
                                 Text("Ask anything about this meeting")
                                     .font(.skHeadline)
                                 Text("Try: \"What did \(exampleSpeaker) say about the deadline?\"")
