@@ -2,6 +2,9 @@ import Foundation
 import CoreAudio
 import AVFoundation
 import AppKit
+import ScreenCaptureKit
+import ImageIO
+import UniformTypeIdentifiers
 import SKNoteCore
 
 /// File-scope sink so the Darwin C notification callback (no captures allowed) and the escaping
@@ -26,6 +29,43 @@ final class Flag: @unchecked Sendable {
 }
 
 enum SelfTest {
+
+    /// Screenshot the app's own main window (the one belonging to the already-running instance) at
+    /// 2x, on a transparent background, and write it as a PNG.
+    static func captureOwnWindow(to url: URL) async {
+        let diag = url.deletingPathExtension().appendingPathExtension("txt")
+        func note(_ s: String) { try? s.write(to: diag, atomically: true, encoding: .utf8) }
+        note("started")
+        do {
+            let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
+            let mine = content.windows.filter {
+                $0.owningApplication?.bundleIdentifier == Bundle.main.bundleIdentifier
+                    && $0.frame.width > 400 && $0.frame.height > 300
+            }
+            guard let window = mine.max(by: { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height })
+            else { note("no SK window on screen; candidates=\(mine.count) total=\(content.windows.count)"); return }
+
+            let filter = SCContentFilter(desktopIndependentWindow: window)
+            let config = SCStreamConfiguration()
+            config.width = Int(window.frame.width * 2)     // retina
+            config.height = Int(window.frame.height * 2)
+            config.showsCursor = false
+            config.ignoreGlobalClipDisplay = true
+            config.backgroundColor = .clear                 // keep the rounded corners clean
+
+            let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
+            guard let dest = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil)
+            else { note("cannot create PNG"); return }
+            CGImageDestinationAddImage(dest, image, nil)
+            if CGImageDestinationFinalize(dest) {
+                note("saved \(image.width)x\(image.height)")
+            } else {
+                note("finalize failed")
+            }
+        } catch {
+            note("capture failed: \(error)")
+        }
+    }
 
     /// Empirically finds which signal (if any) fires when Mission Control opens/closes on this
     /// macOS: instruments NSWorkspace + a broad set of distributed AND Darwin notification names,
@@ -148,6 +188,19 @@ enum SelfTest {
             // run loop until it finishes instead of waiting on a semaphore (which deadlocks).
             let done = Flag()
             Task { @MainActor in await runMeeting(seconds: seconds); done.set() }
+            while !done.get() {
+                RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.1))
+            }
+            return true
+        }
+        // Captures the app's own main window to a PNG at full retina resolution. Runs as a second
+        // instance so it can photograph the running one; used for documentation and portfolio
+        // shots, since a shell-launched screencapture has no Screen Recording grant but the signed
+        // app does.
+        if let i = args.firstIndex(of: "--selftest-shot") {
+            let out = (i + 1 < args.count) ? args[i + 1] : NSHomeDirectory() + "/Desktop/sk-shot.png"
+            let done = Flag()
+            Task { await captureOwnWindow(to: URL(fileURLWithPath: out)); done.set() }
             while !done.get() {
                 RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.1))
             }

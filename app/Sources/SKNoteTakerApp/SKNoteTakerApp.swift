@@ -1,5 +1,7 @@
 import SwiftUI
 import AppKit
+import ImageIO
+import UniformTypeIdentifiers
 import ScreenCaptureKit
 import SKNoteCore
 
@@ -52,6 +54,10 @@ struct SKNoteTakerApp: App {
             CommandGroup(after: .appInfo) {
                 Button("Preview meeting popup") { appState.previewMeetingPopup() }
                     .keyboardShortcut("d", modifiers: [.command, .shift])
+                // In the menu rather than the view hierarchy, so it still fires while a sheet is up
+                // (the presenting view's buttons are disabled behind a sheet).
+                Button("Save Window Screenshot") { appState.captureWindowPNG() }
+                    .keyboardShortcut("s", modifiers: [.command, .option, .shift])
             }
         }
 
@@ -719,6 +725,57 @@ final class AppState {
         // Fire the Screen Recording request first so the app is listed in the pane we open.
         Permission.requestScreenRecording()
         NSWorkspace.shared.open(Permission.systemAudioSettingsURL)
+    }
+
+    /// Save a PNG of the app's own window, for documentation and portfolio shots.
+    ///
+    /// Renders the window's view hierarchy directly through AppKit rather than going through
+    /// ScreenCaptureKit, so it needs no Screen Recording permission and can never capture another
+    /// app's content. Writes at the display's backing scale, so the result is retina.
+    func captureWindowPNG(named name: String) {
+        guard let win = mainWindow else { return }
+        let dir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Desktop/SK Note Taker - Portfolio/screenshots")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("\(name).png")
+
+        // Capture the real composited window through ScreenCaptureKit. The app already holds Screen
+        // Recording (it records meetings), and the filter is matched strictly on our OWN window id,
+        // so no other app's content can be captured. cacheDisplay() is not usable here: SwiftUI's
+        // material/vibrancy backgrounds do not render through it, which left the sidebar blank.
+        let wid = CGWindowID(win.windowNumber)
+        Task {
+            do {
+                let content = try await SCShareableContent.excludingDesktopWindows(
+                    false, onScreenWindowsOnly: true)
+                guard let target = content.windows.first(where: { $0.windowID == wid }) else {
+                    SKLog.warn(.app, "screenshot: own window \(wid) not in the shareable list")
+                    return
+                }
+                let config = SCStreamConfiguration()
+                config.width = Int(target.frame.width * 2)      // retina
+                config.height = Int(target.frame.height * 2)
+                config.showsCursor = false
+                let image = try await SCScreenshotManager.captureImage(
+                    contentFilter: SCContentFilter(desktopIndependentWindow: target),
+                    configuration: config)
+                guard let dest = CGImageDestinationCreateWithURL(
+                    url as CFURL, UTType.png.identifier as CFString, 1, nil) else { return }
+                CGImageDestinationAddImage(dest, image, nil)
+                if CGImageDestinationFinalize(dest) {
+                    SKLog.info(.app, "screenshot saved: \(url.lastPathComponent) (\(image.width)x\(image.height))")
+                }
+            } catch {
+                SKLog.warn(.app, "screenshot failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Incrementing name for shots triggered from the keyboard, so repeated presses do not overwrite.
+    @ObservationIgnored private var shotIndex = 0
+    func captureWindowPNG() {
+        shotIndex += 1
+        captureWindowPNG(named: String(format: "shot-%02d", shotIndex))
     }
 
     private static let tipsKey = "sk.hasSeenTips"
