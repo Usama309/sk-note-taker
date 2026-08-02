@@ -49,6 +49,7 @@
   .hero h1 { font-size: clamp(32px, 6vw, 52px); line-height: 1.1; letter-spacing: -0.02em; }
   .hero .grad { background: linear-gradient(135deg, var(--indigo), var(--teal)); -webkit-background-clip: text; background-clip: text; color: transparent; }
   .hero p { color: var(--muted); font-size: 19px; margin: 20px auto 0; max-width: 620px; }
+  .hero .lede { font-size: 22px; font-weight: 600; color: var(--text, #111); margin-top: 10px; }
   .cta { display: inline-flex; gap: 8px; align-items: center; margin-top: 28px; padding: 13px 26px;
     background: linear-gradient(135deg, var(--indigo), var(--teal)); color: #fff; text-decoration: none;
     border-radius: 999px; font-weight: 600; }
@@ -79,9 +80,15 @@
   </header>
 
   <section class="hero">
-    <h1>Your meetings, <span class="grad">captured and understood</span></h1>
-    <p>SK Note Taker is a native macOS app that records your calls, transcribes them with per-speaker labels on your device, and writes an AI summary the moment the meeting ends. Everything stays on your Mac.</p>
-    <a class="cta" href="https://github.com/saqibkamransaif/sk-note-taker">Get SK Note Taker</a>
+    <h1><span class="grad">SK Note Taker</span></h1>
+    <p class="lede">AI meeting notes for macOS</p>
+    <p><strong>SK Note Taker</strong> is a native macOS application for people who run a lot of meetings.
+      It records your calls, transcribes them on your own Mac with per-speaker labels, and writes the
+      summary and action items the moment the meeting ends, so you can take part in the conversation
+      instead of typing notes through it. Recordings, transcripts, and summaries are stored on your Mac.</p>
+    <p>Connecting Google Calendar is optional. It is used only to display your upcoming meetings inside
+      the app so you can start notes for one in a single click.</p>
+    <a class="cta" href="https://github.com/saqibkamransaif/sk-note-taker">Download SK Note Taker</a>
   </section>
 
   <div class="grid">
