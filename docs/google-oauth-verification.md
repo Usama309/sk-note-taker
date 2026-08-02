@@ -1,6 +1,7 @@
 # Google OAuth Verification — PENDING
 
-Status: **site live on sk-note-taker.vercel.app; ready for Search Console + consent screen** (2026-07-30).
+Status: **Search Console verified + consent screen configured** (2026-08-01). Remaining: publish to
+production, record the demo video, submit.
 
 Goal: remove the "Google hasn't verified this app" warning so any user can connect Google
 Calendar in SK Note Taker with a clean consent screen (and no 7-day token expiry). Required
@@ -40,6 +41,33 @@ Redeploy with: `cd website && vercel deploy --prod --yes`
 
 ### Phase 1 — site live
 - [x] Site deployed to a domain we control (`sk-note-taker.vercel.app`), both pages public.
+
+## Completed 2026-08-01
+
+- [x] Site live on a domain we control: https://sk-note-taker.vercel.app (+ /privacy.html), both 200.
+- [x] **Search Console ownership VERIFIED** for `https://sk-note-taker.vercel.app/` using the HTML
+      file method. The file `googlee6d8500fa382d2ff.html` is committed in `website/` and deployed;
+      Google re-checks it, so do NOT delete it.
+- [x] Consent screen (console.cloud.google.com/auth/branding, project `notetaker-integrations`,
+      account vvostro43@gmail.com):
+      app name `SK Notetaker`, support email, home page, privacy policy link, developer contact,
+      and **authorized domain `sk-note-taker.vercel.app`** (this is what needed Search Console).
+- [x] **Scope registered** (Data Access): `.../auth/calendar.readonly`, listed as a sensitive scope.
+
+### Still to do
+
+- [ ] **[YOU] App logo (optional).** A ready 120x120 PNG is at
+      `docs/google-oauth/consent-logo-120.png`. Browser automation could not complete Google's
+      upload widget (it needs a real file-picker interaction), so drag that file in by hand on the
+      Branding page. Uploading a logo is what forces verification, so it is only worth doing as part
+      of submitting.
+- [ ] **[YOU] Publish to production** (Audience page -> "Publish app"). While the app stays in
+      Testing it is limited to 100 explicitly-added test users and refresh tokens expire about
+      weekly. Publishing removes both; the unverified-app warning remains until Google reviews.
+- [ ] **[YOU] Record a 1-2 min unlisted YouTube demo**: app -> Settings -> Connect Google Calendar ->
+      the consent screen showing the app name and the calendar scope -> grant -> upcoming meetings
+      appear on Home. Google requires seeing the scope actually used.
+- [ ] **[YOU] Submit** (Verification Center) and paste the scope justification below.
 
 ### Phase 2 — verify domain ownership
 - [ ] **[YOU] Google Search Console** (same Google account that owns the Cloud project): add
