@@ -73,17 +73,15 @@ struct AudioSignalTests {
 
 /// While another app runs a voice-processing call (WhatsApp/Teams/FaceTime), macOS mutes raw
 /// mic taps to bit-exact zeros. These pin the picker's decision table: switch to AUVoiceIO
-/// capture only on the muted signature — never when the raw tap still carries signal (a raw
-/// capturer like Zoom would be muted BY our VPIO session), and never when nobody else is on
-/// the mic.
+/// capture only on the muted signature, never when the raw tap still carries signal (a raw
+/// capturer like Zoom would be muted BY our VPIO session), and never before another app has
+/// opened the mic. The latter keeps Meet/Zoom working when recording starts first.
 @Suite("Mic source picker")
 struct MicSourcePickerTests {
-    @Test func aloneOnMicUsesVoiceProcessingForAEC() {
-        // No other app on the mic → open a voice-processing session for its acoustic echo
-        // canceller, which removes the remote participant's voice (coming out of the laptop
-        // speakers) from the mic so the local channel stays "just you". Safe: there's no
-        // other raw client to mute.
-        #expect(MicSourcePicker.decide(othersOnMic: false, probe: nil) == .voiceProcessing)
+    @Test func recordingBeforeCallUsesShareableRawMic() {
+        // AUVoiceIO can mute a raw mic client that opens later. Starting SK Note Taker before
+        // Meet/Zoom must therefore stay on the multi-client raw path.
+        #expect(MicSourcePicker.decide(othersOnMic: false, probe: nil) == .raw)
     }
 
     @Test func mutedRawTapDuringCallSwitchesToVoiceIO() {
@@ -93,14 +91,14 @@ struct MicSourcePickerTests {
     }
 
     @Test func rawTapWithSignalStaysRawEvenDuringCall() {
-        // Zoom-style call app capturing raw: our raw tap still hears the noise floor —
+        // Zoom-style call app capturing raw: our raw tap still hears the noise floor, so
         // joining as a VPIO client would mute the CALL, so we must stay raw.
         let probe = MicSourcePicker.ProbeResult(chunks: 5, allZero: false)
         #expect(MicSourcePicker.decide(othersOnMic: true, probe: probe) == .raw)
     }
 
     @Test func deadRawTapDuringCallSwitchesToVoiceIO() {
-        // Engine produced no buffers at all alongside the call → treat as muted.
+        // Engine produced no buffers at all alongside the call, so treat it as muted.
         let probe = MicSourcePicker.ProbeResult(chunks: 0, allZero: true)
         #expect(MicSourcePicker.decide(othersOnMic: true, probe: probe) == .voiceProcessing)
     }

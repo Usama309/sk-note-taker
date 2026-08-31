@@ -216,7 +216,7 @@ enum LibraryFilter: Equatable {
 final class AppState {
     let store = MeetingStore()
     let folderStore = FolderStore()
-    var ai = ClaudeCLIService()
+    var ai = CodexCLIService()
     /// Cloud mirror (local-first): every local save is pushed to Supabase best-effort.
     @ObservationIgnored lazy var sync = SupabaseSync(
         config: .sknote, store: store, folderStore: folderStore)
@@ -233,7 +233,7 @@ final class AppState {
 
     var session: MeetingSession?     // non-nil while recording
     var settings = AppSettings()
-    var claudeAvailable = true
+    var codexAvailable = true
 
     // Google Calendar (in-app browser sign-in). The service holds the Keychain-backed tokens;
     // these mirror its state for the UI to observe.
@@ -386,8 +386,8 @@ final class AppState {
             .compactMap(UUID.init(uuidString:)))
         settings = await store.loadSettings()
         SoundManager.shared.enabled = settings.uiSounds
-        ai = ClaudeCLIService(model: settings.claudeModel)
-        claudeAvailable = await ai.isAvailable()
+        ai = CodexCLIService(model: settings.codexModel)
+        codexAvailable = await ai.isAvailable()
         // Sync the login item to the saved preference (registers on first run if defaulted on).
         if settings.launchAtLogin != LoginItem.isEnabled {
             LoginItem.setEnabled(settings.launchAtLogin)
@@ -884,7 +884,7 @@ final class AppState {
         // Fire-and-forget post-meeting intelligence + cloud sync once the meeting is done.
         Task {
             await autoCategorize(meetingId: finishedId)
-            if settings.autoSummarize, claudeAvailable,
+            if settings.autoSummarize, codexAvailable,
                await store.summary(for: finishedId) == nil {
                 let notes = await store.notes(for: finishedId)
                 await generateSummary(for: finishedId, notes: notes)
@@ -965,7 +965,7 @@ final class AppState {
     }
 
     /// Render a copilot answer for the chat thread: the exact wording first, supporting notes below.
-    static func formatAssist(_ a: ClaudeCLIService.AssistAnswer) -> String {
+    static func formatAssist(_ a: CodexCLIService.AssistAnswer) -> String {
         var out = a.say
         if !a.notes.isEmpty {
             out += "\n\n" + a.notes.map { "• \($0)" }.joined(separator: "\n")
@@ -976,7 +976,7 @@ final class AppState {
     // MARK: - Project memory (copilot)
 
     /// The live copilot's proactively-suggested answer to a question aimed at the user, if any.
-    var liveSuggestion: ClaudeCLIService.AssistAnswer?
+    var liveSuggestion: CodexCLIService.AssistAnswer?
     @ObservationIgnored private var lastSuggestedText = ""
 
     /// Assemble a project's context for the assistant: the living project.md plus the structured
@@ -1026,7 +1026,7 @@ final class AppState {
     /// Rebuild a project's living `project.md` from its details, imported material, and the digests
     /// of its filed meetings.
     func rebuildProjectMemory(folderId: UUID) async {
-        guard claudeAvailable else { return }
+        guard codexAvailable else { return }
         let memory = await store.projectMemory(for: folderId)
         let projectName = folders.first(where: { $0.id == folderId })?.name ?? "Project"
 
@@ -1103,7 +1103,7 @@ final class AppState {
 
     var showAppAssistant = false
     var appAssistantChat = ChatLog()
-    var pendingAppAction: ClaudeCLIService.AppAction?
+    var pendingAppAction: CodexCLIService.AppAction?
 
     func loadAppChat() async { appAssistantChat = await store.appChat() }
 
@@ -1249,7 +1249,7 @@ final class AppState {
         let route = (try? await ai.routeImport(
             instruction: instruction, fileNames: files.map(\.lastPathComponent),
             projects: folders.map(\.name)))
-            ?? ClaudeCLIService.ImportRoute(project: "Imported",
+            ?? CodexCLIService.ImportRoute(project: "Imported",
                                             title: files.first?.lastPathComponent ?? "Import",
                                             note: instruction)
 
@@ -1429,7 +1429,7 @@ final class AppState {
 
     func saveSettings() async {
         try? await store.save(settings: settings)
-        ai = ClaudeCLIService(model: settings.claudeModel)
+        ai = CodexCLIService(model: settings.codexModel)
         SoundManager.shared.enabled = settings.uiSounds
     }
 }

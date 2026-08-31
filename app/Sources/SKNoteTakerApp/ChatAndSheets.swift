@@ -328,16 +328,14 @@ struct GeneralSettingsView: View {
                 Text("For Google Meet, install the SK Note Taker browser extension (Load unpacked in Chrome from the revealed folder). It reads the active speaker from your Meet tab and sends names to the app while you record.")
                     .font(.skFootnote).foregroundStyle(.tertiary)
             }
-            Section("AI (Claude Code CLI)") {
-                Picker("Model", selection: $app.settings.claudeModel) {
-                    Text("Sonnet (recommended)").tag("sonnet")
-                    Text("Opus (deepest)").tag("opus")
-                    Text("Haiku (fastest)").tag("haiku")
-                }
+            Section("AI (Codex CLI)") {
+                TextField("Model override (optional)", text: $app.settings.codexModel)
+                Text("Leave blank to use the Codex CLI default model.")
+                    .font(.skFootnote).foregroundStyle(.tertiary)
                 LabeledContent("CLI status") {
-                    Label(app.claudeAvailable ? "Available" : "Not found",
-                          systemImage: app.claudeAvailable ? "checkmark.circle.fill" : "xmark.circle.fill")
-                        .foregroundStyle(app.claudeAvailable ? Theme.success : Theme.error)
+                    Label(app.codexAvailable ? "Ready" : "Not ready",
+                          systemImage: app.codexAvailable ? "checkmark.circle.fill" : "xmark.circle.fill")
+                        .foregroundStyle(app.codexAvailable ? Theme.success : Theme.error)
                 }
             }
             Section("General") {

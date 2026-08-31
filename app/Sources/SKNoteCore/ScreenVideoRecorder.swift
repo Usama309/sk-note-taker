@@ -79,6 +79,9 @@ public final class ScreenVideoRecorder: NSObject, SCStreamOutput, SCStreamDelega
     private var audioInput: AVAssetWriterInput?
     private var micInput: AVAssetWriterInput?
     private var started = false      // check-and-set under `lock` (video + audio queues both touch it)
+    private var lastVideoPTS: CMTime?
+    private var appendedVideoFrames = 0
+    private var droppedVideoFrames = 0
 
     public init(outputURL: URL) {
         self.url = outputURL
@@ -134,10 +137,11 @@ public final class ScreenVideoRecorder: NSObject, SCStreamOutput, SCStreamDelega
         }
         if srcWidth < 2 || srcHeight < 2 { srcWidth = 1280; srcHeight = 720 }   // sane fallback
 
-        // Downscale to at most 1600px wide (even dims for H.264) and cap the frame rate — a
+        // Downscale to at most 1280px wide (even dims for H.264) and cap the frame rate — a
         // meeting screen recording does not need retina or 30fps, and this keeps the encode
         // cheap next to the reliability-critical audio pipeline.
-        let cap = 1600.0
+        let targetFPS = 8
+        let cap = 1280.0
         let scale = min(1.0, cap / max(1, srcWidth))
         let w = max(2, Int((srcWidth * scale).rounded(.down))) & ~1
         let h = max(2, Int((srcHeight * scale).rounded(.down))) & ~1
@@ -149,12 +153,27 @@ public final class ScreenVideoRecorder: NSObject, SCStreamOutput, SCStreamDelega
             AVVideoCodecKey: AVVideoCodecType.h264,
             AVVideoWidthKey: w,
             AVVideoHeightKey: h,
+            AVVideoCompressionPropertiesKey: [
+                // ScreenCaptureKit legitimately omits duplicate/idle frames. B-frame reordering
+                // across those long variable-frame-rate gaps can produce DTS values hundreds of
+                // seconds behind PTS, which makes an otherwise valid movie freeze or look
+                // audio-only in players. Meeting video does not benefit from B frames, so keep
+                // decode and presentation order identical.
+                AVVideoAllowFrameReorderingKey: false,
+                AVVideoExpectedSourceFrameRateKey: targetFPS,
+                AVVideoMaxKeyFrameIntervalKey: targetFPS * 2,
+                AVVideoAverageBitRateKey: 1_200_000,
+            ],
         ]
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
         input.expectsMediaDataInRealTime = true
+        input.performsMultiPassEncodingIfSupported = false
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(
             assetWriterInput: input,
-            sourcePixelBufferAttributes: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA])
+            sourcePixelBufferAttributes: [
+                kCVPixelBufferPixelFormatTypeKey as String:
+                    kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+            ])
         guard writer.canAdd(input) else { throw ScreenVideoError("Cannot configure the video writer.") }
         writer.add(input)
 
@@ -182,15 +201,19 @@ public final class ScreenVideoRecorder: NSObject, SCStreamOutput, SCStreamDelega
         lock.withLock {
             self.writer = writer; self.input = input; self.adaptor = adaptor
             self.audioInput = audioInput; self.micInput = micInput
+            self.started = false; self.lastVideoPTS = nil
+            self.appendedVideoFrames = 0; self.droppedVideoFrames = 0
         }
 
         let config = SCStreamConfiguration()
         config.width = w
         config.height = h
-        config.minimumFrameInterval = CMTime(value: 1, timescale: 12)   // ~12 fps
-        config.queueDepth = 5
+        config.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(targetFPS))
+        config.queueDepth = 3
         config.showsCursor = true
-        config.pixelFormat = kCVPixelFormatType_32BGRA
+        // NV12 is the H.264 hardware encoder's native input, avoiding a full-resolution BGRA to
+        // YUV conversion for every captured frame.
+        config.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
         config.capturesAudio = true
         config.sampleRate = 48_000
         config.channelCount = 2
@@ -202,7 +225,7 @@ public final class ScreenVideoRecorder: NSObject, SCStreamOutput, SCStreamDelega
         try stream.addStreamOutput(self, type: .microphone, sampleHandlerQueue: micQueue)
         try await stream.startCapture()
         self.stream = stream
-        SKLog.info(.capture, "screen recording started (\(w)x\(h) @12fps + system audio + mic, \(scope))")
+        SKLog.info(.capture, "screen recording started (\(w)x\(h) @\(targetFPS)fps + system audio + mic, \(scope))")
         return scope
     }
 
@@ -228,10 +251,13 @@ public final class ScreenVideoRecorder: NSObject, SCStreamOutput, SCStreamDelega
             try? s.removeStreamOutput(self, type: .microphone)
         }
         stream = nil
-        let (wr, inp, ain, min_): (AVAssetWriter?, AVAssetWriterInput?, AVAssetWriterInput?, AVAssetWriterInput?) = lock.withLock {
+        let (wr, inp, ain, min_, appended, dropped):
+            (AVAssetWriter?, AVAssetWriterInput?, AVAssetWriterInput?, AVAssetWriterInput?, Int, Int) = lock.withLock {
             let w = writer; let i = input; let a = audioInput; let m = micInput
+            let appended = appendedVideoFrames; let dropped = droppedVideoFrames
             writer = nil; input = nil; adaptor = nil; audioInput = nil; micInput = nil
-            return (w, i, a, m)
+            lastVideoPTS = nil
+            return (w, i, a, m, appended, dropped)
         }
         guard let wr, wr.status == .writing else {
             SKLog.warn(.capture, "screen video: no frames captured; nothing saved")
@@ -242,7 +268,14 @@ public final class ScreenVideoRecorder: NSObject, SCStreamOutput, SCStreamDelega
         min_?.markAsFinished()
         await wr.finishWriting()
         let ok = wr.status == .completed
-        SKLog.info(.capture, "screen video: \(ok ? "saved" : "finalize failed") \(url.lastPathComponent)")
+        let frameSummary = "\(appended) video frames appended, \(dropped) rejected"
+        if ok {
+            SKLog.info(.capture, "screen video: saved \(url.lastPathComponent) (\(frameSummary))")
+        } else {
+            SKLog.error(.captureStreamError, .capture,
+                        "screen video: finalize failed \(url.lastPathComponent) (\(frameSummary))",
+                        error: wr.error)
+        }
         return ok
     }
 
@@ -285,7 +318,26 @@ public final class ScreenVideoRecorder: NSObject, SCStreamOutput, SCStreamDelega
         }
 
         if type == .screen, let pixelBuffer, let vin, let ad, vin.isReadyForMoreMediaData {
-            ad.append(pixelBuffer, withPresentationTime: pts)
+            // A strictly increasing video PTS is required by AVAssetWriter. Rejecting a rare
+            // duplicate timestamp is safer than allowing one bad sample to poison the movie.
+            let timestampIsUsable = lock.withLock {
+                guard pts.isValid, pts.isNumeric,
+                      lastVideoPTS.map({ CMTimeCompare(pts, $0) > 0 }) ?? true else {
+                    droppedVideoFrames += 1
+                    return false
+                }
+                return true
+            }
+            guard timestampIsUsable else { return }
+            let appended = ad.append(pixelBuffer, withPresentationTime: pts)
+            lock.withLock {
+                if appended {
+                    lastVideoPTS = pts
+                    appendedVideoFrames += 1
+                } else {
+                    droppedVideoFrames += 1
+                }
+            }
         } else if type == .audio, let ain, ain.isReadyForMoreMediaData {
             ain.append(sampleBuffer)
         } else if type == .microphone, let min_, min_.isReadyForMoreMediaData {

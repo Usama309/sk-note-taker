@@ -8,9 +8,9 @@ import Synchronization
 /// NOTE on voice processing: `setVoiceProcessingEnabled(true)` turns the input node into a
 /// duplex VPIO unit that only delivers input buffers while the engine's OUTPUT render chain
 /// is also active. We capture input only (no output graph), so enabling it yields pure
-/// silence — the original v1 bug. We therefore default to the raw input tap. Echo isn't a
-/// problem in practice: the system-audio tap is a clean digital signal captured separately,
-/// and headphone users have no acoustic bleed. `voiceProcessing: true` is kept for
+/// silence — the original v1 bug. We therefore default to the raw input tap. Laptop speakers
+/// can bleed into that raw mic channel, so transcript assembly suppresses matching system-audio
+/// words and headphones give the cleanest saved audio. `voiceProcessing: true` is kept for
 /// experimentation but wires up a silent output tap so VPIO actually renders.
 public final class MicAudioSource: AudioSource, @unchecked Sendable {
     public let channel: AudioChannel = .mic

@@ -390,7 +390,7 @@ struct LiveAssistantPane: View {
         question = ""
         let id = session.meeting.id
         Task {
-            // Optimistically show the question while Claude thinks.
+            // Optimistically show the question while Codex thinks.
             chat.messages.append(ChatMessage(role: "user", text: q))
             await app.askLive(question: q)
             chat = await app.store.chat(for: id)

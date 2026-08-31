@@ -144,15 +144,15 @@ struct ScreenRecordPromptView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Record your screen?")
                         .font(.skSubtitle).foregroundStyle(.primary)
-                    Text("Capture a window or the whole screen with this meeting.")
+                    Text("Whole screen is recommended for reliable long recordings. Window capture stops if that window is closed or recreated.")
                         .font(.skCallout).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
             }
             HStack(spacing: 8) {
-                Button(action: onChoose) {
-                    Text("Choose window")
+                Button(action: onWholeScreen) {
+                    Text("Whole screen")
                         .font(.skSubtitle)
                         .padding(.horizontal, 14).padding(.vertical, 7)
                         .background(Theme.accentGradient,
@@ -160,10 +160,10 @@ struct ScreenRecordPromptView: View {
                         .foregroundStyle(.white)
                 }
                 .buttonStyle(.plain)
-                .scaleEffect(hoveredAction == "choose" ? 1.05 : 1)
-                .onHover { hoveredAction = $0 ? "choose" : nil }
-                Button(action: onWholeScreen) {
-                    Text("Whole screen")
+                .scaleEffect(hoveredAction == "whole" ? 1.05 : 1)
+                .onHover { hoveredAction = $0 ? "whole" : nil }
+                Button(action: onChoose) {
+                    Text("Choose window")
                         .font(.skSubtitle)
                         .padding(.horizontal, 14).padding(.vertical, 7)
                         .background(.quaternary,
@@ -171,8 +171,8 @@ struct ScreenRecordPromptView: View {
                         .foregroundStyle(.primary)
                 }
                 .buttonStyle(.plain)
-                .scaleEffect(hoveredAction == "whole" ? 1.05 : 1)
-                .onHover { hoveredAction = $0 ? "whole" : nil }
+                .scaleEffect(hoveredAction == "choose" ? 1.05 : 1)
+                .onHover { hoveredAction = $0 ? "choose" : nil }
                 Spacer(minLength: 0)
             }
             .animation(Theme.Motion.snap, value: hoveredAction)

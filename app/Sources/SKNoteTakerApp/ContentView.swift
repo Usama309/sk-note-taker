@@ -443,8 +443,8 @@ struct EmptyDetailView: View {
                     .padding(.top, 10)
                     .heroEntrance(appeared, step: 4)
             }
-            if !app.claudeAvailable {
-                Label("Claude Code CLI not detected. AI features disabled.",
+            if !app.codexAvailable {
+                Label("Codex CLI is not ready. Install it and run “codex login”.",
                       systemImage: "exclamationmark.triangle")
                     .font(.skCallout)
                     .foregroundStyle(Theme.warning)

@@ -147,7 +147,7 @@ enum SelfTest {
             SKLog.error(.tapStartFailed, .capture, "sample: with an underlying OS error",
                         error: NSError(domain: "com.apple.coreaudio", code: -10877,
                                        userInfo: [NSLocalizedDescriptionKey: "device not found"]))
-            SKLog.error(.aiRequestFailed, .ai, "sample: Claude request failed",
+            SKLog.error(.aiRequestFailed, .ai, "sample: Codex request failed",
                         error: NSError(domain: "SKNoteTaker", code: 42,
                                        userInfo: [NSLocalizedDescriptionKey: "usage limit reached"]))
             SKLog.endMeeting(title: "Logging self-test", durationSec: 0)

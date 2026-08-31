@@ -1,8 +1,8 @@
 # sknote-mcp
 
 An [MCP](https://modelcontextprotocol.io) stdio server that exposes the
-**SK Note Taker** meeting store to any MCP client (Claude Desktop, Claude
-Code, etc.). It is **read-only**: it reads the Supabase Postgres project the Mac
+**SK Note Taker** meeting store to Codex or any other MCP client. It is
+**read-only**: it reads the Supabase Postgres project the Mac
 app mirrors its local-first data to (see `../supabase/migrations/0001_init.sql`)
 and never writes to it. Because the data lives in the cloud, meetings,
 transcripts, and summaries are reachable from anywhere — not just the machine
@@ -59,10 +59,10 @@ the server (`supabase/config.json`, overridable via `SUPABASE_URL` /
 
 ## Register with an MCP client
 
-### Claude Code
+### Codex CLI
 
 ```bash
-claude mcp add sk-note-taker -- node /Users/mac/Sites/sk-note-taker/mcp/dist/server.js
+codex mcp add sk-note-taker -- node /absolute/path/to/sk-note-taker/mcp/dist/server.js
 ```
 
 ### Generic MCP client (JSON config)

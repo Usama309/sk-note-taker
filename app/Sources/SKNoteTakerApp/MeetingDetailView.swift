@@ -820,7 +820,7 @@ struct SummaryTab: View {
                     Image(systemName: "sparkles").font(.system(size: 34))
                         .foregroundStyle(Theme.accentTextGradient)
                     Text("No summary yet").font(.skTitle)
-                    Text("Generate an intelligent summary with an overview, decisions,\nand action items — powered by Claude.")
+                    Text("Generate an intelligent summary with an overview, decisions,\nand action items, powered by Codex.")
                         .multilineTextAlignment(.center).foregroundStyle(.secondary)
                         .font(.skBody)
                     regenerateButton(label: "Generate Summary")
@@ -864,7 +864,7 @@ struct SummaryTab: View {
             .foregroundStyle(.white)
         }
         .buttonStyle(.plain)
-        .disabled(app.busy.contains("summary") || !app.claudeAvailable)
+        .disabled(app.busy.contains("summary") || !app.codexAvailable)
     }
 }
 

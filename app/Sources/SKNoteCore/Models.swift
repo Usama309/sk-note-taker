@@ -207,7 +207,8 @@ public struct SummaryData: Codable, Sendable, Equatable {
 // MARK: - Settings
 
 public struct AppSettings: Codable, Sendable, Equatable {
-    public var claudeModel: String
+    /// Optional Codex model override. Empty uses the Codex CLI's built-in default.
+    public var codexModel: String
     public var defaultSpeakerName: String?   // name for S1 (the machine owner)
     public var locale: String
     /// Auto-detect Zoom/Teams/WhatsApp/Meet calls and offer to take notes. On by default.
@@ -236,7 +237,7 @@ public struct AppSettings: Codable, Sendable, Equatable {
     /// Soft cues for recording start/stop and deliberate saves. On by default; never during typing.
     public var uiSounds: Bool
 
-    public init(claudeModel: String = "sonnet", defaultSpeakerName: String? = nil,
+    public init(codexModel: String = "", defaultSpeakerName: String? = nil,
                 locale: String = "en-US", autoDetectMeetings: Bool = true,
                 launchAtLogin: Bool = true, autoEndDetection: Bool = true,
                 autoEndSilenceMinutes: Double = 2, autoSummarize: Bool = true,
@@ -244,7 +245,7 @@ public struct AppSettings: Codable, Sendable, Equatable {
                 visibleCalendarIds: [String] = [], askToRecordScreen: Bool = true,
                 assistantWebSearch: Bool = true, assistantAutoSuggest: Bool = true,
                 uiSounds: Bool = true) {
-        self.claudeModel = claudeModel
+        self.codexModel = codexModel
         self.defaultSpeakerName = defaultSpeakerName
         self.locale = locale
         self.autoDetectMeetings = autoDetectMeetings
@@ -263,14 +264,24 @@ public struct AppSettings: Codable, Sendable, Equatable {
 
     // Tolerant decode: older settings.json without new fields default to on.
     private enum CodingKeys: String, CodingKey {
-        case claudeModel, defaultSpeakerName, locale, autoDetectMeetings, launchAtLogin
+        case codexModel, defaultSpeakerName, locale, autoDetectMeetings, launchAtLogin
         case autoEndDetection, autoEndSilenceMinutes, autoSummarize
         case showUpcomingInMenuBar, showEventsWithoutParticipants, visibleCalendarIds
         case askToRecordScreen, assistantWebSearch, assistantAutoSuggest, uiSounds
     }
+    private enum LegacyCodingKeys: String, CodingKey { case claudeModel }
+
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        claudeModel = try c.decodeIfPresent(String.self, forKey: .claudeModel) ?? "sonnet"
+        let legacy = try decoder.container(keyedBy: LegacyCodingKeys.self)
+        if let savedCodexModel = try c.decodeIfPresent(String.self, forKey: .codexModel) {
+            codexModel = savedCodexModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            // Decode the old value so malformed settings still surface as malformed. Claude model
+            // aliases are not valid Codex identifiers, so valid old settings use Codex's default.
+            _ = try legacy.decodeIfPresent(String.self, forKey: .claudeModel)
+            codexModel = ""
+        }
         defaultSpeakerName = try c.decodeIfPresent(String.self, forKey: .defaultSpeakerName)
         locale = try c.decodeIfPresent(String.self, forKey: .locale) ?? "en-US"
         autoDetectMeetings = try c.decodeIfPresent(Bool.self, forKey: .autoDetectMeetings) ?? true

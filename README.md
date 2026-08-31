@@ -7,7 +7,7 @@
 <p align="center">
   <b>AI meeting notes for Mac — with real speaker identification.</b><br/>
   Granola-style botless capture, on-device transcription, per-speaker attribution,<br/>
-  intelligent summaries via your Claude Code subscription, MCP access, and a LAN web view.
+  intelligent summaries via your Codex CLI sign-in, MCP access, and a LAN web view.
 </p>
 
 ---
@@ -16,8 +16,8 @@
 
 Granola is great, but on desktop it only knows "Me" vs "Them" — every remote participant
 collapses into one anonymous voice, and the audio is discarded after transcription.
-SK Note Taker fixes both, keeps everything local, and uses the Claude Code CLI you already
-pay for instead of a metered API.
+SK Note Taker fixes both, keeps everything local, and uses your Codex CLI sign-in instead of
+requiring a separate API key.
 
 | | Granola (desktop) | SK Note Taker |
 |---|---|---|
@@ -27,7 +27,7 @@ pay for instead of a metered API.
 | **Speaker identification** | ❌ Me/Them only | ✅ **Speaker 1..N diarization (FluidAudio, on-device)** |
 | Name speakers ("S2 = Kainat") | ❌ | ✅ instant, metadata-only rename |
 | Meeting audio recording + playback | ❌ discarded | ✅ full m4a kept locally |
-| AI summaries (action items, decisions, things to remember) | ✅ their backend | ✅ **your Claude Code subscription** |
+| AI summaries (action items, decisions, things to remember) | ✅ their backend | ✅ **your Codex CLI sign-in** |
 | Chat with a meeting ("What did Kainat say?") | ✅ | ✅ |
 | Auto-organization into client/project folders | manual/rules | ✅ AI auto-categorization |
 | MCP server | ✅ hosted, paid plans | ✅ local, free |
@@ -55,7 +55,7 @@ device, anywhere — not just the same LAN. See [`supabase/README.md`](supabase/
 
 - macOS 26+ (SpeechAnalyzer APIs), Apple Silicon recommended
 - Xcode 26 toolchain (to build)
-- [Claude Code CLI](https://claude.com/claude-code) installed and signed in (for AI features)
+- [Codex CLI](https://developers.openai.com/codex/cli/) installed and signed in (for AI features)
 - Node 22+ (for MCP server and web view)
 
 ## Build & install the Mac app
@@ -101,9 +101,12 @@ If you never saw the mic prompt or your voice isn't transcribed:
    ```
    `sknote-audiocheck both 8` checks mic **and** system audio at once.
 
-> Note: SK Note Taker intentionally does **not** use Apple voice processing on the mic — that
-> mode only delivers audio when an output render chain is active, which a capture-only app has
-> none of, and it silently produced zero audio. We capture the raw mic instead.
+> Note: SK Note Taker normally uses the shareable raw microphone path. This lets Google Meet
+> or Zoom open the microphone even when recording started first. If an already-active call is
+> using Apple voice processing and has muted raw capture, SK Note Taker detects that state and
+> uses its own voice-processing input as a fallback. Raw capture prioritizes call compatibility;
+> headphones still give the cleanest saved mic audio, while transcript assembly suppresses
+> matching words that also arrive on the system-audio channel.
 
 ### Automatic meeting detection
 
@@ -138,7 +141,7 @@ when the window is closed.
 - **End Meeting** — final diarization pass runs, audio is saved.
 - **Speakers** — assign names (Speaker 2 → "Kainat"); transcripts, summaries, chat, MCP and
   web all use the names immediately.
-- **Summary tab → Generate Summary** — TL;DR, action items (with owners), decisions,
+- **Summary tab → Generate Summary** — quick summary, action items (with owners), decisions,
   things to remember.
 - **Chat tab** — "What did Kainat say about the deadline?"
 - Meetings auto-file into **client/project folders** after they end (editable).
@@ -147,12 +150,11 @@ when the window is closed.
 
 ```bash
 cd mcp && npm install && npm run build
-claude mcp add sk-note-taker -- node "$(pwd)/dist/server.js"
+codex mcp add sk-note-taker -- node "$(pwd)/dist/server.js"
 ```
 
 Tools: `list_meetings`, `get_meeting`, `get_transcript`, `get_summary`,
-`search_meetings`, `list_folders`. Works with any MCP client (Claude Code, Claude
-Desktop, Cursor…).
+`search_meetings`, `list_folders`. Works with Codex and other MCP clients.
 
 ## Web view
 
@@ -177,11 +179,12 @@ Test reports live in `tests/reports/`.
 
 ## Architecture (short version)
 
-Dual audio streams — mic (AVAudioEngine + echo cancellation) and system output (Core Audio
-process tap) — each feed an on-device SpeechTranscriber; the system stream also feeds
-FluidAudio's CoreML diarizer. A merge step attributes finalized ASR tokens to diarized
+Two audio streams feed separate on-device SpeechTranscribers: a coexistence-safe microphone
+path and ScreenCaptureKit system output. The system stream also feeds FluidAudio's CoreML
+diarizer. A merge step attributes finalized ASR tokens to diarized
 speakers (mic = S1 by construction; S2..Sn from clustering) and coalesces utterances.
-AI features shell out to `claude -p --output-format json` with structured-output schemas.
+AI features shell out to isolated, ephemeral `codex exec` sessions. Structured features use
+`--output-schema`, and every response is read from `--output-last-message`.
 The MCP server and web app are thin readers of the same JSON data directory.
 
 Full details in [`docs/planning/`](docs/planning/).

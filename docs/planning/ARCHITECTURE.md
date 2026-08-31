@@ -17,7 +17,7 @@
 │   └──────┬───────┘                                                    │                     │
 │          └── RecordingWriter (m4a)                                    ▼                     │
 │   ┌────────────────┐   ┌───────────────────────────────┐   ┌──────────────────┐             │
-│   │ MeetingStore   │ ← │ ClaudeCLIService (claude -p)  │   │ FolderStore      │             │
+│   │ MeetingStore   │ ← │ CodexCLIService (codex exec)  │   │ FolderStore      │             │
 │   │ (JSON on disk) │   │ summary·Q&A·auto-categorize   │   │ (projects/clients│             │
 │   └────────────────┘   └───────────────────────────────┘   └──────────────────┘             │
 └───────────────────────────────────────┬─────────────────────────────────────────────────────┘
@@ -41,17 +41,33 @@
    with audioTimeRange → transcript store).
 5. System stream also feeds **FluidAudio diarizer**. Speaker segments are merged with system
    ASR tokens by midpoint-overlap → S2, S3, … Mic stream is always S1 ("me").
-6. Both streams are also written into `recording.m4a` (mixed) — playback later (Granola can't).
+6. Both streams are also written into separate stereo channels in `recording.m4a` for playback
+   and reliable post-meeting reprocessing.
 
-Diarization runs incrementally during the meeting (chunked batch every ~10 s over accumulated
-system audio for stable clustering) and does a final full pass at meeting end.
+Diarization runs complete-history passes for stable global clustering. Live passes run on a
+detached utility task so audio ingestion is never blocked, at 15-second intervals for the first
+2 minutes, 60-second intervals through 10 minutes, and 180-second intervals afterward. One final
+full pass runs when the meeting ends. Audio that arrives during a pass is buffered separately so
+the growing meeting array is not copied on every append.
 
-## AI layer (Claude Code CLI — no API key)
+## Screen recording pipeline
 
-`ClaudeCLIService` shells out to `claude -p` (login-shell resolved path) with:
-- `--output-format json` (+ `--json-schema` for structured outputs)
-- `--model` from settings (default sonnet)
-- lean context: prompts are self-contained; transcript passed via stdin
+`ScreenVideoRecorder` uses a separate ScreenCaptureKit stream so optional video capture cannot
+destabilize transcription. It records 1280 px, 8 fps NV12 frames through hardware H.264 plus
+separate system-audio and microphone AAC tracks. Frame reordering is disabled and keyframes are
+limited to two-second intervals, which keeps decode timestamps aligned with sparse variable-rate
+screen frames. Movie fragments make a partial recording recoverable after a crash. Whole-screen
+capture is recommended for long calls because a selected window may stop when the meeting app
+closes or recreates it.
+
+## AI layer (Codex CLI, no API key)
+
+`CodexCLIService` resolves `codex` through the user's login shell and runs `codex exec` with:
+- ephemeral sessions in a new empty temporary directory for each request
+- read-only sandboxing, no approvals, no user config, and no rule files
+- `--output-last-message` for plain responses and `--output-schema` for structured responses
+- the Codex default model unless the optional model override is set
+- self-contained prompts passed through stdin; live web search only when the user enables it
 
 | Feature | Prompt shape | Output |
 |---|---|---|
@@ -74,7 +90,7 @@ Both are thin readers of the same data dir (no daemon coupling to the app):
 - **Web** (`web/`): Node + Express, zero-build vanilla JS frontend, listens on 0.0.0.0:4517 so
   phones on the LAN can review meetings. Can edit speaker names + folder assignment.
 - **MCP** (`mcp/`): stdio server; tools: `list_meetings`, `get_meeting`, `get_transcript`,
-  `get_summary`, `search_meetings`, `list_folders`. Registered via `claude mcp add`.
+  `get_summary`, `search_meetings`, `list_folders`. Registered via `codex mcp add`.
 
 ## App bundle & permissions
 

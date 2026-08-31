@@ -41,7 +41,10 @@ public actor RecordingWriter {
     /// grow `pending` without bound on a long call. It should only ever trip under a severe
     /// throughput failure; the drop-log makes that loud.
     private let maxLagSamples = 480_000   // 30 s at 16 kHz
-    private let blockSize = 1024
+    // Four times fewer AAC writes and buffer allocations than the old 1024-sample blocks. A
+    // 256 ms block is still well below the existing 2 s jitter holdback, while substantially
+    // reducing recorder CPU time on long calls.
+    private let blockSize = 4096
     /// Monotonic nanosecond source; injectable so the staleness logic is deterministic in tests.
     private let now: @Sendable () -> UInt64
 
@@ -121,7 +124,7 @@ public actor RecordingWriter {
 
     // MARK: - Placement
 
-    /// Accumulate samples into 1024-sample blocks per channel (overlaps within a channel sum,
+    /// Accumulate samples into fixed-size blocks per channel (overlaps within a channel sum,
     /// which only happens on tiny chunk-boundary overlaps).
     private func place(_ samples: [Float], channel: AudioChannel, at startSample: Int) {
         guard startSample >= writtenThrough else {

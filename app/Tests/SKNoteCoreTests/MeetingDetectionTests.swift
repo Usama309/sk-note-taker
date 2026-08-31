@@ -99,7 +99,16 @@ struct AutoDetectSettingTests {
         let decoded = try SKJSON.decoder.decode(AppSettings.self, from: Data(legacy.utf8))
         #expect(decoded.autoDetectMeetings == true)
         #expect(decoded.launchAtLogin == true)   // both new fields default on for old configs
-        #expect(decoded.claudeModel == "sonnet")
+        #expect(decoded.codexModel.isEmpty)
+    }
+
+    @Test func codexModelRoundTrips() throws {
+        var settings = AppSettings()
+        settings.codexModel = "custom-model"
+        let data = try SKJSON.encoder.encode(settings)
+        let decoded = try SKJSON.decoder.decode(AppSettings.self, from: data)
+        #expect(decoded.codexModel == "custom-model")
+        #expect(String(data: data, encoding: .utf8)?.contains("claudeModel") == false)
     }
 
     @Test func launchAtLoginDefaultsOnAndRoundTrips() throws {

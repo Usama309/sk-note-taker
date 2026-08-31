@@ -2,11 +2,11 @@ import Foundation
 import Testing
 @testable import SKNoteCore
 
-/// Live tests against the Claude Code CLI (subscription auth). Enabled with SKNOTE_AI=1.
-@Suite("Claude CLI integration",
+/// Live tests against the Codex CLI (ChatGPT sign-in). Enabled with SKNOTE_AI=1.
+@Suite("Codex CLI integration",
        .enabled(if: ProcessInfo.processInfo.environment["SKNOTE_AI"] == "1"),
        .serialized)
-struct ClaudeIntegrationTests {
+struct CodexIntegrationTests {
 
     /// A realistic diarized fixture meeting: Saqib (S1), Kainat (S2), Rick (S3).
     private func fixtureMeeting() -> (Meeting, Transcript) {
@@ -37,7 +37,7 @@ struct ClaudeIntegrationTests {
     @Test("Summary has action items, decisions, and things to remember",
           .timeLimit(.minutes(6)))
     func summarize() async throws {
-        let ai = ClaudeCLIService(model: "sonnet")
+        let ai = CodexCLIService()
         let (meeting, transcript) = fixtureMeeting()
         let summary = try await ai.summarize(
             meeting: meeting, transcript: transcript,
@@ -60,7 +60,7 @@ struct ClaudeIntegrationTests {
     @Test("Q&A: 'What did Kainat say?' answers from her utterances",
           .timeLimit(.minutes(6)))
     func askAboutSpeaker() async throws {
-        let ai = ClaudeCLIService(model: "sonnet")
+        let ai = CodexCLIService()
         let (meeting, transcript) = fixtureMeeting()
         let answer = try await ai.answer(
             question: "What did Kainat commit to, and by when?",
@@ -75,7 +75,7 @@ struct ClaudeIntegrationTests {
 
     @Test("Auto-categorization proposes client/project", .timeLimit(.minutes(6)))
     func categorize() async throws {
-        let ai = ClaudeCLIService(model: "sonnet")
+        let ai = CodexCLIService()
         let (meeting, transcript) = fixtureMeeting()
         let existing = [Folder(name: "Acme Corp", kind: .client)]
         let (category, title) = try await ai.categorize(
@@ -86,5 +86,29 @@ struct ClaudeIntegrationTests {
         #expect(title == nil || !title!.isEmpty)
         #expect(category.client?.lowercased().contains("acme") == true,
                 "should match the existing Acme client folder: \(String(describing: category.client))")
+    }
+
+    @Test("Whole-app assistant accepts its nested structured schema", .timeLimit(.minutes(6)))
+    func appAssistant() async throws {
+        let ai = CodexCLIService()
+        let reply = try await ai.appAssistant(
+            question: "What is the current project status?",
+            appDigest: "Project: Acme launch\nLatest meeting: Website launch sync\nStatus: homepage approved",
+            history: ChatLog(), allowActions: false)
+
+        #expect(reply.answer.lowercased().contains("homepage")
+                || reply.answer.lowercased().contains("approved"))
+        #expect(reply.action == nil)
+    }
+
+    @Test("Project chat runs with Codex web search enabled", .timeLimit(.minutes(6)))
+    func projectChatWithWebEnabled() async throws {
+        let ai = CodexCLIService()
+        let answer = try await ai.chatWithProject(
+            question: "What is this project's code name?",
+            projectName: "Acme launch", projectMarkdown: "Code name: Cobalt",
+            details: "", history: ChatLog(), allowWeb: true)
+
+        #expect(answer.lowercased().contains("cobalt"))
     }
 }

@@ -85,11 +85,35 @@
   Recording keeps running; an expand button restores the previous window.
 
 ### Changed
-- **In-meeting AI is faster and terser.** The live assistant now runs on the fast Haiku model
-  with a stricter "answer in 1–3 sentences, no preamble" prompt, so it's usable mid-call.
+- **AI now uses Codex CLI.** All summaries, meeting chat, categorization, project memory, and
+  copilot features now run through isolated `codex exec` sessions using the existing ChatGPT
+  sign-in. Structured responses use Codex output schemas, web search is enabled only for features
+  where the user allows it, and legacy Claude model settings migrate to the Codex default model.
+- **In-meeting AI is terser.** The live assistant uses a strict "answer in 1–3 sentences, no
+  preamble" prompt so responses stay easy to scan during a call.
 - **"TL;DR" renamed to "Quick summary"** in generated summaries (plainer language).
 
 ### Fixed
+- **Screen recordings could freeze or appear audio-only, and long calls became progressively
+  slower.** Sparse ScreenCaptureKit frames were encoded with frame reordering enabled, allowing
+  decode timestamps to fall hundreds of seconds behind presentation timestamps after a static
+  interval. Screen video now uses reorder-free H.264 with frequent keyframes, validates strictly
+  increasing frame timestamps, and logs accepted/rejected frame totals. Capture is reduced to a
+  hardware-friendly 1280 px, 8 fps NV12 stream, and whole-screen capture is now the recommended
+  long-call option because an individual window can disappear or be recreated. Full-history
+  speaker analysis now runs outside the capture actor on an adaptive cadence, and audio recording
+  writes four-times-larger blocks, preventing the reprocessing and allocation load from starving
+  capture after 30–40 minutes. Covered by `DiarizationCadenceTests` and the existing recording
+  regression suite.
+- **Google Meet or Zoom lost the microphone when recording started first.** With no call using
+  the mic yet, SK Note Taker opened AUVoiceIO for echo cancellation. That voice-processing
+  session can mute the raw input client opened later by Meet or Zoom, so the call could not
+  hear the user. Recording now starts on the shareable raw mic path and reserves AUVoiceIO for
+  an already-active voice-processing call whose raw input is already muted. For Meet and Zoom,
+  starting the recorder before the call now reaches the same shareable-raw outcome as starting
+  it during the call. This prioritizes call access over hardware echo cancellation; transcript
+  assembly still suppresses matching cross-channel words, and headphones give the cleanest
+  saved mic audio. The routing decision is covered by `MicSourcePickerTests`.
 - **Saving Google Calendar credentials showed no feedback.** The "Saved" badge and the Connect
   button didn't react because the saved-credentials state lived on the non-observable service; it
   now mirrors into an observable property, so the UI updates the instant credentials are saved.

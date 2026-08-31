@@ -1,12 +1,12 @@
 import Foundation
 
-/// All AI features via the Claude Code CLI (`claude -p`) — uses the developer's Claude
-/// subscription (keychain OAuth), never an API key.
-public actor ClaudeCLIService {
+/// All AI features run through `codex exec` using the developer's Codex CLI sign-in.
+/// Prompts are isolated from project and user configuration and never require an API key.
+public actor CodexCLIService {
     public var model: String
     private var resolvedBinary: String?
 
-    public init(model: String = "sonnet") {
+    public init(model: String = "") {
         self.model = model
     }
 
@@ -17,16 +17,18 @@ public actor ClaudeCLIService {
     public func summarize(meeting: Meeting, transcript: Transcript,
                           notes: String) async throws -> SummaryData {
         let rendered = transcript.rendered(with: meeting)
-        guard !rendered.isEmpty else { throw ClaudeCLIError.emptyTranscript }
+        guard !rendered.isEmpty else { throw CodexCLIError.emptyTranscript }
 
         let schema = """
         {"type":"object","properties":{
           "summary_markdown":{"type":"string","description":"Well-structured markdown summary of the meeting"},
           "action_items":{"type":"array","items":{"type":"object","properties":{
-            "owner":{"type":["string","null"]},"text":{"type":"string"}},"required":["text"]}},
+            "owner":{"type":["string","null"]},"text":{"type":"string"}},
+            "required":["owner","text"],"additionalProperties":false}},
           "decisions":{"type":"array","items":{"type":"string"}},
           "things_to_remember":{"type":"array","items":{"type":"string"}}
-        },"required":["summary_markdown","action_items","decisions","things_to_remember"]}
+        },"required":["summary_markdown","action_items","decisions","things_to_remember"],
+          "additionalProperties":false}
         """
 
         let prompt = """
@@ -58,7 +60,7 @@ public actor ClaudeCLIService {
 
         let output = try await run(prompt: prompt, jsonSchema: schema)
         guard let structured = output.structured else {
-            throw ClaudeCLIError.badOutput("no structured output")
+            throw CodexCLIError.badOutput("no structured output")
         }
         struct Payload: Decodable {
             struct Item: Decodable { let owner: String?; let text: String }
@@ -80,7 +82,7 @@ public actor ClaudeCLIService {
     public func answer(question: String, meeting: Meeting, transcript: Transcript,
                        history: ChatLog) async throws -> String {
         let rendered = transcript.rendered(with: meeting)
-        guard !rendered.isEmpty else { throw ClaudeCLIError.emptyTranscript }
+        guard !rendered.isEmpty else { throw CodexCLIError.emptyTranscript }
 
         let historyText = history.messages.suffix(10).map {
             "\($0.role == "user" ? "Q" : "A"): \($0.text)"
@@ -110,7 +112,7 @@ public actor ClaudeCLIService {
     public func liveAssist(question: String, meeting: Meeting, transcript: Transcript,
                            history: ChatLog, userName: String?) async throws -> String {
         let rendered = transcript.rendered(with: meeting)
-        guard !rendered.isEmpty else { throw ClaudeCLIError.emptyTranscript }
+        guard !rendered.isEmpty else { throw CodexCLIError.emptyTranscript }
         // Latency matters mid-call: keep only the most recent context.
         let tail = String(rendered.suffix(12_000))
 
@@ -141,8 +143,7 @@ public actor ClaudeCLIService {
         \(historyText.isEmpty ? "" : "PREVIOUS Q&A:\n\(historyText)\n")
         QUESTION: \(question)
         """
-        // Mid-call latency matters more than depth here: use the fast model.
-        let output = try await run(prompt: prompt, jsonSchema: nil, modelOverride: "haiku")
+        let output = try await run(prompt: prompt, jsonSchema: nil)
         return output.result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
@@ -153,7 +154,7 @@ public actor ClaudeCLIService {
                            folderPath: @Sendable (UUID?) -> String) async throws
         -> (category: AutoCategory, title: String?) {
         let rendered = transcript.rendered(with: meeting)
-        guard !rendered.isEmpty else { throw ClaudeCLIError.emptyTranscript }
+        guard !rendered.isEmpty else { throw CodexCLIError.emptyTranscript }
 
         let folderList = existingFolders
             .map { "- \($0.kind.rawValue): \(folderPath($0.id))" }
@@ -165,7 +166,7 @@ public actor ClaudeCLIService {
           "project":{"type":["string","null"],"description":"Project name, or null"},
           "confidence":{"type":"number","minimum":0,"maximum":1},
           "title":{"type":["string","null"],"description":"Concise meeting title, max 6 words, no dates, or null if the transcript gives no signal"}
-        },"required":["client","project","confidence","title"]}
+        },"required":["client","project","confidence","title"],"additionalProperties":false}
         """
 
         let head = String(rendered.prefix(6000))
@@ -187,7 +188,7 @@ public actor ClaudeCLIService {
         """
         let output = try await run(prompt: prompt, jsonSchema: schema)
         guard let structured = output.structured else {
-            throw ClaudeCLIError.badOutput("no structured output")
+            throw CodexCLIError.badOutput("no structured output")
         }
         struct Payload: Decodable {
             let client: String?
@@ -234,7 +235,7 @@ public actor ClaudeCLIService {
           "say":{"type":"string","description":"The EXACT words for the user to say out loud, first person, 1-2 sentences, natural and speakable"},
           "notes":{"type":"array","items":{"type":"string"},"description":"0-2 short supporting facts, optional"},
           "source":{"type":"string","enum":["memory","web","transcript","unknown"]}
-        },"required":["say","source"]}
+        },"required":["say","notes","source"],"additionalProperties":false}
         """
 
         let prompt = """
@@ -262,13 +263,9 @@ public actor ClaudeCLIService {
         \(allowWeb ? "If the answer needs current or external facts that are not in the memory (a how-to, a price, a policy, steps in a tool), use web search to get them, then give the exact wording. " : "")\
         QUESTION / WHAT THE USER NEEDS TO SAY: \(question)
         """
-        // With web allowed the model may reason + look up (use the stronger default model); pure
-        // memory answers stay on the fast model.
-        let output = try await run(prompt: prompt, jsonSchema: schema,
-                                   modelOverride: allowWeb ? nil : "haiku",
-                                   allowTools: allowWeb ? ["WebSearch", "WebFetch"] : [])
+        let output = try await run(prompt: prompt, jsonSchema: schema, allowWeb: allowWeb)
         guard let structured = output.structured else {
-            throw ClaudeCLIError.badOutput("no structured output")
+            throw CodexCLIError.badOutput("no structured output")
         }
         struct Payload: Decodable { let say: String; let notes: [String]?; let source: String? }
         let p = try JSONDecoder().decode(Payload.self, from: structured)
@@ -295,7 +292,7 @@ public actor ClaudeCLIService {
           "project":{"type":"string","description":"Target project name — an EXISTING one (exact name) if it fits, else a concise new project name"},
           "title":{"type":"string","description":"Short title for the imported material"},
           "note":{"type":"string","description":"1-2 sentences: what this file is and what it's for"}
-        },"required":["project","title","note"]}
+        },"required":["project","title","note"],"additionalProperties":false}
         """
         let prompt = """
         A file is being imported into a PROJECT's memory. From the user's instruction, decide which \
@@ -309,8 +306,8 @@ public actor ClaudeCLIService {
         File(s): \(fileNames.joined(separator: ", "))
         User's instruction: \(instruction.isEmpty ? "(none — infer the project from the file name)" : "\"\(instruction)\"")
         """
-        let output = try await run(prompt: prompt, jsonSchema: schema, modelOverride: "haiku")
-        guard let structured = output.structured else { throw ClaudeCLIError.badOutput("no structured output") }
+        let output = try await run(prompt: prompt, jsonSchema: schema)
+        guard let structured = output.structured else { throw CodexCLIError.badOutput("no structured output") }
         return try JSONDecoder().decode(ImportRoute.self, from: structured)
     }
 
@@ -363,8 +360,8 @@ public actor ClaudeCLIService {
             "project":{"type":["string","null"]},
             "meetingId":{"type":["string","null"]},
             "label":{"type":["string","null"]}
-          },"required":["type"]}
-        },"required":["answer"]}
+          },"required":["type","project","meetingId","label"],"additionalProperties":false}
+        },"required":["answer","action"],"additionalProperties":false}
         """
 
         let prompt = """
@@ -379,10 +376,9 @@ public actor ClaudeCLIService {
         \(historyText.isEmpty ? "" : "PREVIOUS:\n\(historyText)\n")
         QUESTION: \(question)
         """
-        let output = try await run(prompt: prompt, jsonSchema: schema,
-                                   modelOverride: allowActions ? nil : "haiku")
+        let output = try await run(prompt: prompt, jsonSchema: schema)
         guard let structured = output.structured else {
-            throw ClaudeCLIError.badOutput("no structured output")
+            throw CodexCLIError.badOutput("no structured output")
         }
         struct ActionPayload: Decodable {
             let type: String; let project: String?; let meetingId: String?; let label: String?
@@ -420,9 +416,7 @@ public actor ClaudeCLIService {
         \(historyText.isEmpty ? "" : "PREVIOUS:\n\(historyText)\n")
         QUESTION: \(question)
         """
-        let output = try await run(prompt: prompt, jsonSchema: nil,
-                                   modelOverride: allowWeb ? nil : "haiku",
-                                   allowTools: allowWeb ? ["WebSearch", "WebFetch"] : [])
+        let output = try await run(prompt: prompt, jsonSchema: nil, allowWeb: allowWeb)
         return output.result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
@@ -472,63 +466,65 @@ public actor ClaudeCLIService {
     }
 
     public func isAvailable() async -> Bool {
-        (try? await binaryPath()) != nil
+        guard let binary = try? await binaryPath(),
+              let (status, _, _) = try? await Self.exec(
+                binary, ["login", "status"], stdin: nil, timeout: 15) else { return false }
+        return status == 0
     }
 
     private func binaryPath() async throws -> String {
         if let resolvedBinary { return resolvedBinary }
         let (status, stdout, _) = try await Self.exec(
-            "/bin/zsh", ["-lc", "command -v claude"], stdin: nil, timeout: 15)
+            "/bin/zsh", ["-lc", "command -v codex"], stdin: nil, timeout: 15)
         let path = stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard status == 0, !path.isEmpty else { throw ClaudeCLIError.cliNotFound }
+        guard status == 0, !path.isEmpty else { throw CodexCLIError.cliNotFound }
         resolvedBinary = path
         return path
     }
 
-    private func run(prompt: String, jsonSchema: String?,
-                     modelOverride: String? = nil, allowTools: [String] = []) async throws -> CLIOutput {
+    private func run(prompt: String, jsonSchema: String?, allowWeb: Bool = false) async throws -> CLIOutput {
         let binary = try await binaryPath()
-        var args = [binary, "-p", "--output-format", "json", "--model", modelOverride ?? model,
-                    "--setting-sources", "", "--strict-mcp-config"]
-        if !allowTools.isEmpty {
-            args += ["--allowedTools", allowTools.joined(separator: ",")]
-        }
-        if let jsonSchema {
-            args += ["--json-schema", jsonSchema]
-        }
-        let command = args.map { Self.shellQuote($0) }.joined(separator: " ")
-        let (status, stdout, stderr) = try await Self.exec(
-            "/bin/zsh", ["-lc", command], stdin: prompt, timeout: 300)
+        let fileManager = FileManager.default
+        let workDir = fileManager.temporaryDirectory
+            .appendingPathComponent("sk-note-taker-codex-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: workDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: workDir) }
 
-        // Being signed out is the most common failure; the CLI reports it via stderr OR the JSON
-        // result body, so check both and surface a clear, actionable error either way.
+        let outputURL = workDir.appendingPathComponent("response.txt")
+        var args = ["--ask-for-approval", "never"]
+        if allowWeb { args.append("--search") }
+        args += [
+            "exec", "--ephemeral", "--skip-git-repo-check", "--sandbox", "read-only",
+            "--ignore-user-config", "--ignore-rules", "--color", "never",
+            "--cd", workDir.path, "--output-last-message", outputURL.path,
+        ]
+
+        let selectedModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !selectedModel.isEmpty { args += ["--model", selectedModel] }
+        if let jsonSchema {
+            let schemaURL = workDir.appendingPathComponent("schema.json")
+            try Data(jsonSchema.utf8).write(to: schemaURL, options: .atomic)
+            args += ["--output-schema", schemaURL.path]
+        }
+        args.append("-")
+        let (status, stdout, stderr) = try await Self.exec(
+            binary, args, stdin: prompt, timeout: 300)
+
         let haystack = (stderr + "\n" + stdout).lowercased()
-        if haystack.contains("not logged in") || haystack.contains("please run /login")
-            || haystack.contains("invalid api key") || haystack.contains("claude login") {
-            throw ClaudeCLIError.notLoggedIn
+        if haystack.contains("not logged in") || haystack.contains("codex login")
+            || haystack.contains("authentication required") || haystack.contains("401 unauthorized") {
+            throw CodexCLIError.notLoggedIn
         }
         guard status == 0 else {
             let detail = stderr.isEmpty ? String(stdout.prefix(500)) : String(stderr.prefix(500))
-            throw ClaudeCLIError.cliFailed(detail.isEmpty ? "the CLI exited with code \(status) and no output" : detail)
+            throw CodexCLIError.cliFailed(
+                detail.isEmpty ? "the CLI exited with code \(status) and no output" : detail)
         }
-        guard let data = stdout.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw ClaudeCLIError.badOutput(String(stdout.prefix(300)))
+        guard let data = try? Data(contentsOf: outputURL), !data.isEmpty,
+              let result = String(data: data, encoding: .utf8) else {
+            throw CodexCLIError.badOutput(String(stdout.prefix(300)))
         }
-        if let isError = json["is_error"] as? Bool, isError {
-            let result = (json["result"] as? String) ?? ""
-            throw ClaudeCLIError.cliFailed(result.isEmpty ? "the CLI returned an error with no detail" : String(result.prefix(500)))
-        }
-        let result = json["result"] as? String ?? ""
-        var structured: Data?
-        if let so = json["structured_output"] {
-            structured = try? JSONSerialization.data(withJSONObject: so)
-        }
-        return CLIOutput(result: result, structured: structured)
-    }
-
-    private static func shellQuote(_ s: String) -> String {
-        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        return CLIOutput(result: result, structured: jsonSchema == nil ? nil : data)
     }
 
     private static func exec(_ launchPath: String, _ arguments: [String],
@@ -539,8 +535,8 @@ public actor ClaudeCLIService {
                 let proc = Process()
                 proc.executableURL = URL(fileURLWithPath: launchPath)
                 proc.arguments = arguments
-                // Pin the CLI's cwd to our data dir — inheriting the app's cwd makes the
-                // CLI scan whatever folder that is (Desktop prompts, stray project files).
+                // Do not inherit the app's launch directory. Each Codex call separately points
+                // itself at an empty, per-call temporary workspace.
                 let cwd = MeetingStore.defaultDataDir()
                 try? FileManager.default.createDirectory(at: cwd, withIntermediateDirectories: true)
                 proc.currentDirectoryURL = cwd
@@ -578,7 +574,7 @@ public actor ClaudeCLIService {
     }
 }
 
-public enum ClaudeCLIError: Error, LocalizedError {
+public enum CodexCLIError: Error, LocalizedError {
     case cliNotFound
     case notLoggedIn
     case cliFailed(String)
@@ -588,11 +584,11 @@ public enum ClaudeCLIError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .cliNotFound:
-            "Claude Code CLI not found. Install it and sign in (https://claude.com/claude-code)."
+            "Codex CLI not found. Install it, then open Terminal and run “codex login”."
         case .notLoggedIn:
-            "Claude isn't signed in. Open Terminal, run “claude”, then type /login and sign in with your Claude account. SK Note Taker uses that sign-in for all its AI features."
-        case .cliFailed(let detail): "Claude CLI failed: \(detail)"
-        case .badOutput(let detail): "Unexpected Claude CLI output: \(detail)"
+            "Codex isn't signed in. Open Terminal, run “codex login”, and sign in with your ChatGPT account. SK Note Taker uses that sign-in for its AI features."
+        case .cliFailed(let detail): "Codex CLI failed: \(detail)"
+        case .badOutput(let detail): "Unexpected Codex CLI output: \(detail)"
         case .emptyTranscript: "No transcript to work with yet."
         }
     }

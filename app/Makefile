@@ -12,7 +12,7 @@ app:
 test:
 	swift test
 
-# Full suite: unit + pipeline integration (downloads models) + live Claude CLI.
+# Full suite: unit + pipeline integration (downloads models) + live Codex CLI.
 test-all: fixtures
 	SKNOTE_INTEGRATION=1 SKNOTE_AI=1 swift test
 
