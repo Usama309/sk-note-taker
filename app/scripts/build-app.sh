@@ -92,6 +92,14 @@ else
     echo "==> No oauth-config.env — shipping without a built-in Google client (users paste their own)"
 fi
 
+# Strip macOS custom-folder icons and Finder metadata before signing.
+# The repo carries committed "Icon\r" stubs in browser-extension/ and Sources/.../Resources/.
+# On this Mac they hold com.apple.ResourceFork + com.apple.FinderInfo, which get copied into
+# the bundle and make codesign fail with:
+#   "resource fork, Finder information, or similar detritus not allowed"
+find "$BUNDLE" -name 'Icon?' -delete 2>/dev/null || true
+xattr -cr "$BUNDLE"
+
 echo "==> Signing"
 # Hardened runtime blocks mic access unless the audio-input entitlement is present.
 ENTITLEMENTS="$DIST/entitlements.plist"
